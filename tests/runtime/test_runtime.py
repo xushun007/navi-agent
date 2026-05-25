@@ -3,6 +3,7 @@ import unittest
 from navi_agent.runtime import (
     AgentRuntime,
     InMemorySessionStore,
+    ModelRequest,
     ModelResponse,
     PromptBuilder,
     ToolCall,
@@ -10,13 +11,13 @@ from navi_agent.runtime import (
 )
 
 
-class FakeModelClient:
+class FakeTransport:
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls = []
 
-    def generate(self, messages, tools):
-        self.calls.append({"messages": list(messages), "tools": list(tools)})
+    def generate(self, request: ModelRequest):
+        self.calls.append(request)
         return self._responses.pop(0)
 
 
@@ -37,8 +38,8 @@ class TrackingPromptBuilder(PromptBuilder):
 
 class AgentRuntimeTests(unittest.TestCase):
     def test_runtime_returns_final_model_response(self) -> None:
-        model_client = FakeModelClient([ModelResponse(content="done")])
-        runtime = AgentRuntime(model_client=model_client)
+        transport = FakeTransport([ModelResponse(content="done")])
+        runtime = AgentRuntime(transport=transport)
 
         result = runtime.run_conversation(
             session_id="s1",
@@ -51,7 +52,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.messages[-1].content, "done")
 
     def test_runtime_executes_tool_calls_then_continues_loop(self) -> None:
-        model_client = FakeModelClient(
+        transport = FakeTransport(
             [
                 ModelResponse(
                     tool_calls=[
@@ -62,7 +63,7 @@ class AgentRuntimeTests(unittest.TestCase):
             ]
         )
         runtime = AgentRuntime(
-            model_client=model_client,
+            transport=transport,
             tool_registry=ToolRegistry(tools={"echo": lambda value: f"tool:{value}"}),
         )
 
@@ -82,8 +83,8 @@ class AgentRuntimeTests(unittest.TestCase):
 
     def test_runtime_persists_message_history_in_session_store(self) -> None:
         session_store = InMemorySessionStore()
-        model_client = FakeModelClient([ModelResponse(content="done")])
-        runtime = AgentRuntime(model_client=model_client, session_store=session_store)
+        transport = FakeTransport([ModelResponse(content="done")])
+        runtime = AgentRuntime(transport=transport, session_store=session_store)
 
         runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
 
@@ -92,10 +93,10 @@ class AgentRuntimeTests(unittest.TestCase):
 
     def test_runtime_injects_system_prompt_on_first_turn_only(self) -> None:
         session_store = InMemorySessionStore()
-        model_client = FakeModelClient(
+        transport = FakeTransport(
             [ModelResponse(content="first"), ModelResponse(content="second")]
         )
-        runtime = AgentRuntime(model_client=model_client, session_store=session_store)
+        runtime = AgentRuntime(transport=transport, session_store=session_store)
 
         runtime.run_conversation(
             session_id="s1",
@@ -117,10 +118,10 @@ class AgentRuntimeTests(unittest.TestCase):
         )
 
     def test_runtime_uses_prompt_builder_boundary(self) -> None:
-        model_client = FakeModelClient([ModelResponse(content="done")])
+        transport = FakeTransport([ModelResponse(content="done")])
         prompt_builder = TrackingPromptBuilder()
         runtime = AgentRuntime(
-            model_client=model_client,
+            transport=transport,
             prompt_builder=prompt_builder,
         )
 
@@ -134,6 +135,24 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(len(prompt_builder.calls), 1)
         self.assertEqual(prompt_builder.calls[0]["user_message"], "hello")
         self.assertEqual(prompt_builder.calls[0]["system_prompt"], "system")
+
+    def test_runtime_passes_messages_and_tools_through_transport_request(self) -> None:
+        transport = FakeTransport([ModelResponse(content="done")])
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_registry=ToolRegistry(tools={"echo": lambda value: value}),
+        )
+
+        runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+            system_prompt="system",
+        )
+
+        request = transport.calls[0]
+        self.assertEqual([message.role for message in request.messages], ["system", "user"])
+        self.assertEqual(request.tools, [{"name": "echo"}])
 
 
 if __name__ == "__main__":

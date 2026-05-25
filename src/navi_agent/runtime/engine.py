@@ -1,32 +1,23 @@
 from __future__ import annotations
 
-from typing import Protocol
-
-from .models import Message, ModelResponse, RuntimeResult
+from .models import Message, RuntimeResult
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
 from .store import SessionStore
 from .tools import ToolRegistry
-
-
-class ModelClient(Protocol):
-    def generate(
-        self,
-        messages: list[Message],
-        tools: list[dict[str, str]],
-    ) -> ModelResponse: ...
+from .transports import ModelRequest, ModelTransport
 
 
 class AgentRuntime:
     def __init__(
         self,
-        model_client: ModelClient,
+        transport: ModelTransport,
         tool_registry: ToolRegistry | None = None,
         session_store: SessionStore | None = None,
         prompt_builder: PromptBuilder | None = None,
         max_iterations: int = 8,
     ) -> None:
-        self._model_client = model_client
+        self._transport = transport
         self._tool_registry = tool_registry or ToolRegistry()
         self._session_store = session_store or InMemorySessionStore()
         self._prompt_builder = prompt_builder or PromptBuilder()
@@ -49,9 +40,11 @@ class AgentRuntime:
         tool_results = []
 
         for _ in range(self._max_iterations):
-            response = self._model_client.generate(
-                messages=self._session_store.snapshot(session),
-                tools=self._tool_registry.schemas(),
+            response = self._transport.generate(
+                ModelRequest(
+                    messages=self._session_store.snapshot(session),
+                    tools=self._tool_registry.schemas(),
+                )
             )
 
             assistant_message = Message(

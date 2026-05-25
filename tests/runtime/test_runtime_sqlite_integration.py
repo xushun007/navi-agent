@@ -5,11 +5,11 @@ from pathlib import Path
 from navi_agent.runtime import AgentRuntime, ModelResponse, SQLiteSessionStore
 
 
-class FakeModelClient:
+class FakeTransport:
     def __init__(self, responses):
         self._responses = list(responses)
 
-    def generate(self, messages, tools):
+    def generate(self, request):
         return self._responses.pop(0)
 
 
@@ -18,7 +18,7 @@ class RuntimeSQLiteIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = SQLiteSessionStore(Path(tmpdir) / "state.db")
             runtime = AgentRuntime(
-                model_client=FakeModelClient([ModelResponse(content="done")]),
+                transport=FakeTransport([ModelResponse(content="done")]),
                 session_store=store,
             )
 
