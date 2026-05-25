@@ -1,0 +1,15 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+
+def get_navi_home() -> Path:
+    raw_home = os.getenv("NAVI_HOME", "").strip()
+    if raw_home:
+        return Path(raw_home).expanduser()
+    return Path.home() / ".navi-agent"
+
+
+def get_state_db_path() -> Path:
+    return get_navi_home() / "state.db"
