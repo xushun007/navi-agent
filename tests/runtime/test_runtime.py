@@ -10,6 +10,7 @@ from navi_agent.runtime import (
     ToolDefinition,
     ToolRegistry,
 )
+from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
 from navi_agent.telemetry import InMemoryTraceStore
 
 
@@ -25,6 +26,7 @@ class FakeTransport:
 
 class TrackingPromptBuilder(PromptBuilder):
     def __init__(self) -> None:
+        super().__init__()
         self.calls = []
 
     def build_initial_messages(self, session, user_message, system_prompt=None):
@@ -137,6 +139,31 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(len(prompt_builder.calls), 1)
         self.assertEqual(prompt_builder.calls[0]["user_message"], "hello")
         self.assertEqual(prompt_builder.calls[0]["system_prompt"], "system")
+
+    def test_prompt_builder_includes_memory_in_first_system_message(self) -> None:
+        transport = FakeTransport([ModelResponse(content="done")])
+        prompt_builder = PromptBuilder(
+            memory_store=InMemoryMemoryStore(
+                records=[MemoryRecord(user_id="u1", content="Prefers concise replies")]
+            )
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            prompt_builder=prompt_builder,
+        )
+
+        runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+            system_prompt="system",
+        )
+
+        request = transport.calls[0]
+        self.assertEqual(request.messages[0].role, "system")
+        self.assertIn("system", request.messages[0].content)
+        self.assertIn("[Memory]", request.messages[0].content)
+        self.assertIn("Prefers concise replies", request.messages[0].content)
 
     def test_runtime_passes_messages_and_tools_through_transport_request(self) -> None:
         transport = FakeTransport([ModelResponse(content="done")])
