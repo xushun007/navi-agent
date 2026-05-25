@@ -10,6 +10,7 @@ from navi_agent.runtime import (
     ToolDefinition,
     ToolRegistry,
 )
+from navi_agent.telemetry import InMemoryTraceStore
 
 
 class FakeTransport:
@@ -180,6 +181,35 @@ class AgentRuntimeTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_runtime_records_trace_on_success(self) -> None:
+        transport = FakeTransport([ModelResponse(content="done")])
+        trace_store = InMemoryTraceStore()
+        runtime = AgentRuntime(
+            transport=transport,
+            trace_store=trace_store,
+            tool_registry=ToolRegistry(
+                definitions=[
+                    ToolDefinition(
+                        name="echo",
+                        handler=lambda value: value,
+                    )
+                ]
+            ),
+        )
+
+        runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+        )
+
+        self.assertEqual(len(trace_store.traces), 1)
+        trace = trace_store.traces[0]
+        self.assertEqual(trace.session_id, "s1")
+        self.assertEqual(trace.user_message, "hello")
+        self.assertEqual(trace.final_response, "done")
+        self.assertEqual(trace.status, "success")
 
 
 if __name__ == "__main__":
