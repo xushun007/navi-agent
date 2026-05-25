@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from navi_agent.app import ApplicationService
 from navi_agent.config import ModelSettings, RuntimeSettings
 from navi_agent.logging import setup_logging
 from navi_agent.paths import get_app_log_path, get_state_db_path
@@ -25,4 +26,19 @@ def build_runtime(
         transport=transport,
         session_store=session_store,
         max_iterations=runtime_settings.max_iterations,
+    )
+
+
+def build_application(
+    model_settings: ModelSettings | None = None,
+    runtime_settings: RuntimeSettings | None = None,
+    default_system_prompt: str | None = None,
+) -> ApplicationService:
+    runtime = build_runtime(
+        model_settings=model_settings,
+        runtime_settings=runtime_settings,
+    )
+    return ApplicationService(
+        runtime=runtime,
+        default_system_prompt=default_system_prompt,
     )

@@ -1,1 +1,1 @@
-__all__ = ["bootstrap", "config", "logging", "paths", "runtime"]
+__all__ = ["app", "bootstrap", "config", "logging", "paths", "runtime"]
