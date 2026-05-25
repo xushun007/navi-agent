@@ -12,6 +12,9 @@ dependencies = [
     "openai>=2.0.0",
 ]
 
+[project.scripts]
+navi-agent = "navi_agent.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
