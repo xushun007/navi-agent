@@ -1,3 +1,9 @@
 AGENTS.md
 design
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+build/
+dist/
 refs
