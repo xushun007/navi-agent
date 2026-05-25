@@ -11,6 +11,7 @@ from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
 from .store import SessionStore
+from .transport_factory import build_transport
 from .tools import ToolRegistry
 from .transports import ModelRequest, ModelTransport, OpenAICompatibleTransport
 
@@ -30,4 +31,5 @@ __all__ = [
     "ToolCall",
     "ToolRegistry",
     "ToolResult",
+    "build_transport",
 ]
