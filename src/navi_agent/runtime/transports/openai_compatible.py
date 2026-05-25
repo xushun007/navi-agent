@@ -67,13 +67,14 @@ class OpenAICompatibleTransport:
         return payload
 
     @staticmethod
-    def _serialize_tool(tool: dict[str, str]) -> dict[str, Any]:
+    def _serialize_tool(tool: dict[str, Any]) -> dict[str, Any]:
         return {
             "type": "function",
             "function": {
                 "name": tool["name"],
                 "description": tool.get("description", ""),
-                "parameters": {
+                "parameters": tool.get("parameters")
+                or {
                     "type": "object",
                     "properties": {},
                     "additionalProperties": True,

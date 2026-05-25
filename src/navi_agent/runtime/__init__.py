@@ -12,7 +12,7 @@ from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
 from .store import SessionStore
 from .transport_factory import build_transport
-from .tools import ToolRegistry
+from .tools import ToolDefinition, ToolRegistry
 from .transports import ModelRequest, ModelTransport, OpenAICompatibleTransport
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
     "SessionStore",
     "SQLiteSessionStore",
     "ToolCall",
+    "ToolDefinition",
     "ToolRegistry",
     "ToolResult",
     "build_transport",

@@ -45,7 +45,17 @@ class OpenAICompatibleTransportTests(unittest.TestCase):
                 Message(role="system", content="system"),
                 Message(role="user", content="hello"),
             ],
-            tools=[{"name": "echo", "description": "Echo input"}],
+            tools=[
+                {
+                    "name": "echo",
+                    "description": "Echo input",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"value": {"type": "string"}},
+                        "required": ["value"],
+                    },
+                }
+            ],
         )
 
         result = transport.generate(request)
@@ -56,6 +66,14 @@ class OpenAICompatibleTransportTests(unittest.TestCase):
         self.assertEqual(call["messages"][0]["role"], "system")
         self.assertEqual(call["messages"][1]["content"], "hello")
         self.assertEqual(call["tools"][0]["function"]["name"], "echo")
+        self.assertEqual(
+            call["tools"][0]["function"]["parameters"],
+            {
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+            },
+        )
 
     def test_transport_parses_tool_calls_from_response(self) -> None:
         response = types.SimpleNamespace(

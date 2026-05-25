@@ -7,6 +7,7 @@ from navi_agent.runtime import (
     ModelResponse,
     PromptBuilder,
     ToolCall,
+    ToolDefinition,
     ToolRegistry,
 )
 
@@ -140,7 +141,20 @@ class AgentRuntimeTests(unittest.TestCase):
         transport = FakeTransport([ModelResponse(content="done")])
         runtime = AgentRuntime(
             transport=transport,
-            tool_registry=ToolRegistry(tools={"echo": lambda value: value}),
+            tool_registry=ToolRegistry(
+                definitions=[
+                    ToolDefinition(
+                        name="echo",
+                        description="Echo a value",
+                        parameters={
+                            "type": "object",
+                            "properties": {"value": {"type": "string"}},
+                            "required": ["value"],
+                        },
+                        handler=lambda value: value,
+                    )
+                ]
+            ),
         )
 
         runtime.run_conversation(
@@ -152,7 +166,20 @@ class AgentRuntimeTests(unittest.TestCase):
 
         request = transport.calls[0]
         self.assertEqual([message.role for message in request.messages], ["system", "user"])
-        self.assertEqual(request.tools, [{"name": "echo"}])
+        self.assertEqual(
+            request.tools,
+            [
+                {
+                    "name": "echo",
+                    "description": "Echo a value",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"value": {"type": "string"}},
+                        "required": ["value"],
+                    },
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":
