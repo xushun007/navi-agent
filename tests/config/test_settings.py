@@ -41,7 +41,12 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.base_url, "https://openai-compatible.test/v1")
 
     def test_runtime_settings_reads_iteration_limit(self) -> None:
-        with patch.dict(os.environ, {"NAVI_MAX_ITERATIONS": "12"}, clear=True):
+        with patch.dict(
+            os.environ,
+            {"NAVI_MAX_ITERATIONS": "12", "NAVI_LOG_LEVEL": "debug"},
+            clear=True,
+        ):
             settings = RuntimeSettings.from_env()
 
         self.assertEqual(settings.max_iterations, 12)
+        self.assertEqual(settings.log_level, "DEBUG")

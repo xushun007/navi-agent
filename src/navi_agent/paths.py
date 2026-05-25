@@ -13,3 +13,11 @@ def get_navi_home() -> Path:
 
 def get_state_db_path() -> Path:
     return get_navi_home() / "state.db"
+
+
+def get_logs_dir() -> Path:
+    return get_navi_home() / "logs"
+
+
+def get_app_log_path() -> Path:
+    return get_logs_dir() / "navi-agent.log"

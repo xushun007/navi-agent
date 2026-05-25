@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from .models import Message, RuntimeResult
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
@@ -7,6 +9,8 @@ from .store import SessionStore
 from .tools import ToolRegistry
 from .transports import ModelRequest, ModelTransport
 from navi_agent.telemetry import TraceStore, RuntimeTrace
+
+logger = logging.getLogger("navi_agent.runtime")
 
 
 class AgentRuntime:
@@ -33,6 +37,7 @@ class AgentRuntime:
         user_message: str,
         system_prompt: str | None = None,
     ) -> RuntimeResult:
+        logger.info("Starting runtime conversation: session_id=%s user_id=%s", session_id, user_id)
         session = self._session_store.load(session_id=session_id, user_id=user_id)
         for message in self._prompt_builder.build_initial_messages(
             session=session,
@@ -42,7 +47,12 @@ class AgentRuntime:
             self._session_store.append(session, message)
         tool_results = []
 
-        for _ in range(self._max_iterations):
+        for iteration in range(self._max_iterations):
+            logger.debug(
+                "Running iteration: session_id=%s iteration=%s",
+                session_id,
+                iteration + 1,
+            )
             response = self._transport.generate(
                 ModelRequest(
                     messages=self._session_store.snapshot(session),
@@ -58,6 +68,10 @@ class AgentRuntime:
             self._session_store.append(session, assistant_message)
 
             if not response.tool_calls:
+                logger.info(
+                    "Runtime conversation completed: session_id=%s status=success",
+                    session_id,
+                )
                 result = RuntimeResult(
                     session_id=session.session_id,
                     status="success",
@@ -74,6 +88,11 @@ class AgentRuntime:
                 return result
 
             for tool_result in self._tool_registry.dispatch(response.tool_calls):
+                logger.debug(
+                    "Tool executed: session_id=%s tool=%s",
+                    session_id,
+                    tool_result.name,
+                )
                 tool_results.append(tool_result)
                 self._session_store.append(
                     session,
@@ -84,6 +103,7 @@ class AgentRuntime:
                     ),
                 )
 
+        logger.error("Runtime iteration limit exceeded: session_id=%s", session_id)
         raise RuntimeError("Runtime iteration limit exceeded")
 
     def _record_trace(

@@ -24,8 +24,12 @@ class ModelSettings:
 @dataclass(slots=True)
 class RuntimeSettings:
     max_iterations: int = 8
+    log_level: str = "INFO"
 
     @classmethod
     def from_env(cls) -> "RuntimeSettings":
         raw_value = os.getenv("NAVI_MAX_ITERATIONS", "8")
-        return cls(max_iterations=int(raw_value))
+        return cls(
+            max_iterations=int(raw_value),
+            log_level=os.getenv("NAVI_LOG_LEVEL", "INFO").upper(),
+        )
