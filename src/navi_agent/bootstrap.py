@@ -3,8 +3,9 @@ from __future__ import annotations
 from navi_agent.app import ApplicationService
 from navi_agent.config import ModelSettings, RuntimeSettings, load_config
 from navi_agent.logging import setup_logging
+from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.paths import get_app_log_path, get_state_db_path
-from navi_agent.runtime import AgentRuntime, SQLiteSessionStore, build_transport
+from navi_agent.runtime import AgentRuntime, PromptBuilder, SQLiteSessionStore, build_transport
 from navi_agent.tools.defaults import build_default_tool_registry
 
 
@@ -23,11 +24,13 @@ def build_runtime(
 
     transport = build_transport(model_settings)
     session_store = SQLiteSessionStore(get_state_db_path())
+    memory_store = InMemoryMemoryStore()
 
     return AgentRuntime(
         transport=transport,
         session_store=session_store,
-        tool_registry=build_default_tool_registry(),
+        prompt_builder=PromptBuilder(memory_store=memory_store),
+        tool_registry=build_default_tool_registry(memory_store=memory_store),
         max_iterations=runtime_settings.max_iterations,
     )
 

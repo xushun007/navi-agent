@@ -16,6 +16,16 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
 
         self.assertEqual(records, [MemoryRecord(user_id="u1", content="Likes Python")])
 
+    def test_add_for_user_appends_record(self) -> None:
+        store = InMemoryMemoryStore()
+
+        store.add_for_user("u1", "Prefers CLI tools")
+
+        self.assertEqual(
+            store.list_for_user("u1"),
+            [MemoryRecord(user_id="u1", content="Prefers CLI tools")],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

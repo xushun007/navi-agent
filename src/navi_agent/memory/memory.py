@@ -9,3 +9,8 @@ class InMemoryMemoryStore:
 
     def list_for_user(self, user_id: str) -> list[MemoryRecord]:
         return [record for record in self._records if record.user_id == user_id]
+
+    def add_for_user(self, user_id: str, content: str) -> MemoryRecord:
+        record = MemoryRecord(user_id=user_id, content=content)
+        self._records.append(record)
+        return record

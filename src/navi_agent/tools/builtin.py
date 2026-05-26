@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from navi_agent.memory import MemoryStore
 from navi_agent.runtime.models import ToolContext
 
 from .base import BaseTool
@@ -159,3 +160,101 @@ class SearchFilesTool(WorkspaceTool):
                     if len(matches) >= self._max_matches:
                         return "\n".join(matches)
         return "\n".join(matches)
+
+
+class WriteFileTool(WorkspaceTool):
+    @property
+    def name(self) -> str:
+        return "write_file"
+
+    @property
+    def description(self) -> str:
+        return "Write a text file inside the workspace."
+
+    def schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["path", "content"],
+        }
+
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+        resolved = self._resolve_path(str(kwargs["path"]))
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        content = str(kwargs["content"])
+        resolved.write_text(content, encoding="utf-8")
+        return f"bytes_written: {len(content.encode('utf-8'))}"
+
+
+class PatchTool(WorkspaceTool):
+    @property
+    def name(self) -> str:
+        return "patch"
+
+    @property
+    def description(self) -> str:
+        return "Apply a simple text replacement patch to a file."
+
+    def schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "old": {"type": "string"},
+                "new": {"type": "string"},
+            },
+            "required": ["path", "old", "new"],
+        }
+
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+        resolved = self._resolve_path(str(kwargs["path"]))
+        current = resolved.read_text(encoding="utf-8")
+        old = str(kwargs["old"])
+        if old not in current:
+            return "patch_failed: target text not found"
+        updated = current.replace(old, str(kwargs["new"]), 1)
+        resolved.write_text(updated, encoding="utf-8")
+        return "patched: 1 replacement"
+
+
+class MemoryTool(BaseTool):
+    def __init__(self, memory_store: MemoryStore) -> None:
+        self._memory_store = memory_store
+
+    @property
+    def name(self) -> str:
+        return "memory"
+
+    @property
+    def description(self) -> str:
+        return "Store and recall durable user memory."
+
+    def schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["add", "list"]},
+                "content": {"type": "string"},
+            },
+            "required": ["action"],
+        }
+
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+        if context is None:
+            raise ValueError("Memory tool requires tool context")
+        action = str(kwargs["action"])
+        if action == "add":
+            content = str(kwargs.get("content", "")).strip()
+            if not content:
+                return "memory_error: content is required for add"
+            self._memory_store.add_for_user(context.user_id, content)
+            return "memory_stored"
+        if action == "list":
+            records = self._memory_store.list_for_user(context.user_id)
+            if not records:
+                return "memory_empty"
+            return "\n".join(f"- {record.content}" for record in records)
+        return f"memory_error: unsupported action '{action}'"

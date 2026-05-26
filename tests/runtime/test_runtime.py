@@ -14,6 +14,7 @@ from navi_agent.runtime import (
     ToolsetDefinition,
 )
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
+from navi_agent.tools.builtin import MemoryTool
 from navi_agent.telemetry import InMemoryTraceStore
 
 
@@ -376,6 +377,30 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.tool_results[0].content, "iter:1")
         self.assertEqual(len(seen), 1)
         self.assertEqual(seen[0].session_id, "s1")
+
+    def test_memory_tool_updates_prompt_builder_memory_store(self) -> None:
+        memory_store = InMemoryMemoryStore()
+        transport = FakeTransport(
+            [
+                ModelResponse(tool_calls=[ToolCall(id="tc1", name="memory", arguments={"action": "add", "content": "Prefers terse replies"})]),
+                ModelResponse(content="stored"),
+                ModelResponse(content="next"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            prompt_builder=PromptBuilder(memory_store=memory_store),
+            tool_registry=ToolRegistry(
+                registered_tools=[("memory", MemoryTool(memory_store=memory_store))]
+            ),
+        )
+
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="remember this")
+        runtime.run_conversation(session_id="s2", user_id="u1", user_message="hello again", system_prompt="system")
+
+        request = transport.calls[-1]
+        self.assertIn("[Memory]", request.messages[0].content)
+        self.assertIn("Prefers terse replies", request.messages[0].content)
 
 
 if __name__ == "__main__":
