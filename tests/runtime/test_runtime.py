@@ -7,10 +7,12 @@ from navi_agent.runtime import (
     ModelResponse,
     PromptBuilder,
     RuntimeEvent,
+    ToolArtifact,
     ToolCall,
     ToolContext,
     ToolDefinition,
     ToolRegistry,
+    ToolResult,
     ToolsetDefinition,
 )
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
@@ -52,6 +54,19 @@ class RecordingObserver:
         self.events.append(event)
 
 
+class RecordingToolResultRenderer:
+    def __init__(self) -> None:
+        self.results: list[ToolResult] = []
+
+    def render(self, result: ToolResult) -> str:
+        self.results.append(result)
+        return f"rendered:{result.name}:{result.status}"
+
+
+def ok_result(name: str, content: str, **kwargs) -> ToolResult:
+    return ToolResult(tool_call_id="", name=name, content=content, **kwargs)
+
+
 class AgentRuntimeTests(unittest.TestCase):
     def test_runtime_returns_final_model_response(self) -> None:
         transport = FakeTransport([ModelResponse(content="done")])
@@ -80,7 +95,7 @@ class AgentRuntimeTests(unittest.TestCase):
         )
         runtime = AgentRuntime(
             transport=transport,
-            tool_registry=ToolRegistry(tools={"echo": lambda value: f"tool:{value}"}),
+            tool_registry=ToolRegistry(tools={"echo": lambda value: ok_result("echo", f"tool:{value}")}),
         )
 
         result = runtime.run_conversation(
@@ -94,6 +109,7 @@ class AgentRuntimeTests(unittest.TestCase):
             [(item.name, item.content) for item in result.tool_results],
             [("echo", "tool:ping")],
         )
+        self.assertEqual(result.tool_results[0].structured_content, {})
         self.assertEqual(result.messages[-2].role, "tool")
         self.assertEqual(result.messages[-2].content, "tool:ping")
 
@@ -191,7 +207,7 @@ class AgentRuntimeTests(unittest.TestCase):
                             "properties": {"value": {"type": "string"}},
                             "required": ["value"],
                         },
-                        handler=lambda value: value,
+                        handler=lambda value: ok_result("echo", value),
                     )
                 ]
             ),
@@ -231,7 +247,7 @@ class AgentRuntimeTests(unittest.TestCase):
                 definitions=[
                     ToolDefinition(
                         name="echo",
-                        handler=lambda value: value,
+                        handler=lambda value: ok_result("echo", value),
                     )
                 ]
             ),
@@ -263,7 +279,7 @@ class AgentRuntimeTests(unittest.TestCase):
         runtime = AgentRuntime(
             transport=transport,
             observers=[observer],
-            tool_registry=ToolRegistry(tools={"echo": lambda value: f"tool:{value}"}),
+            tool_registry=ToolRegistry(tools={"echo": lambda value: ok_result("echo", f"tool:{value}")}),
         )
 
         runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
@@ -290,7 +306,7 @@ class AgentRuntimeTests(unittest.TestCase):
             transport=transport,
             trace_store=trace_store,
             max_iterations=1,
-            tool_registry=ToolRegistry(tools={"echo": lambda: "tool:ok"}),
+            tool_registry=ToolRegistry(tools={"echo": lambda: ok_result("echo", "tool:ok")}),
         )
 
         result = runtime.run_conversation(
@@ -335,8 +351,8 @@ class AgentRuntimeTests(unittest.TestCase):
             enabled_toolsets=["web"],
             tool_registry=ToolRegistry(
                 definitions=[
-                    ToolDefinition(name="web_search", handler=lambda query: query, toolset="web"),
-                    ToolDefinition(name="read_file", handler=lambda path: path, toolset="file"),
+                    ToolDefinition(name="web_search", handler=lambda query: ok_result("web_search", query), toolset="web"),
+                    ToolDefinition(name="read_file", handler=lambda path: ok_result("read_file", path), toolset="file"),
                 ],
                 toolsets=[
                     ToolsetDefinition(name="web", tools=["web_search"]),
@@ -355,9 +371,9 @@ class AgentRuntimeTests(unittest.TestCase):
     def test_runtime_passes_tool_context_when_dispatching(self) -> None:
         seen: list[ToolContext] = []
 
-        def inspect(context: ToolContext) -> str:
+        def inspect(context: ToolContext) -> ToolResult:
             seen.append(context)
-            return f"iter:{context.iteration}"
+            return ok_result("inspect", f"iter:{context.iteration}")
 
         transport = FakeTransport(
             [
@@ -401,6 +417,64 @@ class AgentRuntimeTests(unittest.TestCase):
         request = transport.calls[-1]
         self.assertIn("[Memory]", request.messages[0].content)
         self.assertIn("Prefers terse replies", request.messages[0].content)
+
+    def test_runtime_uses_tool_result_renderer_boundary(self) -> None:
+        transport = FakeTransport(
+            [
+                ModelResponse(tool_calls=[ToolCall(id="tc1", name="echo", arguments={"value": "ping"})]),
+                ModelResponse(content="done"),
+            ]
+        )
+        renderer = RecordingToolResultRenderer()
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_result_renderer=renderer,
+            tool_registry=ToolRegistry(
+                tools={
+                    "echo": lambda value: ToolResult.ok(
+                        "echo",
+                        "tool:ping",
+                        structured_content={"value": value},
+                    )
+                }
+            ),
+        )
+
+        result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(renderer.results[0].structured_content["value"], "ping")
+        self.assertEqual(result.messages[-2].content, "rendered:echo:success")
+
+    def test_default_tool_result_renderer_exposes_artifacts(self) -> None:
+        transport = FakeTransport(
+            [
+                ModelResponse(tool_calls=[ToolCall(id="tc1", name="echo", arguments={})]),
+                ModelResponse(content="done"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_registry=ToolRegistry(
+                tools={
+                    "echo": lambda: ToolResult.ok(
+                        "echo",
+                        "",
+                        artifacts=[
+                            ToolArtifact(
+                                kind="file",
+                                uri="/tmp/out.txt",
+                                title="out.txt",
+                            )
+                        ],
+                    )
+                }
+            ),
+        )
+
+        result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertIn("Artifacts:", result.messages[-2].content)
+        self.assertIn("out.txt", result.messages[-2].content)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from navi_agent.memory import MemoryStore
-from navi_agent.runtime.models import ToolContext
+from navi_agent.runtime.models import ToolArtifact, ToolContext, ToolResult
 
 from .base import BaseTool
 
@@ -57,14 +57,18 @@ class BashTool(WorkspaceTool):
         self,
         context: ToolContext | None = None,
         **kwargs: Any,
-    ) -> str:
+    ) -> ToolResult:
         command = str(kwargs["command"])
         timeout_seconds = int(kwargs.get("timeout_seconds", self._default_timeout_seconds))
         timeout_seconds = max(1, min(timeout_seconds, 60))
         try:
             cwd = self._resolve_path(kwargs.get("cwd"))
         except ValueError as exc:
-            return str(exc)
+            return ToolResult.error(
+                name=self.name,
+                content=str(exc),
+                metadata={"cwd": kwargs.get("cwd")},
+            )
 
         completed = subprocess.run(
             command,
@@ -81,7 +85,25 @@ class BashTool(WorkspaceTool):
             parts.append(f"stdout:\n{stdout}")
         if stderr:
             parts.append(f"stderr:\n{stderr}")
-        return "\n".join(parts)
+        return ToolResult.ok(
+            name=self.name,
+            content="\n".join(parts),
+            structured_content={
+                "exit_code": completed.returncode,
+                "stdout": stdout,
+                "stderr": stderr,
+            },
+            metadata={"cwd": str(cwd), "timeout_seconds": timeout_seconds},
+        ) if completed.returncode == 0 else ToolResult.error(
+            name=self.name,
+            content="\n".join(parts),
+            structured_content={
+                "exit_code": completed.returncode,
+                "stdout": stdout,
+                "stderr": stderr,
+            },
+            metadata={"cwd": str(cwd), "timeout_seconds": timeout_seconds},
+        )
 
 
 class ReadFileTool(WorkspaceTool):
@@ -104,15 +126,33 @@ class ReadFileTool(WorkspaceTool):
             "required": ["path"],
         }
 
-    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
         resolved = self._resolve_path(str(kwargs["path"]))
         lines = resolved.read_text(encoding="utf-8").splitlines()
         start_line = max(1, int(kwargs.get("start_line", 1)))
         end_line = int(kwargs.get("end_line", len(lines)))
         selected = lines[start_line - 1 : end_line]
-        return "\n".join(
+        content = "\n".join(
             f"{line_number}: {content}"
             for line_number, content in enumerate(selected, start=start_line)
+        )
+        return ToolResult.ok(
+            name=self.name,
+            content=content,
+            structured_content={
+                "path": str(resolved.relative_to(self.root)),
+                "start_line": start_line,
+                "end_line": end_line,
+                "line_count": len(selected),
+            },
+            artifacts=[
+                ToolArtifact(
+                    kind="file",
+                    uri=str(resolved),
+                    title=str(resolved.relative_to(self.root)),
+                    mime_type="text/plain",
+                )
+            ],
         )
 
 
@@ -140,7 +180,7 @@ class SearchFilesTool(WorkspaceTool):
             "required": ["query"],
         }
 
-    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
         query = str(kwargs["query"])
         base_path = self._resolve_path(kwargs.get("path"))
         pattern = str(kwargs.get("glob", "*"))
@@ -158,8 +198,16 @@ class SearchFilesTool(WorkspaceTool):
                 if query in line:
                     matches.append(f"{rel_path}:{line_number}: {line}")
                     if len(matches) >= self._max_matches:
-                        return "\n".join(matches)
-        return "\n".join(matches)
+                        return ToolResult.ok(
+                            name=self.name,
+                            content="\n".join(matches),
+                            structured_content={"matches": matches, "truncated": True},
+                        )
+        return ToolResult.ok(
+            name=self.name,
+            content="\n".join(matches),
+            structured_content={"matches": matches, "truncated": False},
+        )
 
 
 class WriteFileTool(WorkspaceTool):
@@ -181,12 +229,28 @@ class WriteFileTool(WorkspaceTool):
             "required": ["path", "content"],
         }
 
-    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
         resolved = self._resolve_path(str(kwargs["path"]))
         resolved.parent.mkdir(parents=True, exist_ok=True)
         content = str(kwargs["content"])
         resolved.write_text(content, encoding="utf-8")
-        return f"bytes_written: {len(content.encode('utf-8'))}"
+        bytes_written = len(content.encode("utf-8"))
+        return ToolResult.ok(
+            name=self.name,
+            content=f"bytes_written: {bytes_written}",
+            structured_content={
+                "path": str(resolved.relative_to(self.root)),
+                "bytes_written": bytes_written,
+            },
+            artifacts=[
+                ToolArtifact(
+                    kind="file",
+                    uri=str(resolved),
+                    title=str(resolved.relative_to(self.root)),
+                    mime_type="text/plain",
+                )
+            ],
+        )
 
 
 class PatchTool(WorkspaceTool):
@@ -209,15 +273,31 @@ class PatchTool(WorkspaceTool):
             "required": ["path", "old", "new"],
         }
 
-    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
         resolved = self._resolve_path(str(kwargs["path"]))
         current = resolved.read_text(encoding="utf-8")
         old = str(kwargs["old"])
         if old not in current:
-            return "patch_failed: target text not found"
+            return ToolResult.error(
+                name=self.name,
+                content="patch_failed: target text not found",
+                structured_content={"path": str(resolved.relative_to(self.root)), "applied": False},
+            )
         updated = current.replace(old, str(kwargs["new"]), 1)
         resolved.write_text(updated, encoding="utf-8")
-        return "patched: 1 replacement"
+        return ToolResult.ok(
+            name=self.name,
+            content="patched: 1 replacement",
+            structured_content={"path": str(resolved.relative_to(self.root)), "applied": True, "replacements": 1},
+            artifacts=[
+                ToolArtifact(
+                    kind="file",
+                    uri=str(resolved),
+                    title=str(resolved.relative_to(self.root)),
+                    mime_type="text/plain",
+                )
+            ],
+        )
 
 
 class MemoryTool(BaseTool):
@@ -242,19 +322,37 @@ class MemoryTool(BaseTool):
             "required": ["action"],
         }
 
-    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
         if context is None:
             raise ValueError("Memory tool requires tool context")
         action = str(kwargs["action"])
         if action == "add":
             content = str(kwargs.get("content", "")).strip()
             if not content:
-                return "memory_error: content is required for add"
-            self._memory_store.add_for_user(context.user_id, content)
-            return "memory_stored"
+                return ToolResult.error(
+                    name=self.name,
+                    content="memory_error: content is required for add",
+                )
+            record = self._memory_store.add_for_user(context.user_id, content)
+            return ToolResult.ok(
+                name=self.name,
+                content="memory_stored",
+                structured_content={"user_id": record.user_id, "content": record.content},
+            )
         if action == "list":
             records = self._memory_store.list_for_user(context.user_id)
             if not records:
-                return "memory_empty"
-            return "\n".join(f"- {record.content}" for record in records)
-        return f"memory_error: unsupported action '{action}'"
+                return ToolResult.ok(
+                    name=self.name,
+                    content="memory_empty",
+                    structured_content={"records": []},
+                )
+            return ToolResult.ok(
+                name=self.name,
+                content="\n".join(f"- {record.content}" for record in records),
+                structured_content={"records": [record.content for record in records]},
+            )
+        return ToolResult.error(
+            name=self.name,
+            content=f"memory_error: unsupported action '{action}'",
+        )

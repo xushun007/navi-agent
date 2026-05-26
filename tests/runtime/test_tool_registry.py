@@ -1,14 +1,18 @@
 import unittest
 
-from navi_agent.runtime import ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolsetDefinition
+from navi_agent.runtime import ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult, ToolsetDefinition
 from navi_agent.tools import BaseTool, FunctionTool
+
+
+def ok_result(name: str, content: str, **kwargs) -> ToolResult:
+    return ToolResult(tool_call_id="", name=name, content=content, **kwargs)
 
 
 class ToolRegistryTests(unittest.TestCase):
     def test_registry_accepts_base_tool_instances(self) -> None:
         registry = ToolRegistry(
             registered_tools=[
-                ("utility", FunctionTool(name="echo", description="Echo", handler=lambda value: value))
+                ("utility", FunctionTool(name="echo", description="Echo", handler=lambda value: ok_result("echo", value)))
             ]
         )
 
@@ -27,7 +31,7 @@ class ToolRegistryTests(unittest.TestCase):
                         "properties": {"value": {"type": "string"}},
                         "required": ["value"],
                     },
-                    handler=lambda value: value,
+                    handler=lambda value: ok_result("echo", value),
                 )
             ]
         )
@@ -52,7 +56,7 @@ class ToolRegistryTests(unittest.TestCase):
             definitions=[
                 ToolDefinition(
                     name="echo",
-                    handler=lambda value: f"tool:{value}",
+                    handler=lambda value: ok_result("echo", f"tool:{value}"),
                 )
             ]
         )
@@ -64,7 +68,7 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertEqual(result[0].status, "success")
 
     def test_registry_returns_error_result_for_tool_failure(self) -> None:
-        def fail_tool() -> str:
+        def fail_tool() -> ToolResult:
             raise RuntimeError("boom")
 
         registry = ToolRegistry(
@@ -85,8 +89,8 @@ class ToolRegistryTests(unittest.TestCase):
     def test_registry_filters_schemas_by_toolset(self) -> None:
         registry = ToolRegistry(
             definitions=[
-                ToolDefinition(name="web_search", handler=lambda query: query, toolset="web"),
-                ToolDefinition(name="read_file", handler=lambda path: path, toolset="file"),
+                ToolDefinition(name="web_search", handler=lambda query: ok_result("web_search", query), toolset="web"),
+                ToolDefinition(name="read_file", handler=lambda path: ok_result("read_file", path), toolset="file"),
             ],
             toolsets=[
                 ToolsetDefinition(name="web", tools=["web_search"]),
@@ -101,8 +105,8 @@ class ToolRegistryTests(unittest.TestCase):
     def test_registry_supports_composed_toolsets(self) -> None:
         registry = ToolRegistry(
             definitions=[
-                ToolDefinition(name="web_search", handler=lambda query: query, toolset="web"),
-                ToolDefinition(name="browser_open", handler=lambda url: url, toolset="browser"),
+                ToolDefinition(name="web_search", handler=lambda query: ok_result("web_search", query), toolset="web"),
+                ToolDefinition(name="browser_open", handler=lambda url: ok_result("browser_open", url), toolset="browser"),
             ],
             toolsets=[
                 ToolsetDefinition(name="web", tools=["web_search"]),
@@ -118,10 +122,10 @@ class ToolRegistryTests(unittest.TestCase):
     def test_registry_passes_tool_context_to_context_aware_handler(self) -> None:
         captured = {}
 
-        def inspect(context: ToolContext, value: str) -> str:
+        def inspect(context: ToolContext, value: str) -> ToolResult:
             captured["session_id"] = context.session_id
             captured["iteration"] = context.iteration
-            return f"{context.user_id}:{value}"
+            return ok_result("inspect", f"{context.user_id}:{value}")
 
         registry = ToolRegistry(
             definitions=[ToolDefinition(name="inspect", handler=inspect, toolset="debug")]
@@ -134,6 +138,30 @@ class ToolRegistryTests(unittest.TestCase):
 
         self.assertEqual(result[0].content, "u1:ping")
         self.assertEqual(captured, {"session_id": "s1", "iteration": 2})
+
+    def test_registry_preserves_structured_tool_result(self) -> None:
+        registry = ToolRegistry(
+            registered_tools=[
+                (
+                    "utility",
+                    FunctionTool(
+                        name="echo",
+                        description="Echo",
+                        handler=lambda value: ToolResult(
+                            tool_call_id="",
+                            name="echo",
+                            content=value,
+                            structured_content={"value": value},
+                        ),
+                    ),
+                )
+            ]
+        )
+
+        result = registry.dispatch([ToolCall(id="tc1", name="echo", arguments={"value": "ping"})])
+
+        self.assertEqual(result[0].structured_content["value"], "ping")
+        self.assertEqual(result[0].tool_call_id, "tc1")
 
     def test_registry_filters_unavailable_base_tool(self) -> None:
         class UnavailableTool(BaseTool):
@@ -151,8 +179,8 @@ class ToolRegistryTests(unittest.TestCase):
             def is_available(self) -> bool:
                 return False
 
-            def invoke(self, context: ToolContext | None = None, **kwargs) -> str:
-                return "nope"
+            def invoke(self, context: ToolContext | None = None, **kwargs) -> ToolResult:
+                return ok_result("hidden", "nope")
 
         registry = ToolRegistry(registered_tools=[("utility", UnavailableTool())])
 

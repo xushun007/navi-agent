@@ -8,6 +8,7 @@ from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
 from .store import SessionStore
+from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
 from .tools import ToolRegistry
 from .transports import ModelRequest, ModelTransport
 from navi_agent.telemetry import TraceStore, RuntimeTrace
@@ -24,6 +25,7 @@ class AgentRuntime:
         prompt_builder: PromptBuilder | None = None,
         trace_store: TraceStore | None = None,
         observers: Sequence[RuntimeObserver] | None = None,
+        tool_result_renderer: ToolResultRenderer | None = None,
         enabled_toolsets: list[str] | None = None,
         disabled_toolsets: list[str] | None = None,
         max_iterations: int = 8,
@@ -34,6 +36,7 @@ class AgentRuntime:
         self._prompt_builder = prompt_builder or PromptBuilder()
         self._trace_store = trace_store
         self._observers = list(observers or [])
+        self._tool_result_renderer = tool_result_renderer or DefaultToolResultRenderer()
         self._enabled_toolsets = enabled_toolsets
         self._disabled_toolsets = disabled_toolsets
         self._max_iterations = max_iterations
@@ -165,7 +168,7 @@ class AgentRuntime:
                     session,
                     Message(
                         role="tool",
-                        content=tool_result.content,
+                        content=self._tool_result_renderer.render(tool_result),
                         tool_call_id=tool_result.tool_call_id,
                     ),
                 )

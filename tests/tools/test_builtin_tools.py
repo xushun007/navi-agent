@@ -18,9 +18,11 @@ class BuiltinToolTests(unittest.TestCase):
             tool = ReadFileTool(root=root)
             result = tool.invoke(path="note.txt", start_line=2, end_line=3)
 
-        self.assertIn("2: beta", result)
-        self.assertIn("3: gamma", result)
-        self.assertNotIn("1: alpha", result)
+        self.assertIn("2: beta", result.content)
+        self.assertIn("3: gamma", result.content)
+        self.assertNotIn("1: alpha", result.content)
+        self.assertEqual(result.structured_content["line_count"], 2)
+        self.assertEqual(result.artifacts[0].kind, "file")
 
     def test_search_files_tool_finds_matching_lines(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -31,16 +33,18 @@ class BuiltinToolTests(unittest.TestCase):
             tool = SearchFilesTool(root=root)
             result = tool.invoke(query="hello")
 
-        self.assertIn("a.txt:1: hello world", result)
-        self.assertIn("b.py:1: print('hello')", result)
+        self.assertIn("a.txt:1: hello world", result.content)
+        self.assertIn("b.py:1: print('hello')", result.content)
+        self.assertFalse(result.structured_content["truncated"])
 
     def test_bash_tool_executes_command_in_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tool = BashTool(root=Path(tmpdir), default_timeout_seconds=5)
             result = tool.invoke(command="printf 'hello'")
 
-        self.assertIn("exit_code: 0", result)
-        self.assertIn("hello", result)
+        self.assertIn("exit_code: 0", result.content)
+        self.assertIn("hello", result.content)
+        self.assertEqual(result.structured_content["exit_code"], 0)
 
     def test_bash_tool_rejects_paths_outside_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -49,7 +53,8 @@ class BuiltinToolTests(unittest.TestCase):
 
             result = tool.invoke(command="pwd", cwd=parent_dir)
 
-        self.assertIn("outside workspace", result)
+        self.assertIn("outside workspace", result.content)
+        self.assertEqual(result.status, "error")
 
     def test_write_file_tool_writes_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -58,7 +63,9 @@ class BuiltinToolTests(unittest.TestCase):
 
             result = tool.invoke(path="note.txt", content="hello\nworld\n")
 
-            self.assertIn("bytes_written", result)
+            self.assertIn("bytes_written", result.content)
+            self.assertEqual(result.structured_content["bytes_written"], 12)
+            self.assertEqual(result.artifacts[0].title, "note.txt")
             self.assertEqual((root / "note.txt").read_text(encoding="utf-8"), "hello\nworld\n")
 
     def test_patch_tool_replaces_text(self) -> None:
@@ -69,7 +76,9 @@ class BuiltinToolTests(unittest.TestCase):
 
             result = tool.invoke(path="note.txt", old="world", new="agent")
 
-            self.assertIn("patched", result)
+            self.assertIn("patched", result.content)
+            self.assertTrue(result.structured_content["applied"])
+            self.assertEqual(result.artifacts[0].kind, "file")
             self.assertEqual((root / "note.txt").read_text(encoding="utf-8"), "hello agent\n")
 
     def test_memory_tool_adds_and_lists_records(self) -> None:
@@ -86,5 +95,7 @@ class BuiltinToolTests(unittest.TestCase):
             action="list",
         )
 
-        self.assertIn("stored", add_result)
-        self.assertIn("Likes short answers", list_result)
+        self.assertIn("stored", add_result.content)
+        self.assertEqual(add_result.structured_content["content"], "Likes short answers")
+        self.assertIn("Likes short answers", list_result.content)
+        self.assertEqual(list_result.structured_content["records"], ["Likes short answers"])

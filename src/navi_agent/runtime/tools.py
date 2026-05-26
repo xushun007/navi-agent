@@ -8,7 +8,7 @@ import logging
 from .models import ToolCall, ToolContext, ToolResult
 from navi_agent.tools.base import BaseTool, FunctionTool
 
-ToolHandler = Callable[..., str]
+ToolHandler = Callable[..., ToolResult]
 logger = logging.getLogger("navi_agent.runtime.tools")
 
 
@@ -128,17 +128,16 @@ class ToolRegistry:
             tool = self._tools.get(tool_call.name)
             if tool is None:
                 results.append(
-                    ToolResult(
-                        tool_call_id=tool_call.id,
+                    ToolResult.error(
                         name=tool_call.name,
                         content=f"Unknown tool: {tool_call.name}",
-                        status="error",
-                    )
+                    ).bind(tool_call.id)
                 )
                 continue
             try:
                 output = tool.invoke(context=context, **tool_call.arguments)
-                status = "success"
+                results.append(output.bind(tool_call.id, tool_call.name))
+                continue
             except Exception as exc:
                 logger.exception("Tool execution failed: %s", tool_call.name)
                 output = f"Tool execution failed: {exc}"

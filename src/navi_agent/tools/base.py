@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-from navi_agent.runtime.models import ToolContext
+from navi_agent.runtime.models import ToolContext, ToolResult
 
 
 class BaseTool(ABC):
@@ -23,7 +23,7 @@ class BaseTool(ABC):
         return True
 
     @abstractmethod
-    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str: ...
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult: ...
 
 
 class FunctionTool(BaseTool):
@@ -31,7 +31,7 @@ class FunctionTool(BaseTool):
         self,
         name: str,
         description: str,
-        handler: Callable[..., str],
+        handler: Callable[..., ToolResult],
         parameters: dict[str, Any] | None = None,
     ) -> None:
         self._name = name
@@ -54,7 +54,7 @@ class FunctionTool(BaseTool):
             "additionalProperties": True,
         }
 
-    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> str:
+    def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
         if context is not None and "context" in self.handler.__code__.co_varnames:
-            return str(self.handler(context=context, **kwargs))
-        return str(self.handler(**kwargs))
+            return self.handler(context=context, **kwargs)
+        return self.handler(**kwargs)
