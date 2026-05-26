@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from .models import Message, RuntimeEvent, RuntimeResult
+from .models import Message, RuntimeEvent, RuntimeResult, ToolContext
 from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
@@ -24,6 +24,8 @@ class AgentRuntime:
         prompt_builder: PromptBuilder | None = None,
         trace_store: TraceStore | None = None,
         observers: Sequence[RuntimeObserver] | None = None,
+        enabled_toolsets: list[str] | None = None,
+        disabled_toolsets: list[str] | None = None,
         max_iterations: int = 8,
     ) -> None:
         self._transport = transport
@@ -32,6 +34,8 @@ class AgentRuntime:
         self._prompt_builder = prompt_builder or PromptBuilder()
         self._trace_store = trace_store
         self._observers = list(observers or [])
+        self._enabled_toolsets = enabled_toolsets
+        self._disabled_toolsets = disabled_toolsets
         self._max_iterations = max_iterations
 
     def run_conversation(
@@ -76,7 +80,10 @@ class AgentRuntime:
             response = self._transport.generate(
                 ModelRequest(
                     messages=self._session_store.snapshot(session),
-                    tools=self._tool_registry.schemas(),
+                    tools=self._tool_registry.schemas(
+                        enabled_toolsets=self._enabled_toolsets,
+                        disabled_toolsets=self._disabled_toolsets,
+                    ),
                 )
             )
             self._emit_event(
@@ -125,7 +132,17 @@ class AgentRuntime:
                 )
                 return result
 
-            for tool_result in self._tool_registry.dispatch(response.tool_calls):
+            tool_context = ToolContext(
+                session_id=session.session_id,
+                user_id=user_id,
+                iteration=iteration_number,
+            )
+            for tool_result in self._tool_registry.dispatch(
+                response.tool_calls,
+                context=tool_context,
+                enabled_toolsets=self._enabled_toolsets,
+                disabled_toolsets=self._disabled_toolsets,
+            ):
                 logger.debug(
                     "Tool executed: session_id=%s tool=%s",
                     session_id,

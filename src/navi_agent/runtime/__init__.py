@@ -6,6 +6,7 @@ from .models import (
     RuntimeEvent,
     RuntimeResult,
     ToolCall,
+    ToolContext,
     ToolResult,
 )
 from .observers import RuntimeObserver
@@ -14,7 +15,7 @@ from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
 from .store import SessionStore
 from .transport_factory import build_transport
-from .tools import ToolDefinition, ToolRegistry
+from .tools import ToolDefinition, ToolRegistry, ToolsetDefinition
 from .transports import ModelRequest, ModelTransport, OpenAICompatibleTransport
 
 __all__ = [
@@ -33,8 +34,10 @@ __all__ = [
     "SessionStore",
     "SQLiteSessionStore",
     "ToolCall",
+    "ToolContext",
     "ToolDefinition",
     "ToolRegistry",
     "ToolResult",
+    "ToolsetDefinition",
     "build_transport",
 ]

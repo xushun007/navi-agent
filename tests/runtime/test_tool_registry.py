@@ -1,6 +1,6 @@
 import unittest
 
-from navi_agent.runtime import ToolCall, ToolDefinition, ToolRegistry
+from navi_agent.runtime import ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolsetDefinition
 
 
 class ToolRegistryTests(unittest.TestCase):
@@ -69,6 +69,59 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertEqual(result[0].name, "fail")
         self.assertEqual(result[0].status, "error")
         self.assertIn("boom", result[0].content)
+
+    def test_registry_filters_schemas_by_toolset(self) -> None:
+        registry = ToolRegistry(
+            definitions=[
+                ToolDefinition(name="web_search", handler=lambda query: query, toolset="web"),
+                ToolDefinition(name="read_file", handler=lambda path: path, toolset="file"),
+            ],
+            toolsets=[
+                ToolsetDefinition(name="web", tools=["web_search"]),
+                ToolsetDefinition(name="file", tools=["read_file"]),
+            ],
+        )
+
+        result = registry.schemas(enabled_toolsets=["web"])
+
+        self.assertEqual([item["name"] for item in result], ["web_search"])
+
+    def test_registry_supports_composed_toolsets(self) -> None:
+        registry = ToolRegistry(
+            definitions=[
+                ToolDefinition(name="web_search", handler=lambda query: query, toolset="web"),
+                ToolDefinition(name="browser_open", handler=lambda url: url, toolset="browser"),
+            ],
+            toolsets=[
+                ToolsetDefinition(name="web", tools=["web_search"]),
+                ToolsetDefinition(name="browser", tools=["browser_open"]),
+                ToolsetDefinition(name="research", includes=["web", "browser"]),
+            ],
+        )
+
+        result = registry.schemas(enabled_toolsets=["research"])
+
+        self.assertEqual([item["name"] for item in result], ["browser_open", "web_search"])
+
+    def test_registry_passes_tool_context_to_context_aware_handler(self) -> None:
+        captured = {}
+
+        def inspect(context: ToolContext, value: str) -> str:
+            captured["session_id"] = context.session_id
+            captured["iteration"] = context.iteration
+            return f"{context.user_id}:{value}"
+
+        registry = ToolRegistry(
+            definitions=[ToolDefinition(name="inspect", handler=inspect, toolset="debug")]
+        )
+
+        result = registry.dispatch(
+            [ToolCall(id="tc1", name="inspect", arguments={"value": "ping"})],
+            context=ToolContext(session_id="s1", user_id="u1", iteration=2),
+        )
+
+        self.assertEqual(result[0].content, "u1:ping")
+        self.assertEqual(captured, {"session_id": "s1", "iteration": 2})
 
 
 if __name__ == "__main__":

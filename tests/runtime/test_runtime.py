@@ -8,8 +8,10 @@ from navi_agent.runtime import (
     PromptBuilder,
     RuntimeEvent,
     ToolCall,
+    ToolContext,
     ToolDefinition,
     ToolRegistry,
+    ToolsetDefinition,
 )
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
 from navi_agent.telemetry import InMemoryTraceStore
@@ -324,6 +326,56 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.final_response, "recovered")
         self.assertEqual(result.tool_results[0].status, "error")
         self.assertIn("boom", result.messages[-2].content)
+
+    def test_runtime_limits_exposed_tools_by_enabled_toolsets(self) -> None:
+        transport = FakeTransport([ModelResponse(content="done")])
+        runtime = AgentRuntime(
+            transport=transport,
+            enabled_toolsets=["web"],
+            tool_registry=ToolRegistry(
+                definitions=[
+                    ToolDefinition(name="web_search", handler=lambda query: query, toolset="web"),
+                    ToolDefinition(name="read_file", handler=lambda path: path, toolset="file"),
+                ],
+                toolsets=[
+                    ToolsetDefinition(name="web", tools=["web_search"]),
+                    ToolsetDefinition(name="file", tools=["read_file"]),
+                ],
+            ),
+        )
+
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(
+            [tool["name"] for tool in transport.calls[0].tools],
+            ["web_search"],
+        )
+
+    def test_runtime_passes_tool_context_when_dispatching(self) -> None:
+        seen: list[ToolContext] = []
+
+        def inspect(context: ToolContext) -> str:
+            seen.append(context)
+            return f"iter:{context.iteration}"
+
+        transport = FakeTransport(
+            [
+                ModelResponse(tool_calls=[ToolCall(id="tc1", name="inspect", arguments={})]),
+                ModelResponse(content="done"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_registry=ToolRegistry(
+                definitions=[ToolDefinition(name="inspect", handler=inspect, toolset="debug")]
+            ),
+        )
+
+        result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(result.tool_results[0].content, "iter:1")
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0].session_id, "s1")
 
 
 if __name__ == "__main__":

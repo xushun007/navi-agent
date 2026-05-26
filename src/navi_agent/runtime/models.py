@@ -12,6 +12,13 @@ class ToolCall:
 
 
 @dataclass(slots=True)
+class ToolContext:
+    session_id: str
+    user_id: str
+    iteration: int
+
+
+@dataclass(slots=True)
 class Message:
     role: str
     content: str
