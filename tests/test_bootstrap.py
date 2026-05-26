@@ -18,11 +18,13 @@ class BootstrapTests(unittest.TestCase):
         with patch("navi_agent.bootstrap.build_transport") as build_transport_mock:
             with patch("navi_agent.bootstrap.SQLiteSessionStore") as store_cls:
                 with patch("navi_agent.bootstrap.setup_logging") as setup_logging_mock:
-                    runtime = build_runtime(model_settings, runtime_settings)
+                    with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+                        runtime = build_runtime(model_settings, runtime_settings)
 
         build_transport_mock.assert_called_once_with(model_settings)
         store_cls.assert_called_once()
         setup_logging_mock.assert_called_once()
+        build_registry_mock.assert_called_once()
         self.assertEqual(runtime._max_iterations, 12)
 
     def test_build_runtime_reads_defaults_from_env(self) -> None:
@@ -38,11 +40,13 @@ class BootstrapTests(unittest.TestCase):
             with patch("navi_agent.bootstrap.build_transport") as build_transport_mock:
                 with patch("navi_agent.bootstrap.SQLiteSessionStore") as store_cls:
                     with patch("navi_agent.bootstrap.setup_logging") as setup_logging_mock:
-                        build_runtime()
+                        with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+                            build_runtime()
 
         build_transport_mock.assert_called_once()
         store_cls.assert_called_once()
         setup_logging_mock.assert_called_once()
+        build_registry_mock.assert_called_once()
 
 
 if __name__ == "__main__":

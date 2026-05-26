@@ -5,6 +5,7 @@ from navi_agent.config import ModelSettings, RuntimeSettings, load_config
 from navi_agent.logging import setup_logging
 from navi_agent.paths import get_app_log_path, get_state_db_path
 from navi_agent.runtime import AgentRuntime, SQLiteSessionStore, build_transport
+from navi_agent.tools.defaults import build_default_tool_registry
 
 
 def build_runtime(
@@ -26,6 +27,7 @@ def build_runtime(
     return AgentRuntime(
         transport=transport,
         session_store=session_store,
+        tool_registry=build_default_tool_registry(),
         max_iterations=runtime_settings.max_iterations,
     )
 

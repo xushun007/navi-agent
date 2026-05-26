@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from typing import Any
 from collections.abc import Callable
 import logging
-import inspect
 
 from .models import ToolCall, ToolContext, ToolResult
+from navi_agent.tools.base import BaseTool, FunctionTool
 
 ToolHandler = Callable[..., str]
 logger = logging.getLogger("navi_agent.runtime.tools")
@@ -40,18 +40,42 @@ class ToolRegistry:
         self,
         tools: dict[str, ToolHandler] | None = None,
         definitions: list[ToolDefinition] | None = None,
+        registered_tools: list[tuple[str, BaseTool]] | None = None,
         toolsets: list[ToolsetDefinition] | None = None,
     ) -> None:
-        self._definitions: dict[str, ToolDefinition] = {}
+        self._tools: dict[str, BaseTool] = {}
+        self._toolsets_by_tool: dict[str, set[str]] = {}
         self._toolsets: dict[str, ToolsetDefinition] = {
             toolset.name: toolset for toolset in (toolsets or [])
         }
 
         for definition in definitions or []:
-            self._definitions[definition.name] = definition
+            self.register_tool(
+                FunctionTool(
+                    name=definition.name,
+                    description=definition.description,
+                    handler=definition.handler,
+                    parameters=definition.parameters,
+                ),
+                toolsets=[definition.toolset],
+            )
 
         for name, handler in (tools or {}).items():
-            self._definitions[name] = ToolDefinition(name=name, handler=handler)
+            self.register_tool(
+                FunctionTool(
+                    name=name,
+                    description="",
+                    handler=handler,
+                ),
+                toolsets=["default"],
+            )
+
+        for toolset_name, tool in registered_tools or []:
+            self.register_tool(tool, toolsets=[toolset_name])
+
+    def register_tool(self, tool: BaseTool, toolsets: list[str]) -> None:
+        self._tools[tool.name] = tool
+        self._toolsets_by_tool[tool.name] = set(toolsets)
 
     def schemas(
         self,
@@ -60,17 +84,18 @@ class ToolRegistry:
     ) -> list[dict[str, Any]]:
         return [
             {
-                "name": definition.name,
-                "description": definition.description,
-                "parameters": definition.parameters,
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.schema(),
             }
-            for definition in sorted(
-                self._select_definitions(
+            for tool in sorted(
+                self._select_tools(
                     enabled_toolsets=enabled_toolsets,
                     disabled_toolsets=disabled_toolsets,
                 ),
                 key=lambda item: item.name,
             )
+            if tool.is_available()
         ]
 
     def dispatch(
@@ -82,11 +107,12 @@ class ToolRegistry:
     ) -> list[ToolResult]:
         results = []
         allowed_names = {
-            definition.name
-            for definition in self._select_definitions(
+            tool.name
+            for tool in self._select_tools(
                 enabled_toolsets=enabled_toolsets,
                 disabled_toolsets=disabled_toolsets,
             )
+            if tool.is_available()
         }
         for tool_call in tool_calls:
             if allowed_names and tool_call.name not in allowed_names:
@@ -99,8 +125,8 @@ class ToolRegistry:
                     )
                 )
                 continue
-            definition = self._definitions.get(tool_call.name)
-            if definition is None:
+            tool = self._tools.get(tool_call.name)
+            if tool is None:
                 results.append(
                     ToolResult(
                         tool_call_id=tool_call.id,
@@ -111,7 +137,7 @@ class ToolRegistry:
                 )
                 continue
             try:
-                output = self._invoke_handler(definition, tool_call.arguments, context)
+                output = tool.invoke(context=context, **tool_call.arguments)
                 status = "success"
             except Exception as exc:
                 logger.exception("Tool execution failed: %s", tool_call.name)
@@ -127,39 +153,25 @@ class ToolRegistry:
             )
         return results
 
-    def _invoke_handler(
-        self,
-        definition: ToolDefinition,
-        arguments: dict[str, Any],
-        context: ToolContext | None,
-    ) -> str:
-        if context is None:
-            return definition.handler(**arguments)
-
-        signature = inspect.signature(definition.handler)
-        if "context" in signature.parameters:
-            return definition.handler(context=context, **arguments)
-        return definition.handler(**arguments)
-
-    def _select_definitions(
+    def _select_tools(
         self,
         enabled_toolsets: list[str] | None,
         disabled_toolsets: list[str] | None,
-    ) -> list[ToolDefinition]:
-        definitions = list(self._definitions.values())
+    ) -> list[BaseTool]:
+        tools = list(self._tools.values())
         if not enabled_toolsets and not disabled_toolsets:
-            return definitions
+            return tools
 
         enabled_names = self._resolve_enabled_tool_names(enabled_toolsets)
         disabled_names = self._resolve_enabled_tool_names(disabled_toolsets)
 
-        selected: list[ToolDefinition] = []
-        for definition in definitions:
-            if enabled_names and definition.name not in enabled_names:
+        selected: list[BaseTool] = []
+        for tool in tools:
+            if enabled_names and tool.name not in enabled_names:
                 continue
-            if definition.name in disabled_names:
+            if tool.name in disabled_names:
                 continue
-            selected.append(definition)
+            selected.append(tool)
         return selected
 
     def _resolve_enabled_tool_names(self, toolsets: list[str] | None) -> set[str]:
@@ -183,9 +195,9 @@ class ToolRegistry:
 
         toolset = self._toolsets.get(toolset_name)
         if toolset is None:
-            for definition in self._definitions.values():
-                if definition.toolset == toolset_name:
-                    resolved.add(definition.name)
+            for tool_name, tool_toolsets in self._toolsets_by_tool.items():
+                if toolset_name in tool_toolsets:
+                    resolved.add(tool_name)
             return
 
         resolved.update(toolset.tools)

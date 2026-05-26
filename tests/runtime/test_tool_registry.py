@@ -1,9 +1,21 @@
 import unittest
 
 from navi_agent.runtime import ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolsetDefinition
+from navi_agent.tools import BaseTool, FunctionTool
 
 
 class ToolRegistryTests(unittest.TestCase):
+    def test_registry_accepts_base_tool_instances(self) -> None:
+        registry = ToolRegistry(
+            registered_tools=[
+                ("utility", FunctionTool(name="echo", description="Echo", handler=lambda value: value))
+            ]
+        )
+
+        result = registry.dispatch([ToolCall(id="tc1", name="echo", arguments={"value": "ping"})])
+
+        self.assertEqual(result[0].content, "ping")
+
     def test_registry_exposes_full_tool_schema(self) -> None:
         registry = ToolRegistry(
             definitions=[
@@ -122,6 +134,29 @@ class ToolRegistryTests(unittest.TestCase):
 
         self.assertEqual(result[0].content, "u1:ping")
         self.assertEqual(captured, {"session_id": "s1", "iteration": 2})
+
+    def test_registry_filters_unavailable_base_tool(self) -> None:
+        class UnavailableTool(BaseTool):
+            @property
+            def name(self) -> str:
+                return "hidden"
+
+            @property
+            def description(self) -> str:
+                return "Unavailable"
+
+            def schema(self) -> dict:
+                return {"type": "object", "properties": {}}
+
+            def is_available(self) -> bool:
+                return False
+
+            def invoke(self, context: ToolContext | None = None, **kwargs) -> str:
+                return "nope"
+
+        registry = ToolRegistry(registered_tools=[("utility", UnavailableTool())])
+
+        self.assertEqual(registry.schemas(), [])
 
 
 if __name__ == "__main__":
