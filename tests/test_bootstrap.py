@@ -9,7 +9,6 @@ from navi_agent.config import ModelSettings, RuntimeSettings
 class BootstrapTests(unittest.TestCase):
     def test_build_runtime_wires_transport_session_store_and_iterations(self) -> None:
         model_settings = ModelSettings(
-            provider="openai_compatible",
             model="gpt-4o-mini",
             api_key="test-key",
             base_url="https://example.com/v1",
@@ -30,7 +29,6 @@ class BootstrapTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "NAVI_MODEL_PROVIDER": "openai_compatible",
                 "NAVI_MODEL": "gpt-4o-mini",
                 "NAVI_API_KEY": "test-key",
                 "NAVI_HOME": "/tmp/navi-home",

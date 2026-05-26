@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from navi_agent.app import ApplicationService
-from navi_agent.config import ModelSettings, RuntimeSettings
+from navi_agent.config import ModelSettings, RuntimeSettings, load_config
 from navi_agent.logging import setup_logging
 from navi_agent.paths import get_app_log_path, get_state_db_path
 from navi_agent.runtime import AgentRuntime, SQLiteSessionStore, build_transport
@@ -11,11 +11,12 @@ def build_runtime(
     model_settings: ModelSettings | None = None,
     runtime_settings: RuntimeSettings | None = None,
 ) -> AgentRuntime:
-    model_settings = model_settings or ModelSettings.from_env()
-    runtime_settings = runtime_settings or RuntimeSettings.from_env()
+    config = load_config()
+    model_settings = model_settings or ModelSettings.from_sources(config)
+    runtime_settings = runtime_settings or RuntimeSettings.from_sources(config)
 
     setup_logging(
-        level=runtime_settings.log_level,
+        level="INFO",
         log_path=get_app_log_path(),
     )
 

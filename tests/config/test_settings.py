@@ -1,8 +1,10 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.config import ModelSettings, RuntimeSettings
+from navi_agent.config import ModelSettings, RuntimeSettings, load_config
 
 
 class SettingsTests(unittest.TestCase):
@@ -10,7 +12,6 @@ class SettingsTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "NAVI_MODEL_PROVIDER": "openai_compatible",
                 "NAVI_MODEL": "gpt-4.1-mini",
                 "NAVI_API_KEY": "navi-key",
                 "NAVI_BASE_URL": "https://example.com/v1",
@@ -20,7 +21,6 @@ class SettingsTests(unittest.TestCase):
         ):
             settings = ModelSettings.from_env()
 
-        self.assertEqual(settings.provider, "openai_compatible")
         self.assertEqual(settings.model, "gpt-4.1-mini")
         self.assertEqual(settings.api_key, "navi-key")
         self.assertEqual(settings.base_url, "https://example.com/v1")
@@ -40,13 +40,57 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.api_key, "openai-key")
         self.assertEqual(settings.base_url, "https://openai-compatible.test/v1")
 
+    def test_load_config_reads_yaml_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text(
+                """
+model:
+  name: gpt-4.1-mini
+  api_key: file-key
+  base_url: https://example.com/v1
+
+runtime:
+  max_iterations: 12
+""".strip(),
+                encoding="utf-8",
+            )
+
+            config = load_config(config_path)
+
+        self.assertEqual(config["model"]["name"], "gpt-4.1-mini")
+        self.assertEqual(config["runtime"]["max_iterations"], 12)
+
+    def test_model_settings_reads_from_config_file_values(self) -> None:
+        config = {
+            "model": {
+                "name": "gpt-4.1-mini",
+                "api_key": "file-key",
+                "base_url": "https://example.com/v1",
+            }
+        }
+
+        with patch.dict(os.environ, {}, clear=True):
+            settings = ModelSettings.from_sources(config)
+
+        self.assertEqual(settings.model, "gpt-4.1-mini")
+        self.assertEqual(settings.api_key, "file-key")
+        self.assertEqual(settings.base_url, "https://example.com/v1")
+
     def test_runtime_settings_reads_iteration_limit(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"NAVI_MAX_ITERATIONS": "12", "NAVI_LOG_LEVEL": "debug"},
-            clear=True,
-        ):
+        with patch.dict(os.environ, {"NAVI_MAX_ITERATIONS": "12"}, clear=True):
             settings = RuntimeSettings.from_env()
 
         self.assertEqual(settings.max_iterations, 12)
-        self.assertEqual(settings.log_level, "DEBUG")
+
+    def test_runtime_settings_reads_from_config_file_values(self) -> None:
+        config = {
+            "runtime": {
+                "max_iterations": 15,
+            }
+        }
+
+        with patch.dict(os.environ, {}, clear=True):
+            settings = RuntimeSettings.from_sources(config)
+
+        self.assertEqual(settings.max_iterations, 15)

@@ -3,7 +3,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.paths import get_app_log_path, get_logs_dir, get_navi_home, get_state_db_path
+from navi_agent.paths import (
+    get_app_log_path,
+    get_config_path,
+    get_logs_dir,
+    get_navi_home,
+    get_state_db_path,
+)
 
 
 class PathsTests(unittest.TestCase):
@@ -19,6 +25,7 @@ class PathsTests(unittest.TestCase):
         with patch.dict(os.environ, {"NAVI_HOME": "/tmp/navi-home"}, clear=True):
             self.assertEqual(get_logs_dir(), Path("/tmp/navi-home/logs"))
             self.assertEqual(get_app_log_path(), Path("/tmp/navi-home/logs/navi-agent.log"))
+            self.assertEqual(get_config_path(), Path("/tmp/navi-home/config.yaml"))
 
 
 if __name__ == "__main__":
