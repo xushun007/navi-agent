@@ -1,5 +1,6 @@
 import unittest
 
+from navi_agent.tooling import ToolDecision
 from navi_agent.runtime import ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult, ToolsetDefinition
 from navi_agent.tools import BaseTool, FunctionTool
 
@@ -185,6 +186,28 @@ class ToolRegistryTests(unittest.TestCase):
         registry = ToolRegistry(registered_tools=[("utility", UnavailableTool())])
 
         self.assertEqual(registry.schemas(), [])
+
+    def test_registry_returns_error_when_policy_denies_tool(self) -> None:
+        called = {"value": False}
+
+        def echo(value: str) -> ToolResult:
+            called["value"] = True
+            return ok_result("bash", value)
+
+        class DenyPolicy:
+            def decide(self, tool_name: str, arguments: dict, context: ToolContext | None) -> ToolDecision:
+                return ToolDecision.deny("bash commands require approval")
+
+        registry = ToolRegistry(
+            registered_tools=[("terminal", FunctionTool(name="bash", description="bash", handler=echo))],
+            policy=DenyPolicy(),
+        )
+
+        result = registry.dispatch([ToolCall(id="tc1", name="bash", arguments={"value": "ls"})])
+
+        self.assertFalse(called["value"])
+        self.assertEqual(result[0].status, "error")
+        self.assertIn("require approval", result[0].content)
 
 
 if __name__ == "__main__":

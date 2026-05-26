@@ -1,5 +1,6 @@
 import unittest
 
+from navi_agent.tooling import ToolDecision
 from navi_agent.runtime import (
     AgentRuntime,
     InMemorySessionStore,
@@ -16,7 +17,7 @@ from navi_agent.runtime import (
     ToolsetDefinition,
 )
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
-from navi_agent.tools.builtin import MemoryTool
+from navi_agent.tools import MemoryTool
 from navi_agent.telemetry import InMemoryTraceStore
 
 
@@ -475,6 +476,30 @@ class AgentRuntimeTests(unittest.TestCase):
 
         self.assertIn("Artifacts:", result.messages[-2].content)
         self.assertIn("out.txt", result.messages[-2].content)
+
+    def test_runtime_surfaces_policy_denial_as_tool_message(self) -> None:
+        class DenyPolicy:
+            def decide(self, tool_name: str, arguments: dict, context: ToolContext | None) -> ToolDecision:
+                return ToolDecision.deny("write_file requires approval")
+
+        transport = FakeTransport(
+            [
+                ModelResponse(tool_calls=[ToolCall(id="tc1", name="write_file", arguments={"path": "a.txt", "content": "x"})]),
+                ModelResponse(content="done"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_registry=ToolRegistry(
+                tools={"write_file": lambda path, content: ToolResult.ok("write_file", "written")},
+                policy=DenyPolicy(),
+            ),
+        )
+
+        result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="write file")
+
+        self.assertEqual(result.tool_results[0].status, "error")
+        self.assertIn("requires approval", result.messages[-2].content)
 
 
 if __name__ == "__main__":

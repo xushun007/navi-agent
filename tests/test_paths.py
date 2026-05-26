@@ -27,6 +27,11 @@ class PathsTests(unittest.TestCase):
             self.assertEqual(get_app_log_path(), Path("/tmp/navi-home/logs/navi-agent.log"))
             self.assertEqual(get_config_path(), Path("/tmp/navi-home/config.yaml"))
 
+    def test_get_navi_home_defaults_under_workspace_when_env_missing(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("navi_agent.paths.Path.cwd", return_value=Path("/tmp/workspace")):
+                self.assertEqual(get_navi_home(), Path("/tmp/workspace/.navi-agent"))
+
 
 if __name__ == "__main__":
     unittest.main()

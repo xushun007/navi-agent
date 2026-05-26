@@ -5,7 +5,10 @@ from typing import Any
 from collections.abc import Callable
 import logging
 
-from .models import ToolCall, ToolContext, ToolResult
+from navi_agent.tooling import ToolContext, ToolPolicy, ToolResult
+
+from .models import ToolCall
+from .tool_policy import AllowAllToolPolicy
 from navi_agent.tools.base import BaseTool, FunctionTool
 
 ToolHandler = Callable[..., ToolResult]
@@ -42,12 +45,14 @@ class ToolRegistry:
         definitions: list[ToolDefinition] | None = None,
         registered_tools: list[tuple[str, BaseTool]] | None = None,
         toolsets: list[ToolsetDefinition] | None = None,
+        policy: ToolPolicy | None = None,
     ) -> None:
         self._tools: dict[str, BaseTool] = {}
         self._toolsets_by_tool: dict[str, set[str]] = {}
         self._toolsets: dict[str, ToolsetDefinition] = {
             toolset.name: toolset for toolset in (toolsets or [])
         }
+        self._policy = policy or AllowAllToolPolicy()
 
         for definition in definitions or []:
             self.register_tool(
@@ -131,6 +136,16 @@ class ToolRegistry:
                     ToolResult.error(
                         name=tool_call.name,
                         content=f"Unknown tool: {tool_call.name}",
+                    ).bind(tool_call.id)
+                )
+                continue
+            decision = self._policy.decide(tool_call.name, tool_call.arguments, context)
+            if not decision.allows_execution:
+                results.append(
+                    ToolResult.error(
+                        name=tool_call.name,
+                        content=decision.reason or f"Tool blocked: {tool_call.name}",
+                        metadata=decision.metadata,
                     ).bind(tool_call.id)
                 )
                 continue

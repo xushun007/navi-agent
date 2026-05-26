@@ -9,6 +9,7 @@ from navi_agent.bootstrap import build_application
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="navi-agent")
     parser.add_argument("message", help="User message to send to the agent")
+    parser.add_argument("--demo", action="store_true", help="Run with local demo transport")
     parser.add_argument("--user-id", default="local-user")
     parser.add_argument("--session-id")
     parser.add_argument("--system-prompt")
@@ -19,7 +20,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
-    app = build_application(default_system_prompt=args.system_prompt)
+    app = build_application(default_system_prompt=args.system_prompt, demo=args.demo)
     result = app.handle(
         AppRequest(
             user_id=args.user_id,

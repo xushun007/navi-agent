@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-from navi_agent.runtime.models import ToolContext, ToolResult
+from navi_agent.tooling import ToolContext, ToolResult
 
 
 class BaseTool(ABC):

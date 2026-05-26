@@ -16,6 +16,17 @@ class BuildApplicationTests(unittest.TestCase):
         self.assertIs(app._runtime, fake_runtime)
         self.assertEqual(app._default_system_prompt, "system")
 
+    def test_build_application_passes_demo_flag_to_runtime_builder(self) -> None:
+        fake_runtime = object()
+        with patch("navi_agent.bootstrap.build_runtime", return_value=fake_runtime) as build_runtime_mock:
+            build_application(default_system_prompt="system", demo=True)
+
+        build_runtime_mock.assert_called_once_with(
+            model_settings=None,
+            runtime_settings=None,
+            demo=True,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from .models import Message, RuntimeEvent, RuntimeResult, ToolContext
+from navi_agent.tooling import ToolContext
+
+from .models import Message, RuntimeEvent, RuntimeResult
 from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore

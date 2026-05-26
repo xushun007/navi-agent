@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .models import ToolArtifact, ToolResult
+from navi_agent.tooling import ToolArtifact, ToolResult
 
 
 class ToolResultRenderer(Protocol):

@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from navi_agent.bootstrap import build_runtime
 from navi_agent.config import ModelSettings, RuntimeSettings
+from navi_agent.runtime import DemoTransport
 
 
 class BootstrapTests(unittest.TestCase):
@@ -44,6 +45,19 @@ class BootstrapTests(unittest.TestCase):
                             build_runtime()
 
         build_transport_mock.assert_called_once()
+        store_cls.assert_called_once()
+        setup_logging_mock.assert_called_once()
+        build_registry_mock.assert_called_once()
+
+    def test_build_runtime_uses_demo_transport_when_requested(self) -> None:
+        runtime_settings = RuntimeSettings(max_iterations=3)
+
+        with patch("navi_agent.bootstrap.SQLiteSessionStore") as store_cls:
+            with patch("navi_agent.bootstrap.setup_logging") as setup_logging_mock:
+                with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+                    runtime = build_runtime(runtime_settings=runtime_settings, demo=True)
+
+        self.assertIsInstance(runtime._transport, DemoTransport)
         store_cls.assert_called_once()
         setup_logging_mock.assert_called_once()
         build_registry_mock.assert_called_once()

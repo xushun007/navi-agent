@@ -5,13 +5,14 @@ from navi_agent.config import ModelSettings, RuntimeSettings, load_config
 from navi_agent.logging import setup_logging
 from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.paths import get_app_log_path, get_state_db_path
-from navi_agent.runtime import AgentRuntime, PromptBuilder, SQLiteSessionStore, build_transport
+from navi_agent.runtime import AgentRuntime, DemoTransport, PromptBuilder, SQLiteSessionStore, build_transport
 from navi_agent.tools.defaults import build_default_tool_registry
 
 
 def build_runtime(
     model_settings: ModelSettings | None = None,
     runtime_settings: RuntimeSettings | None = None,
+    demo: bool = False,
 ) -> AgentRuntime:
     config = load_config()
     model_settings = model_settings or ModelSettings.from_sources(config)
@@ -22,7 +23,7 @@ def build_runtime(
         log_path=get_app_log_path(),
     )
 
-    transport = build_transport(model_settings)
+    transport = DemoTransport() if demo else build_transport(model_settings)
     session_store = SQLiteSessionStore(get_state_db_path())
     memory_store = InMemoryMemoryStore()
 
@@ -39,10 +40,12 @@ def build_application(
     model_settings: ModelSettings | None = None,
     runtime_settings: RuntimeSettings | None = None,
     default_system_prompt: str | None = None,
+    demo: bool = False,
 ) -> ApplicationService:
     runtime = build_runtime(
         model_settings=model_settings,
         runtime_settings=runtime_settings,
+        demo=demo,
     )
     return ApplicationService(
         runtime=runtime,
