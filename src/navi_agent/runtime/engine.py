@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
-from .models import Message, RuntimeResult
+from .models import Message, RuntimeEvent, RuntimeResult
+from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
 from .store import SessionStore
@@ -21,6 +23,7 @@ class AgentRuntime:
         session_store: SessionStore | None = None,
         prompt_builder: PromptBuilder | None = None,
         trace_store: TraceStore | None = None,
+        observers: Sequence[RuntimeObserver] | None = None,
         max_iterations: int = 8,
     ) -> None:
         self._transport = transport
@@ -28,6 +31,7 @@ class AgentRuntime:
         self._session_store = session_store or InMemorySessionStore()
         self._prompt_builder = prompt_builder or PromptBuilder()
         self._trace_store = trace_store
+        self._observers = list(observers or [])
         self._max_iterations = max_iterations
 
     def run_conversation(
@@ -38,6 +42,13 @@ class AgentRuntime:
         system_prompt: str | None = None,
     ) -> RuntimeResult:
         logger.info("Starting runtime conversation: session_id=%s user_id=%s", session_id, user_id)
+        self._emit_event(
+            RuntimeEvent(
+                name="runtime.started",
+                session_id=session_id,
+                user_id=user_id,
+            )
+        )
         session = self._session_store.load(session_id=session_id, user_id=user_id)
         for message in self._prompt_builder.build_initial_messages(
             session=session,
@@ -48,15 +59,33 @@ class AgentRuntime:
         tool_results = []
 
         for iteration in range(self._max_iterations):
+            iteration_number = iteration + 1
             logger.debug(
                 "Running iteration: session_id=%s iteration=%s",
                 session_id,
-                iteration + 1,
+                iteration_number,
+            )
+            self._emit_event(
+                RuntimeEvent(
+                    name="iteration.started",
+                    session_id=session_id,
+                    user_id=user_id,
+                    iteration=iteration_number,
+                )
             )
             response = self._transport.generate(
                 ModelRequest(
                     messages=self._session_store.snapshot(session),
                     tools=self._tool_registry.schemas(),
+                )
+            )
+            self._emit_event(
+                RuntimeEvent(
+                    name="model.responded",
+                    session_id=session_id,
+                    user_id=user_id,
+                    iteration=iteration_number,
+                    metadata={"tool_call_count": len(response.tool_calls)},
                 )
             )
 
@@ -85,6 +114,15 @@ class AgentRuntime:
                     user_message=user_message,
                     result=result,
                 )
+                self._emit_event(
+                    RuntimeEvent(
+                        name="runtime.completed",
+                        session_id=session.session_id,
+                        user_id=user_id,
+                        iteration=iteration_number,
+                        metadata={"status": result.status},
+                    )
+                )
                 return result
 
             for tool_result in self._tool_registry.dispatch(response.tool_calls):
@@ -94,6 +132,18 @@ class AgentRuntime:
                     tool_result.name,
                 )
                 tool_results.append(tool_result)
+                self._emit_event(
+                    RuntimeEvent(
+                        name="tool.executed",
+                        session_id=session_id,
+                        user_id=user_id,
+                        iteration=iteration_number,
+                        metadata={
+                            "tool_name": tool_result.name,
+                            "status": tool_result.status,
+                        },
+                    )
+                )
                 self._session_store.append(
                     session,
                     Message(
@@ -104,7 +154,29 @@ class AgentRuntime:
                 )
 
         logger.error("Runtime iteration limit exceeded: session_id=%s", session_id)
-        raise RuntimeError("Runtime iteration limit exceeded")
+        result = RuntimeResult(
+            session_id=session.session_id,
+            status="iteration_limit_exceeded",
+            final_response="",
+            messages=self._session_store.snapshot(session),
+            tool_results=tool_results,
+        )
+        self._record_trace(
+            session_id=session.session_id,
+            user_id=user_id,
+            user_message=user_message,
+            result=result,
+        )
+        self._emit_event(
+            RuntimeEvent(
+                name="runtime.completed",
+                session_id=session.session_id,
+                user_id=user_id,
+                iteration=self._max_iterations,
+                metadata={"status": result.status},
+            )
+        )
+        return result
 
     def _record_trace(
         self,
@@ -125,3 +197,7 @@ class AgentRuntime:
                 tool_names=[item.name for item in result.tool_results],
             )
         )
+
+    def _emit_event(self, event: RuntimeEvent) -> None:
+        for observer in self._observers:
+            observer.on_event(event)

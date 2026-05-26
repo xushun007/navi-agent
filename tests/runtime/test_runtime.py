@@ -6,6 +6,7 @@ from navi_agent.runtime import (
     ModelRequest,
     ModelResponse,
     PromptBuilder,
+    RuntimeEvent,
     ToolCall,
     ToolDefinition,
     ToolRegistry,
@@ -38,6 +39,14 @@ class TrackingPromptBuilder(PromptBuilder):
             }
         )
         return super().build_initial_messages(session, user_message, system_prompt)
+
+
+class RecordingObserver:
+    def __init__(self) -> None:
+        self.events: list[RuntimeEvent] = []
+
+    def on_event(self, event: RuntimeEvent) -> None:
+        self.events.append(event)
 
 
 class AgentRuntimeTests(unittest.TestCase):
@@ -237,6 +246,84 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(trace.user_message, "hello")
         self.assertEqual(trace.final_response, "done")
         self.assertEqual(trace.status, "success")
+
+    def test_runtime_emits_structured_events(self) -> None:
+        transport = FakeTransport(
+            [
+                ModelResponse(
+                    tool_calls=[ToolCall(id="tc1", name="echo", arguments={"value": "ping"})]
+                ),
+                ModelResponse(content="done"),
+            ]
+        )
+        observer = RecordingObserver()
+        runtime = AgentRuntime(
+            transport=transport,
+            observers=[observer],
+            tool_registry=ToolRegistry(tools={"echo": lambda value: f"tool:{value}"}),
+        )
+
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(
+            [event.name for event in observer.events],
+            [
+                "runtime.started",
+                "iteration.started",
+                "model.responded",
+                "tool.executed",
+                "iteration.started",
+                "model.responded",
+                "runtime.completed",
+            ],
+        )
+        self.assertEqual(observer.events[2].metadata["tool_call_count"], 1)
+        self.assertEqual(observer.events[3].metadata["tool_name"], "echo")
+
+    def test_runtime_returns_structured_result_when_iteration_limit_is_hit(self) -> None:
+        transport = FakeTransport([ModelResponse(tool_calls=[ToolCall(id="tc1", name="echo", arguments={})])])
+        trace_store = InMemoryTraceStore()
+        runtime = AgentRuntime(
+            transport=transport,
+            trace_store=trace_store,
+            max_iterations=1,
+            tool_registry=ToolRegistry(tools={"echo": lambda: "tool:ok"}),
+        )
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+        )
+
+        self.assertEqual(result.status, "iteration_limit_exceeded")
+        self.assertEqual(result.final_response, "")
+        self.assertEqual(trace_store.traces[0].status, "iteration_limit_exceeded")
+
+    def test_runtime_converts_tool_failure_into_tool_message(self) -> None:
+        transport = FakeTransport(
+            [
+                ModelResponse(tool_calls=[ToolCall(id="tc1", name="fail", arguments={})]),
+                ModelResponse(content="recovered"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_registry=ToolRegistry(
+                definitions=[ToolDefinition(name="fail", handler=lambda: (_ for _ in ()).throw(RuntimeError("boom")))]
+            ),
+        )
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.final_response, "recovered")
+        self.assertEqual(result.tool_results[0].status, "error")
+        self.assertIn("boom", result.messages[-2].content)
 
 
 if __name__ == "__main__":

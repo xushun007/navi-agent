@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 from collections.abc import Callable
+import logging
 
 from .models import ToolCall, ToolResult
 
 ToolHandler = Callable[..., str]
+logger = logging.getLogger("navi_agent.runtime.tools")
 
 
 @dataclass(slots=True)
@@ -55,13 +57,28 @@ class ToolRegistry:
         for tool_call in tool_calls:
             definition = self._definitions.get(tool_call.name)
             if definition is None:
-                raise KeyError(f"Unknown tool: {tool_call.name}")
-            output = definition.handler(**tool_call.arguments)
+                results.append(
+                    ToolResult(
+                        tool_call_id=tool_call.id,
+                        name=tool_call.name,
+                        content=f"Unknown tool: {tool_call.name}",
+                        status="error",
+                    )
+                )
+                continue
+            try:
+                output = definition.handler(**tool_call.arguments)
+                status = "success"
+            except Exception as exc:
+                logger.exception("Tool execution failed: %s", tool_call.name)
+                output = f"Tool execution failed: {exc}"
+                status = "error"
             results.append(
                 ToolResult(
                     tool_call_id=tool_call.id,
                     name=tool_call.name,
                     content=str(output),
+                    status=status,
                 )
             )
         return results

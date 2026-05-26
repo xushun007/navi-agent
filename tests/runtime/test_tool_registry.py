@@ -49,6 +49,26 @@ class ToolRegistryTests(unittest.TestCase):
 
         self.assertEqual(result[0].name, "echo")
         self.assertEqual(result[0].content, "tool:ping")
+        self.assertEqual(result[0].status, "success")
+
+    def test_registry_returns_error_result_for_tool_failure(self) -> None:
+        def fail_tool() -> str:
+            raise RuntimeError("boom")
+
+        registry = ToolRegistry(
+            definitions=[
+                ToolDefinition(
+                    name="fail",
+                    handler=fail_tool,
+                )
+            ]
+        )
+
+        result = registry.dispatch([ToolCall(id="tc1", name="fail", arguments={})])
+
+        self.assertEqual(result[0].name, "fail")
+        self.assertEqual(result[0].status, "error")
+        self.assertIn("boom", result[0].content)
 
 
 if __name__ == "__main__":

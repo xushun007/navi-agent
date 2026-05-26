@@ -30,6 +30,7 @@ class ToolResult:
     tool_call_id: str
     name: str
     content: str
+    status: str = "success"
 
 
 @dataclass(slots=True)
@@ -46,3 +47,12 @@ class RuntimeResult:
     final_response: str
     messages: list[Message] = field(default_factory=list)
     tool_results: list[ToolResult] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RuntimeEvent:
+    name: str
+    session_id: str
+    user_id: str
+    iteration: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)

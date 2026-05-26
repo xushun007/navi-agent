@@ -3,10 +3,12 @@ from .models import (
     ConversationState,
     Message,
     ModelResponse,
+    RuntimeEvent,
     RuntimeResult,
     ToolCall,
     ToolResult,
 )
+from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
@@ -25,7 +27,9 @@ __all__ = [
     "ModelTransport",
     "OpenAICompatibleTransport",
     "PromptBuilder",
+    "RuntimeEvent",
     "RuntimeResult",
+    "RuntimeObserver",
     "SessionStore",
     "SQLiteSessionStore",
     "ToolCall",
