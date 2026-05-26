@@ -1,5 +1,6 @@
 AGENTS.md
 design
+BUILD_LOG.md
 __pycache__/
 .pytest_cache/
 .venv/
@@ -7,3 +8,4 @@ __pycache__/
 build/
 dist/
 refs
+
