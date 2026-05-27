@@ -5,14 +5,20 @@ import logging
 from navi_agent.tooling import ToolContext, ToolPolicy, ToolResult
 from navi_agent.tools.base import BaseTool
 
+from .approval import ApprovalProvider, ApprovalRequest, DenyAllApprovalProvider
 from .models import ToolCall
 
 logger = logging.getLogger("navi_agent.runtime.tool_executor")
 
 
 class ToolExecutor:
-    def __init__(self, policy: ToolPolicy) -> None:
+    def __init__(
+        self,
+        policy: ToolPolicy,
+        approval_provider: ApprovalProvider | None = None,
+    ) -> None:
         self._policy = policy
+        self._approval_provider = approval_provider or DenyAllApprovalProvider()
 
     def execute(
         self,
@@ -34,18 +40,46 @@ class ToolExecutor:
 
             decision = self._policy.decide(tool_call.name, tool_call.arguments, context)
             if not decision.allows_execution:
-                structured_content = {}
                 if decision.requires_approval:
-                    structured_content = {
-                        "approval_required": True,
-                        "tool_name": tool_call.name,
-                        "arguments": tool_call.arguments,
-                    }
+                    approval_decision = self._approval_provider.request_approval(
+                        ApprovalRequest(
+                            tool_name=tool_call.name,
+                            arguments=tool_call.arguments,
+                            reason=decision.reason or f"Tool requires approval: {tool_call.name}",
+                            context=context,
+                            metadata=decision.metadata,
+                        )
+                    )
+                    if approval_decision.approved:
+                        try:
+                            output = tool.invoke(context=context, **tool_call.arguments)
+                            results.append(output.bind(tool_call.id, tool_call.name))
+                        except Exception as exc:
+                            logger.exception("Tool execution failed: %s", tool_call.name)
+                            results.append(
+                                ToolResult.error(
+                                    name=tool_call.name,
+                                    content=f"Tool execution failed: {exc}",
+                                ).bind(tool_call.id)
+                            )
+                        continue
+                    results.append(
+                        ToolResult.error(
+                            name=tool_call.name,
+                            content=approval_decision.reason or decision.reason or f"Tool blocked: {tool_call.name}",
+                            structured_content={
+                                "approval_required": True,
+                                "tool_name": tool_call.name,
+                                "arguments": tool_call.arguments,
+                            },
+                            metadata=approval_decision.metadata or decision.metadata,
+                        ).bind(tool_call.id)
+                    )
+                    continue
                 results.append(
                     ToolResult.error(
                         name=tool_call.name,
                         content=decision.reason or f"Tool blocked: {tool_call.name}",
-                        structured_content=structured_content,
                         metadata=decision.metadata,
                     ).bind(tool_call.id)
                 )

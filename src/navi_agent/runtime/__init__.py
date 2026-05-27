@@ -1,3 +1,10 @@
+from .approval import (
+    ApprovalDecision,
+    ApprovalProvider,
+    ApprovalRequest,
+    AutoApproveApprovalProvider,
+    DenyAllApprovalProvider,
+)
 from .engine import AgentRuntime
 from .models import (
     ConversationState,
@@ -24,9 +31,14 @@ from .transports import DemoTransport, ModelRequest, ModelTransport, OpenAICompa
 
 __all__ = [
     "AgentRuntime",
+    "ApprovalDecision",
+    "ApprovalProvider",
+    "ApprovalRequest",
     "AllowAllToolPolicy",
+    "AutoApproveApprovalProvider",
     "ConversationState",
     "DefaultToolResultRenderer",
+    "DenyAllApprovalProvider",
     "DemoTransport",
     "InMemorySessionStore",
     "Message",

@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from navi_agent.tooling import ToolContext, ToolPolicy, ToolResult
 
+from .approval import ApprovalProvider
 from .models import ToolCall
 from .tool_executor import ToolExecutor
 from .tool_policy import AllowAllToolPolicy
@@ -45,6 +46,7 @@ class ToolRegistry:
         registered_tools: list[tuple[str, BaseTool]] | None = None,
         toolsets: list[ToolsetDefinition] | None = None,
         policy: ToolPolicy | None = None,
+        approval_provider: ApprovalProvider | None = None,
     ) -> None:
         self._tools: dict[str, BaseTool] = {}
         self._toolsets_by_tool: dict[str, set[str]] = {}
@@ -52,7 +54,10 @@ class ToolRegistry:
             toolset.name: toolset for toolset in (toolsets or [])
         }
         self._policy = policy or AllowAllToolPolicy()
-        self._executor = ToolExecutor(policy=self._policy)
+        self._executor = ToolExecutor(
+            policy=self._policy,
+            approval_provider=approval_provider,
+        )
 
         for definition in definitions or []:
             self.register_tool(
