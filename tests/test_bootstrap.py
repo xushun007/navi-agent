@@ -80,6 +80,7 @@ class BootstrapTests(unittest.TestCase):
 
         self.assertEqual(result[0].status, "error")
         self.assertIn("approval", result[0].content)
+        self.assertTrue(result[0].structured_content["approval_required"])
 
 
 if __name__ == "__main__":

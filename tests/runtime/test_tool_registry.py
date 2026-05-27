@@ -3,7 +3,7 @@ import unittest
 from navi_agent.tooling import ToolDecision
 from navi_agent.runtime import ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult, ToolsetDefinition
 from navi_agent.tools import BaseTool, FunctionTool
-from navi_agent.runtime.tool_policy import StaticToolPolicy
+from navi_agent.runtime.tool_policy import SensitiveToolPolicy, StaticToolPolicy
 
 
 def ok_result(name: str, content: str, **kwargs) -> ToolResult:
@@ -224,6 +224,35 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertFalse(bash_decision.allows_execution)
         self.assertEqual(bash_decision.reason, "bash requires approval")
         self.assertTrue(read_decision.allows_execution)
+
+    def test_sensitive_tool_policy_marks_approval_required_tools(self) -> None:
+        policy = SensitiveToolPolicy(
+            approval_required_tools={
+                "bash": "bash requires approval",
+            }
+        )
+
+        decision = policy.decide("bash", {"command": "pwd"}, None)
+
+        self.assertFalse(decision.allows_execution)
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.metadata["tool_name"], "bash")
+
+    def test_registry_returns_structured_approval_request(self) -> None:
+        registry = ToolRegistry(
+            registered_tools=[("terminal", FunctionTool(name="bash", description="bash", handler=lambda: ok_result("bash", "ok")))],
+            policy=SensitiveToolPolicy(
+                approval_required_tools={
+                    "bash": "bash requires approval",
+                }
+            ),
+        )
+
+        result = registry.dispatch([ToolCall(id="tc1", name="bash", arguments={"command": "pwd"})])
+
+        self.assertEqual(result[0].status, "error")
+        self.assertTrue(result[0].structured_content["approval_required"])
+        self.assertEqual(result[0].structured_content["arguments"]["command"], "pwd")
 
 
 if __name__ == "__main__":

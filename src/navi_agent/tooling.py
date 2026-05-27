@@ -82,12 +82,27 @@ class ToolResult:
 @dataclass(slots=True)
 class ToolDecision:
     allows_execution: bool
+    requires_approval: bool = False
     reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def allow(cls) -> ToolDecision:
         return cls(allows_execution=True)
+
+    @classmethod
+    def ask(
+        cls,
+        reason: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolDecision:
+        return cls(
+            allows_execution=False,
+            requires_approval=True,
+            reason=reason,
+            metadata=metadata or {},
+        )
 
     @classmethod
     def deny(

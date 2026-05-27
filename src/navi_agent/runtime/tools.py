@@ -141,10 +141,18 @@ class ToolRegistry:
                 continue
             decision = self._policy.decide(tool_call.name, tool_call.arguments, context)
             if not decision.allows_execution:
+                structured_content = {}
+                if decision.requires_approval:
+                    structured_content = {
+                        "approval_required": True,
+                        "tool_name": tool_call.name,
+                        "arguments": tool_call.arguments,
+                    }
                 results.append(
                     ToolResult.error(
                         name=tool_call.name,
                         content=decision.reason or f"Tool blocked: {tool_call.name}",
+                        structured_content=structured_content,
                         metadata=decision.metadata,
                     ).bind(tool_call.id)
                 )
