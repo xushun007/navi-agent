@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 from typing import Protocol
@@ -10,6 +11,7 @@ class ToolContext:
     session_id: str
     user_id: str
     iteration: int
+    emit_output: Callable[[dict[str, Any]], None] | None = None
 
 
 @dataclass(slots=True)

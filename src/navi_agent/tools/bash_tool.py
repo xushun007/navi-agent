@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
+import threading
 from typing import Any
 
 from navi_agent.tooling import ToolContext, ToolResult
@@ -72,18 +73,41 @@ class BashTool(WorkspaceTool):
         if inspection_error is not None:
             return inspection_error
 
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        emit_output = context.emit_output if context is not None else None
+
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 command,
                 shell=True,
                 cwd=cwd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout_seconds,
+                bufsize=1,
             )
-        except subprocess.TimeoutExpired as exc:
-            stdout = (exc.stdout or "").strip()
-            stderr = (exc.stderr or "").strip()
+            stdout_thread = threading.Thread(
+                target=self._consume_stream,
+                args=(process.stdout, "stdout", stdout_chunks, emit_output),
+                daemon=True,
+            )
+            stderr_thread = threading.Thread(
+                target=self._consume_stream,
+                args=(process.stderr, "stderr", stderr_chunks, emit_output),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stderr_thread.start()
+            process.wait(timeout=timeout_seconds)
+            stdout_thread.join()
+            stderr_thread.join()
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout_thread.join()
+            stderr_thread.join()
+            stdout = "".join(stdout_chunks).strip()
+            stderr = "".join(stderr_chunks).strip()
             return ToolResult.error(
                 name=self.name,
                 content=f"Command timed out after {timeout_seconds} seconds",
@@ -93,6 +117,7 @@ class BashTool(WorkspaceTool):
                     "stderr": stderr,
                     "timed_out": True,
                     "command": command,
+                    "streaming": emit_output is not None,
                 },
                 metadata={
                     "cwd": str(cwd),
@@ -101,8 +126,8 @@ class BashTool(WorkspaceTool):
                 },
             )
 
-        stdout = completed.stdout.strip()
-        stderr = completed.stderr.strip()
+        stdout = "".join(stdout_chunks).strip()
+        stderr = "".join(stderr_chunks).strip()
         truncated = False
         if len(stdout) > self._max_output_chars:
             stdout = stdout[: self._max_output_chars] + "\n...<truncated>"
@@ -110,26 +135,50 @@ class BashTool(WorkspaceTool):
         if len(stderr) > self._max_output_chars:
             stderr = stderr[: self._max_output_chars] + "\n...<truncated>"
             truncated = True
-        parts = [f"exit_code: {completed.returncode}"]
+        parts = [f"exit_code: {process.returncode}"]
         if stdout:
             parts.append(f"stdout:\n{stdout}")
         if stderr:
             parts.append(f"stderr:\n{stderr}")
-        result_cls = ToolResult.ok if completed.returncode == 0 else ToolResult.error
+        result_cls = ToolResult.ok if process.returncode == 0 else ToolResult.error
         return result_cls(
             name=self.name,
             content="\n".join(parts),
             structured_content={
-                "exit_code": completed.returncode,
+                "exit_code": process.returncode,
                 "stdout": stdout,
                 "stderr": stderr,
                 "truncated": truncated,
                 "command": command,
                 "command_name": self._command_name(command),
                 "timed_out": False,
+                "streaming": emit_output is not None,
             },
             metadata={"cwd": str(cwd), "timeout_seconds": timeout_seconds, "command": command},
         )
+
+    def _consume_stream(
+        self,
+        stream,
+        stream_name: str,
+        chunks: list[str],
+        emit_output,
+    ) -> None:
+        if stream is None:
+            return
+        try:
+            for line in stream:
+                chunks.append(line)
+                if emit_output is not None:
+                    emit_output(
+                        {
+                            "tool_name": self.name,
+                            "stream": stream_name,
+                            "chunk": line,
+                        }
+                    )
+        finally:
+            stream.close()
 
     def _inspect_command(self, command: str, cwd) -> ToolResult | None:
         if re.search(r"(^|[;&|])\s*[^&]*&\s*$", command):

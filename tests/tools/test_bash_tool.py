@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from navi_agent.runtime import ToolContext
 from navi_agent.tools import BashTool
 
 
@@ -40,6 +41,24 @@ class BashToolTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertIn("timed out", result.content)
         self.assertTrue(result.structured_content["timed_out"])
+
+    def test_streams_output_chunks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            events = []
+            tool = BashTool(root=Path(tmpdir), default_timeout_seconds=5)
+            result = tool.invoke(
+                context=ToolContext(
+                    session_id="s1",
+                    user_id="u1",
+                    iteration=1,
+                    emit_output=events.append,
+                ),
+                command="printf 'hello\\nworld\\n'",
+            )
+
+        self.assertEqual(result.status, "success")
+        self.assertTrue(result.structured_content["streaming"])
+        self.assertEqual([event["chunk"] for event in events], ["hello\n", "world\n"])
 
     def test_rejects_background_commands(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
