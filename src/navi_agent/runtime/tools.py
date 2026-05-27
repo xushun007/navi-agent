@@ -3,16 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 from collections.abc import Callable
-import logging
 
 from navi_agent.tooling import ToolContext, ToolPolicy, ToolResult
 
 from .models import ToolCall
+from .tool_executor import ToolExecutor
 from .tool_policy import AllowAllToolPolicy
 from navi_agent.tools.base import BaseTool, FunctionTool
 
 ToolHandler = Callable[..., ToolResult]
-logger = logging.getLogger("navi_agent.runtime.tools")
 
 
 @dataclass(slots=True)
@@ -53,6 +52,7 @@ class ToolRegistry:
             toolset.name: toolset for toolset in (toolsets or [])
         }
         self._policy = policy or AllowAllToolPolicy()
+        self._executor = ToolExecutor(policy=self._policy)
 
         for definition in definitions or []:
             self.register_tool(
@@ -110,17 +110,17 @@ class ToolRegistry:
         enabled_toolsets: list[str] | None = None,
         disabled_toolsets: list[str] | None = None,
     ) -> list[ToolResult]:
-        results = []
-        allowed_names = {
-            tool.name
+        selected_tools = {
+            tool.name: tool
             for tool in self._select_tools(
                 enabled_toolsets=enabled_toolsets,
                 disabled_toolsets=disabled_toolsets,
             )
             if tool.is_available()
         }
+        results: list[ToolResult] = []
         for tool_call in tool_calls:
-            if allowed_names and tool_call.name not in allowed_names:
+            if selected_tools and tool_call.name not in selected_tools:
                 results.append(
                     ToolResult(
                         tool_call_id=tool_call.id,
@@ -130,47 +130,11 @@ class ToolRegistry:
                     )
                 )
                 continue
-            tool = self._tools.get(tool_call.name)
-            if tool is None:
-                results.append(
-                    ToolResult.error(
-                        name=tool_call.name,
-                        content=f"Unknown tool: {tool_call.name}",
-                    ).bind(tool_call.id)
-                )
-                continue
-            decision = self._policy.decide(tool_call.name, tool_call.arguments, context)
-            if not decision.allows_execution:
-                structured_content = {}
-                if decision.requires_approval:
-                    structured_content = {
-                        "approval_required": True,
-                        "tool_name": tool_call.name,
-                        "arguments": tool_call.arguments,
-                    }
-                results.append(
-                    ToolResult.error(
-                        name=tool_call.name,
-                        content=decision.reason or f"Tool blocked: {tool_call.name}",
-                        structured_content=structured_content,
-                        metadata=decision.metadata,
-                    ).bind(tool_call.id)
-                )
-                continue
-            try:
-                output = tool.invoke(context=context, **tool_call.arguments)
-                results.append(output.bind(tool_call.id, tool_call.name))
-                continue
-            except Exception as exc:
-                logger.exception("Tool execution failed: %s", tool_call.name)
-                output = f"Tool execution failed: {exc}"
-                status = "error"
-            results.append(
-                ToolResult(
-                    tool_call_id=tool_call.id,
-                    name=tool_call.name,
-                    content=str(output),
-                    status=status,
+            results.extend(
+                self._executor.execute(
+                    tool_calls=[tool_call],
+                    tools_by_name=selected_tools or self._tools,
+                    context=context,
                 )
             )
         return results

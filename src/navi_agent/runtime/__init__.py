@@ -16,6 +16,7 @@ from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
 from .store import SessionStore
 from .tool_policy import AllowAllToolPolicy
+from .tool_executor import ToolExecutor
 from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
 from .transport_factory import build_transport
 from .tools import ToolDefinition, ToolRegistry, ToolsetDefinition
@@ -43,6 +44,7 @@ __all__ = [
     "ToolCall",
     "ToolContext",
     "ToolDefinition",
+    "ToolExecutor",
     "ToolRegistry",
     "ToolResultRenderer",
     "ToolResult",
