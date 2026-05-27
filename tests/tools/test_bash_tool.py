@@ -6,6 +6,14 @@ from navi_agent.tools import BashTool
 
 
 class BashToolTests(unittest.TestCase):
+    def test_rejects_empty_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir))
+            result = tool.invoke(command="   ")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("must not be empty", result.content)
+
     def test_executes_command_in_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tool = BashTool(root=Path(tmpdir), default_timeout_seconds=5)
@@ -32,3 +40,28 @@ class BashToolTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertIn("timed out", result.content)
         self.assertTrue(result.structured_content["timed_out"])
+
+    def test_rejects_background_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir))
+            result = tool.invoke(command="sleep 1 &")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("Background commands", result.content)
+
+    def test_rejects_dangerous_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir))
+            result = tool.invoke(command="sudo ls")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("require approval", result.content)
+
+    def test_rejects_command_paths_outside_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            tool = BashTool(root=root)
+            result = tool.invoke(command="cat ../secret.txt")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("outside workspace", result.content)
