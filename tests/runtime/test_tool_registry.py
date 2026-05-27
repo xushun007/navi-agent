@@ -3,6 +3,7 @@ import unittest
 from navi_agent.tooling import ToolDecision
 from navi_agent.runtime import ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult, ToolsetDefinition
 from navi_agent.tools import BaseTool, FunctionTool
+from navi_agent.runtime.tool_policy import StaticToolPolicy
 
 
 def ok_result(name: str, content: str, **kwargs) -> ToolResult:
@@ -208,6 +209,21 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertFalse(called["value"])
         self.assertEqual(result[0].status, "error")
         self.assertIn("require approval", result[0].content)
+
+    def test_static_tool_policy_denies_configured_tool_names(self) -> None:
+        policy = StaticToolPolicy(
+            denied_tools={
+                "bash": "bash requires approval",
+                "write_file": "write_file requires approval",
+            }
+        )
+
+        bash_decision = policy.decide("bash", {}, None)
+        read_decision = policy.decide("read_file", {}, None)
+
+        self.assertFalse(bash_decision.allows_execution)
+        self.assertEqual(bash_decision.reason, "bash requires approval")
+        self.assertTrue(read_decision.allows_execution)
 
 
 if __name__ == "__main__":

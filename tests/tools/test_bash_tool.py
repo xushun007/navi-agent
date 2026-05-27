@@ -23,3 +23,12 @@ class BashToolTests(unittest.TestCase):
 
         self.assertIn("outside workspace", result.content)
         self.assertEqual(result.status, "error")
+
+    def test_returns_timeout_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir), default_timeout_seconds=1, max_timeout_seconds=1)
+            result = tool.invoke(command="python -c 'import time; time.sleep(2)'")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("timed out", result.content)
+        self.assertTrue(result.structured_content["timed_out"])

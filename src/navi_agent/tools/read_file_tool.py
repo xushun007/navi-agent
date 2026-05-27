@@ -8,6 +8,11 @@ from .workspace_tool import WorkspaceTool
 
 
 class ReadFileTool(WorkspaceTool):
+    def __init__(self, root=None, default_line_count: int = 200, max_line_count: int = 500) -> None:
+        super().__init__(root=root)
+        self._default_line_count = default_line_count
+        self._max_line_count = max_line_count
+
     @property
     def name(self) -> str:
         return "read_file"
@@ -28,24 +33,51 @@ class ReadFileTool(WorkspaceTool):
         }
 
     def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
-        resolved = self._resolve_path(str(kwargs["path"]))
+        requested_path = str(kwargs["path"])
+        try:
+            resolved = self._resolve_path(requested_path)
+        except ValueError as exc:
+            return ToolResult.error(name=self.name, content=str(exc), metadata={"path": requested_path})
+        if not resolved.exists():
+            return ToolResult.error(name=self.name, **self._missing_path_error(requested_path))
+        if resolved.is_dir():
+            return ToolResult.error(
+                name=self.name,
+                content=f"Path is a directory, not a file: {requested_path}",
+                metadata={"path": requested_path},
+            )
+        if self._is_binary_file(resolved):
+            return ToolResult.error(
+                name=self.name,
+                content=f"Cannot read binary file: {requested_path}",
+                metadata={"path": requested_path},
+            )
+
         lines = resolved.read_text(encoding="utf-8").splitlines()
         start_line = max(1, int(kwargs.get("start_line", 1)))
-        line_count = max(1, int(kwargs.get("line_count", len(lines))))
+        requested_line_count = int(kwargs.get("line_count", self._default_line_count))
+        line_count = max(1, min(requested_line_count, self._max_line_count))
         end_index = start_line - 1 + line_count
         selected = lines[start_line - 1 : end_index]
         content = "\n".join(
             f"{line_number}: {line_content}"
             for line_number, line_content in enumerate(selected, start=start_line)
         )
+        truncated = end_index < len(lines)
+        next_start_line = start_line + len(selected) if truncated else None
+        if truncated:
+            content += f"\n\nFile has more lines. Continue with start_line={next_start_line}."
         return ToolResult.ok(
             name=self.name,
             content=content,
             structured_content={
                 "path": str(resolved.relative_to(self.root)),
                 "start_line": start_line,
-                "requested_line_count": line_count,
+                "requested_line_count": requested_line_count,
                 "line_count": len(selected),
+                "total_lines": len(lines),
+                "truncated": truncated,
+                "next_start_line": next_start_line,
             },
             artifacts=[
                 ToolArtifact(

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.runtime import ToolRegistry, ToolsetDefinition
+from navi_agent.runtime.tool_policy import StaticToolPolicy
 
 from .bash_tool import BashTool
 from .memory_tool import MemoryTool
@@ -34,4 +35,11 @@ def build_default_tool_registry(
             ToolsetDefinition(name="memory", tools=["memory"]),
             ToolsetDefinition(name="core", includes=["terminal", "file", "memory"]),
         ],
+        policy=StaticToolPolicy(
+            denied_tools={
+                "bash": "bash requires approval",
+                "write_file": "write_file requires approval",
+                "patch": "patch requires approval",
+            }
+        ),
     )

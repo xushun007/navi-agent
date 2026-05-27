@@ -23,26 +23,56 @@ class PatchTool(WorkspaceTool):
                 "path": {"type": "string"},
                 "old": {"type": "string"},
                 "new": {"type": "string"},
+                "replace_all": {"type": "boolean"},
             },
             "required": ["path", "old", "new"],
         }
 
     def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
-        resolved = self._resolve_path(str(kwargs["path"]))
+        requested_path = str(kwargs["path"])
+        try:
+            resolved = self._resolve_path(requested_path)
+        except ValueError as exc:
+            return ToolResult.error(name=self.name, content=str(exc), metadata={"path": requested_path})
+        if not resolved.exists():
+            return ToolResult.error(name=self.name, **self._missing_path_error(requested_path))
+        if resolved.is_dir():
+            return ToolResult.error(
+                name=self.name,
+                content=f"Path is a directory, not a file: {requested_path}",
+                metadata={"path": requested_path},
+            )
+        if self._is_binary_file(resolved):
+            return ToolResult.error(
+                name=self.name,
+                content=f"Cannot patch binary file: {requested_path}",
+                metadata={"path": requested_path},
+            )
         current = resolved.read_text(encoding="utf-8")
         old = str(kwargs["old"])
+        if not old:
+            return ToolResult.error(name=self.name, content="Patch 'old' text must not be empty")
         if old not in current:
             return ToolResult.error(
                 name=self.name,
                 content="patch_failed: target text not found",
                 structured_content={"path": str(resolved.relative_to(self.root)), "applied": False},
             )
-        updated = current.replace(old, str(kwargs["new"]), 1)
+        replacement_count = current.count(old)
+        replace_all = bool(kwargs.get("replace_all", False))
+        updated = current.replace(old, str(kwargs["new"]), replacement_count if replace_all else 1)
         resolved.write_text(updated, encoding="utf-8")
+        replacements = replacement_count if replace_all else 1
         return ToolResult.ok(
             name=self.name,
-            content="patched: 1 replacement",
-            structured_content={"path": str(resolved.relative_to(self.root)), "applied": True, "replacements": 1},
+            content=f"patched: {replacements} replacement{'s' if replacements != 1 else ''}",
+            structured_content={
+                "path": str(resolved.relative_to(self.root)),
+                "applied": True,
+                "replacements": replacements,
+                "replace_all": replace_all,
+            },
+            metadata={"path": str(resolved), "replacements": replacements, "replace_all": replace_all},
             artifacts=[
                 ToolArtifact(
                     kind="file",

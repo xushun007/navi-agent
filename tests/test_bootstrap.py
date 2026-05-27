@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from navi_agent.bootstrap import build_runtime
 from navi_agent.config import ModelSettings, RuntimeSettings
-from navi_agent.runtime import DemoTransport
+from navi_agent.runtime import DemoTransport, ToolCall, ToolContext
 
 
 class BootstrapTests(unittest.TestCase):
@@ -61,6 +61,25 @@ class BootstrapTests(unittest.TestCase):
         store_cls.assert_called_once()
         setup_logging_mock.assert_called_once()
         build_registry_mock.assert_called_once()
+
+    def test_build_runtime_uses_default_sensitive_tool_policy(self) -> None:
+        runtime_settings = RuntimeSettings(max_iterations=3)
+
+        with patch("navi_agent.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.bootstrap.setup_logging"):
+                runtime = build_runtime(
+                    model_settings=ModelSettings(model="demo", api_key="x"),
+                    runtime_settings=runtime_settings,
+                    demo=True,
+                )
+
+        result = runtime._tool_registry.dispatch(
+            [ToolCall(id="tc1", name="bash", arguments={"command": "pwd"})],
+            context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+        )
+
+        self.assertEqual(result[0].status, "error")
+        self.assertIn("approval", result[0].content)
 
 
 if __name__ == "__main__":

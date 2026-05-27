@@ -17,3 +17,24 @@ class SearchFilesToolTests(unittest.TestCase):
         self.assertIn("a.txt:1: hello world", result.content)
         self.assertIn("b.py:1: print('hello')", result.content)
         self.assertFalse(result.structured_content["truncated"])
+
+    def test_rejects_empty_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            tool = SearchFilesTool(root=root)
+            result = tool.invoke(query="   ")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("must not be empty", result.content)
+
+    def test_skips_binary_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "a.bin").write_bytes(b"hello\x00world")
+            (root / "a.txt").write_text("hello text\n", encoding="utf-8")
+            tool = SearchFilesTool(root=root)
+            result = tool.invoke(query="hello")
+
+        self.assertIn("a.txt:1: hello text", result.content)
+        self.assertNotIn("a.bin", result.content)
+        self.assertEqual(result.structured_content["match_count"], 1)

@@ -27,7 +27,18 @@ class WriteFileTool(WorkspaceTool):
         }
 
     def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
-        resolved = self._resolve_path(str(kwargs["path"]))
+        requested_path = str(kwargs["path"])
+        try:
+            resolved = self._resolve_path(requested_path)
+        except ValueError as exc:
+            return ToolResult.error(name=self.name, content=str(exc), metadata={"path": requested_path})
+        if resolved.exists() and resolved.is_dir():
+            return ToolResult.error(
+                name=self.name,
+                content=f"Path is a directory, not a file: {requested_path}",
+                metadata={"path": requested_path},
+            )
+        existed = resolved.exists()
         resolved.parent.mkdir(parents=True, exist_ok=True)
         content = str(kwargs["content"])
         resolved.write_text(content, encoding="utf-8")
@@ -38,7 +49,9 @@ class WriteFileTool(WorkspaceTool):
             structured_content={
                 "path": str(resolved.relative_to(self.root)),
                 "bytes_written": bytes_written,
+                "existed": existed,
             },
+            metadata={"path": str(resolved), "bytes_written": bytes_written, "existed": existed},
             artifacts=[
                 ToolArtifact(
                     kind="file",

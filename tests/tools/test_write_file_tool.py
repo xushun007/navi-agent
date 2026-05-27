@@ -14,5 +14,25 @@ class WriteFileToolTests(unittest.TestCase):
 
             self.assertIn("bytes_written", result.content)
             self.assertEqual(result.structured_content["bytes_written"], 12)
+            self.assertFalse(result.structured_content["existed"])
             self.assertEqual(result.artifacts[0].title, "note.txt")
             self.assertEqual((root / "note.txt").read_text(encoding="utf-8"), "hello\nworld\n")
+
+    def test_reports_existing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "note.txt").write_text("old\n", encoding="utf-8")
+            tool = WriteFileTool(root=root)
+            result = tool.invoke(path="note.txt", content="new\n")
+
+        self.assertTrue(result.structured_content["existed"])
+
+    def test_rejects_directory_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "docs").mkdir()
+            tool = WriteFileTool(root=root)
+            result = tool.invoke(path="docs", content="bad")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("directory", result.content)
