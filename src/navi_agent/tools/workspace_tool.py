@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -67,3 +68,6 @@ class WorkspaceTool(BaseTool):
             "content": message,
             "metadata": {"path": missing_path, "suggestions": suggestions},
         }
+
+    def _sha256_text(self, content: str) -> str:
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()

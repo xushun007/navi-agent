@@ -22,6 +22,7 @@ class WriteFileTool(WorkspaceTool):
             "properties": {
                 "path": {"type": "string"},
                 "content": {"type": "string"},
+                "expected_sha256": {"type": "string"},
             },
             "required": ["path", "content"],
         }
@@ -39,10 +40,27 @@ class WriteFileTool(WorkspaceTool):
                 metadata={"path": requested_path},
             )
         existed = resolved.exists()
+        current_sha256 = None
+        expected_sha256 = kwargs.get("expected_sha256")
+        if existed:
+            current_content = resolved.read_text(encoding="utf-8")
+            current_sha256 = self._sha256_text(current_content)
+            if expected_sha256 and expected_sha256 != current_sha256:
+                return ToolResult.error(
+                    name=self.name,
+                    content="write_file rejected: file changed since last read",
+                    structured_content={
+                        "path": str(resolved.relative_to(self.root)),
+                        "current_sha256": current_sha256,
+                        "expected_sha256": expected_sha256,
+                    },
+                    metadata={"path": str(resolved)},
+                )
         resolved.parent.mkdir(parents=True, exist_ok=True)
         content = str(kwargs["content"])
         resolved.write_text(content, encoding="utf-8")
         bytes_written = len(content.encode("utf-8"))
+        written_sha256 = self._sha256_text(content)
         return ToolResult.ok(
             name=self.name,
             content=f"bytes_written: {bytes_written}",
@@ -50,8 +68,15 @@ class WriteFileTool(WorkspaceTool):
                 "path": str(resolved.relative_to(self.root)),
                 "bytes_written": bytes_written,
                 "existed": existed,
+                "sha256": written_sha256,
+                "previous_sha256": current_sha256,
             },
-            metadata={"path": str(resolved), "bytes_written": bytes_written, "existed": existed},
+            metadata={
+                "path": str(resolved),
+                "bytes_written": bytes_written,
+                "existed": existed,
+                "sha256": written_sha256,
+            },
             artifacts=[
                 ToolArtifact(
                     kind="file",

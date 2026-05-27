@@ -36,3 +36,18 @@ class WriteFileToolTests(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertIn("directory", result.content)
+
+    def test_rejects_stale_expected_sha256(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "note.txt"
+            target.write_text("old\n", encoding="utf-8")
+            tool = WriteFileTool(root=root)
+            result = tool.invoke(
+                path="note.txt",
+                content="new\n",
+                expected_sha256="stale",
+            )
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("changed since last read", result.content)

@@ -24,6 +24,7 @@ class PatchTool(WorkspaceTool):
                 "old": {"type": "string"},
                 "new": {"type": "string"},
                 "replace_all": {"type": "boolean"},
+                "expected_sha256": {"type": "string"},
             },
             "required": ["path", "old", "new"],
         }
@@ -49,6 +50,20 @@ class PatchTool(WorkspaceTool):
                 metadata={"path": requested_path},
             )
         current = resolved.read_text(encoding="utf-8")
+        current_sha256 = self._sha256_text(current)
+        expected_sha256 = kwargs.get("expected_sha256")
+        if expected_sha256 and expected_sha256 != current_sha256:
+            return ToolResult.error(
+                name=self.name,
+                content="patch rejected: file changed since last read",
+                structured_content={
+                    "path": str(resolved.relative_to(self.root)),
+                    "current_sha256": current_sha256,
+                    "expected_sha256": expected_sha256,
+                    "applied": False,
+                },
+                metadata={"path": str(resolved)},
+            )
         old = str(kwargs["old"])
         if not old:
             return ToolResult.error(name=self.name, content="Patch 'old' text must not be empty")
@@ -63,6 +78,7 @@ class PatchTool(WorkspaceTool):
         updated = current.replace(old, str(kwargs["new"]), replacement_count if replace_all else 1)
         resolved.write_text(updated, encoding="utf-8")
         replacements = replacement_count if replace_all else 1
+        updated_sha256 = self._sha256_text(updated)
         return ToolResult.ok(
             name=self.name,
             content=f"patched: {replacements} replacement{'s' if replacements != 1 else ''}",
@@ -71,8 +87,15 @@ class PatchTool(WorkspaceTool):
                 "applied": True,
                 "replacements": replacements,
                 "replace_all": replace_all,
+                "sha256": updated_sha256,
+                "previous_sha256": current_sha256,
             },
-            metadata={"path": str(resolved), "replacements": replacements, "replace_all": replace_all},
+            metadata={
+                "path": str(resolved),
+                "replacements": replacements,
+                "replace_all": replace_all,
+                "sha256": updated_sha256,
+            },
             artifacts=[
                 ToolArtifact(
                     kind="file",
