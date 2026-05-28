@@ -29,6 +29,7 @@ class OpenAICompatibleTransport:
         choice = response.choices[0]
         message = choice.message
         content = message.content or ""
+        reasoning_content = getattr(message, "reasoning_content", None)
         tool_calls = []
 
         for tool_call in message.tool_calls or []:
@@ -40,7 +41,11 @@ class OpenAICompatibleTransport:
                 )
             )
 
-        return ModelResponse(content=content, tool_calls=tool_calls)
+        return ModelResponse(
+            content=content,
+            reasoning_content=reasoning_content,
+            tool_calls=tool_calls,
+        )
 
     @staticmethod
     def _serialize_message(message: Message) -> dict[str, Any]:
@@ -48,6 +53,8 @@ class OpenAICompatibleTransport:
             "role": message.role,
             "content": message.content,
         }
+        if message.reasoning_content:
+            payload["reasoning_content"] = message.reasoning_content
         if message.tool_call_id:
             payload["tool_call_id"] = message.tool_call_id
         if message.tool_calls:

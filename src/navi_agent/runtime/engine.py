@@ -104,6 +104,7 @@ class AgentRuntime:
             assistant_message = Message(
                 role="assistant",
                 content=response.content,
+                reasoning_content=response.reasoning_content,
                 tool_calls=response.tool_calls,
             )
             self._session_store.append(session, assistant_message)

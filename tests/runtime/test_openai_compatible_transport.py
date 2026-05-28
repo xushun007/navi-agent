@@ -75,6 +75,39 @@ class OpenAICompatibleTransportTests(unittest.TestCase):
             },
         )
 
+    def test_transport_serializes_reasoning_content(self) -> None:
+        response = types.SimpleNamespace(
+            choices=[
+                types.SimpleNamespace(
+                    message=types.SimpleNamespace(
+                        content="done",
+                        tool_calls=[],
+                    )
+                )
+            ]
+        )
+        client = FakeClient(response)
+        transport = OpenAICompatibleTransport(
+            model="gpt-4o-mini",
+            api_key="test",
+            client=client,
+        )
+
+        transport.generate(
+            ModelRequest(
+                messages=[
+                    Message(
+                        role="assistant",
+                        content="working",
+                        reasoning_content="internal trace",
+                    )
+                ]
+            )
+        )
+
+        call = client.chat.completions.calls[0]
+        self.assertEqual(call["messages"][0]["reasoning_content"], "internal trace")
+
     def test_transport_parses_tool_calls_from_response(self) -> None:
         response = types.SimpleNamespace(
             choices=[
@@ -106,6 +139,29 @@ class OpenAICompatibleTransportTests(unittest.TestCase):
         self.assertEqual(result.content, "")
         self.assertEqual(len(result.tool_calls), 1)
         self.assertEqual(result.tool_calls[0], ToolCall(id="tc1", name="echo", arguments={"value": "ping"}))
+
+    def test_transport_parses_reasoning_content_from_response(self) -> None:
+        response = types.SimpleNamespace(
+            choices=[
+                types.SimpleNamespace(
+                    message=types.SimpleNamespace(
+                        content="done",
+                        reasoning_content="internal trace",
+                        tool_calls=[],
+                    )
+                )
+            ]
+        )
+        client = FakeClient(response)
+        transport = OpenAICompatibleTransport(
+            model="gpt-4o-mini",
+            api_key="test",
+            client=client,
+        )
+
+        result = transport.generate(ModelRequest(messages=[Message(role="user", content="hi")]))
+
+        self.assertEqual(result.reasoning_content, "internal trace")
 
 
 if __name__ == "__main__":

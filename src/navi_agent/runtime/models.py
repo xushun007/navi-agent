@@ -17,6 +17,7 @@ class ToolCall:
 class Message:
     role: str
     content: str
+    reasoning_content: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
 
@@ -24,6 +25,7 @@ class Message:
 @dataclass(slots=True)
 class ModelResponse:
     content: str = ""
+    reasoning_content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
