@@ -3,6 +3,7 @@ from .approval import (
     ApprovalProvider,
     ApprovalRequest,
     AutoApproveApprovalProvider,
+    CliApprovalProvider,
     DenyAllApprovalProvider,
 )
 from .engine import AgentRuntime
@@ -36,6 +37,7 @@ __all__ = [
     "ApprovalRequest",
     "AllowAllToolPolicy",
     "AutoApproveApprovalProvider",
+    "CliApprovalProvider",
     "ConversationState",
     "DefaultToolResultRenderer",
     "DenyAllApprovalProvider",

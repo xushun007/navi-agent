@@ -4,6 +4,7 @@ from pathlib import Path
 
 from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.runtime import ToolRegistry, ToolsetDefinition
+from navi_agent.runtime.approval import ApprovalProvider
 from navi_agent.runtime.tool_policy import SensitiveToolPolicy
 
 from .bash_tool import BashTool
@@ -17,6 +18,7 @@ from .write_file_tool import WriteFileTool
 def build_default_tool_registry(
     root: Path | None = None,
     memory_store: InMemoryMemoryStore | None = None,
+    approval_provider: ApprovalProvider | None = None,
 ) -> ToolRegistry:
     workspace_root = root or Path.cwd()
     shared_memory_store = memory_store or InMemoryMemoryStore()
@@ -35,6 +37,7 @@ def build_default_tool_registry(
             ToolsetDefinition(name="memory", tools=["memory"]),
             ToolsetDefinition(name="core", includes=["terminal", "file", "memory"]),
         ],
+        approval_provider=approval_provider,
         policy=SensitiveToolPolicy(
             approval_required_tools={
                 "bash": "bash requires approval",

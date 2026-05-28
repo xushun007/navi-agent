@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -64,5 +65,32 @@ class AutoApproveApprovalProvider:
     def request_approval(self, request: ApprovalRequest) -> ApprovalDecision:
         return ApprovalDecision.allow(
             reason=request.reason,
+            metadata={"tool_name": request.tool_name, "arguments": request.arguments},
+        )
+
+
+class CliApprovalProvider:
+    def __init__(
+        self,
+        input_fn: Callable[[str], str] | None = None,
+        output_fn: Callable[[str], None] | None = None,
+    ) -> None:
+        self._input_fn = input_fn or input
+        self._output_fn = output_fn or print
+
+    def request_approval(self, request: ApprovalRequest) -> ApprovalDecision:
+        self._output_fn("")
+        self._output_fn("Tool approval required")
+        self._output_fn(f"tool: {request.tool_name}")
+        self._output_fn(f"reason: {request.reason}")
+        self._output_fn(f"arguments: {request.arguments}")
+        answer = self._input_fn("Allow? [y/N]: ").strip().lower()
+        if answer in {"y", "yes"}:
+            return ApprovalDecision.allow(
+                reason=f"Approved in CLI for tool: {request.tool_name}",
+                metadata={"tool_name": request.tool_name, "arguments": request.arguments},
+            )
+        return ApprovalDecision.deny(
+            reason=f"Approval denied in CLI for tool: {request.tool_name}",
             metadata={"tool_name": request.tool_name, "arguments": request.arguments},
         )

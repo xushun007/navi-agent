@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 from navi_agent.bootstrap import build_runtime
 from navi_agent.config import ModelSettings, RuntimeSettings
-from navi_agent.runtime import DemoTransport, ToolCall, ToolContext
+from navi_agent.runtime import ToolCall, ToolContext
+from navi_agent.runtime.approval import AutoApproveApprovalProvider
 
 
 class BootstrapTests(unittest.TestCase):
@@ -18,9 +19,9 @@ class BootstrapTests(unittest.TestCase):
 
         with patch("navi_agent.bootstrap.build_transport") as build_transport_mock:
             with patch("navi_agent.bootstrap.SQLiteSessionStore") as store_cls:
-                with patch("navi_agent.bootstrap.setup_logging") as setup_logging_mock:
-                    with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
-                        runtime = build_runtime(model_settings, runtime_settings)
+                    with patch("navi_agent.bootstrap.setup_logging") as setup_logging_mock:
+                        with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+                            runtime = build_runtime(model_settings, runtime_settings)
 
         build_transport_mock.assert_called_once_with(model_settings)
         store_cls.assert_called_once()
@@ -49,19 +50,6 @@ class BootstrapTests(unittest.TestCase):
         setup_logging_mock.assert_called_once()
         build_registry_mock.assert_called_once()
 
-    def test_build_runtime_uses_demo_transport_when_requested(self) -> None:
-        runtime_settings = RuntimeSettings(max_iterations=3)
-
-        with patch("navi_agent.bootstrap.SQLiteSessionStore") as store_cls:
-            with patch("navi_agent.bootstrap.setup_logging") as setup_logging_mock:
-                with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
-                    runtime = build_runtime(runtime_settings=runtime_settings, demo=True)
-
-        self.assertIsInstance(runtime._transport, DemoTransport)
-        store_cls.assert_called_once()
-        setup_logging_mock.assert_called_once()
-        build_registry_mock.assert_called_once()
-
     def test_build_runtime_uses_default_sensitive_tool_policy(self) -> None:
         runtime_settings = RuntimeSettings(max_iterations=3)
 
@@ -70,7 +58,6 @@ class BootstrapTests(unittest.TestCase):
                 runtime = build_runtime(
                     model_settings=ModelSettings(model="demo", api_key="x"),
                     runtime_settings=runtime_settings,
-                    demo=True,
                 )
 
         result = runtime._tool_registry.dispatch(
@@ -81,6 +68,21 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(result[0].status, "error")
         self.assertIn("approval", result[0].content)
         self.assertTrue(result[0].structured_content["approval_required"])
+
+    def test_build_runtime_passes_approval_provider_to_default_registry(self) -> None:
+        provider = AutoApproveApprovalProvider()
+
+        with patch("navi_agent.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.bootstrap.setup_logging"):
+                with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+                    build_runtime(
+                        model_settings=ModelSettings(model="demo", api_key="x"),
+                        runtime_settings=RuntimeSettings(max_iterations=3),
+                        approval_provider=provider,
+                    )
+
+        _, kwargs = build_registry_mock.call_args
+        self.assertIs(kwargs["approval_provider"], provider)
 
 
 if __name__ == "__main__":
