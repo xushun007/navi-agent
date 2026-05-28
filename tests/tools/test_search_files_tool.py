@@ -51,11 +51,33 @@ class SearchFilesToolTests(unittest.TestCase):
         self.assertEqual(result.structured_content["search_mode"], "filename")
         self.assertEqual(result.structured_content["match_count"], 1)
 
+    def test_supports_regex_search_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "a.txt").write_text("alpha1\nbeta\n", encoding="utf-8")
+            (root / "b.txt").write_text("alpha2\n", encoding="utf-8")
+            tool = SearchFilesTool(root=root)
+            result = tool.invoke(query=r"alpha\d", search_mode="regex")
+
+        self.assertIn("a.txt:1: alpha1", result.content)
+        self.assertIn("b.txt:1: alpha2", result.content)
+        self.assertEqual(result.structured_content["search_mode"], "regex")
+        self.assertEqual(result.structured_content["match_count"], 2)
+
+    def test_rejects_invalid_regex_pattern(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            tool = SearchFilesTool(root=root)
+            result = tool.invoke(query="([", search_mode="regex")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("Invalid regex pattern", result.content)
+
     def test_rejects_unknown_search_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             tool = SearchFilesTool(root=root)
-            result = tool.invoke(query="hello", search_mode="regex")
+            result = tool.invoke(query="hello", search_mode="unknown")
 
         self.assertEqual(result.status, "error")
         self.assertIn("Unsupported search_mode", result.content)

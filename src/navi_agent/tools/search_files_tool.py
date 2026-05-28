@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from typing import Any
 
 from navi_agent.tooling import ToolContext, ToolResult
@@ -31,7 +32,7 @@ class SearchFilesTool(WorkspaceTool):
                 "glob": {"type": "string"},
                 "search_mode": {
                     "type": "string",
-                    "enum": ["content", "filename"],
+                    "enum": ["content", "filename", "regex"],
                 },
             },
             "required": ["query"],
@@ -50,11 +51,20 @@ class SearchFilesTool(WorkspaceTool):
             return ToolResult.error(name=self.name, **self._missing_path_error(str(requested_path)))
         pattern = str(kwargs.get("glob", "*"))
         search_mode = str(kwargs.get("search_mode", "content"))
-        if search_mode not in {"content", "filename"}:
+        if search_mode not in {"content", "filename", "regex"}:
             return ToolResult.error(
                 name=self.name,
                 content=f"Unsupported search_mode: {search_mode}",
             )
+        regex = None
+        if search_mode == "regex":
+            try:
+                regex = re.compile(query)
+            except re.error as exc:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"Invalid regex pattern: {exc}",
+                )
         matches: list[str] = []
         structured_matches: list[dict[str, Any]] = []
 
@@ -86,7 +96,8 @@ class SearchFilesTool(WorkspaceTool):
             except UnicodeDecodeError:
                 continue
             for line_number, line in enumerate(lines, start=1):
-                if query in line:
+                matched = bool(regex.search(line)) if regex is not None else query in line
+                if matched:
                     preview = line if len(line) <= self._max_line_length else line[: self._max_line_length] + "..."
                     matches.append(f"{rel_path}:{line_number}: {preview}")
                     structured_matches.append(
