@@ -38,3 +38,24 @@ class SearchFilesToolTests(unittest.TestCase):
         self.assertIn("a.txt:1: hello text", result.content)
         self.assertNotIn("a.bin", result.content)
         self.assertEqual(result.structured_content["match_count"], 1)
+
+    def test_supports_filename_search_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.txt").write_text("alpha\n", encoding="utf-8")
+            (root / "todo.md").write_text("beta\n", encoding="utf-8")
+            tool = SearchFilesTool(root=root)
+            result = tool.invoke(query="note", search_mode="filename")
+
+        self.assertEqual(result.content.strip(), "notes.txt")
+        self.assertEqual(result.structured_content["search_mode"], "filename")
+        self.assertEqual(result.structured_content["match_count"], 1)
+
+    def test_rejects_unknown_search_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            tool = SearchFilesTool(root=root)
+            result = tool.invoke(query="hello", search_mode="regex")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("Unsupported search_mode", result.content)

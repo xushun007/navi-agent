@@ -29,6 +29,10 @@ class SearchFilesTool(WorkspaceTool):
                 "query": {"type": "string"},
                 "path": {"type": "string"},
                 "glob": {"type": "string"},
+                "search_mode": {
+                    "type": "string",
+                    "enum": ["content", "filename"],
+                },
             },
             "required": ["query"],
         }
@@ -45,11 +49,35 @@ class SearchFilesTool(WorkspaceTool):
         if not base_path.exists():
             return ToolResult.error(name=self.name, **self._missing_path_error(str(requested_path)))
         pattern = str(kwargs.get("glob", "*"))
+        search_mode = str(kwargs.get("search_mode", "content"))
+        if search_mode not in {"content", "filename"}:
+            return ToolResult.error(
+                name=self.name,
+                content=f"Unsupported search_mode: {search_mode}",
+            )
         matches: list[str] = []
         structured_matches: list[dict[str, Any]] = []
 
         for path in sorted(base_path.rglob("*")):
             if not path.is_file() or not fnmatch.fnmatch(path.name, pattern):
+                continue
+            rel_path = path.relative_to(self.root)
+            if search_mode == "filename":
+                if query in path.name:
+                    matches.append(str(rel_path))
+                    structured_matches.append({"path": str(rel_path)})
+                    if len(matches) >= self._max_matches:
+                        return ToolResult.ok(
+                            name=self.name,
+                            content="\n".join(matches),
+                            structured_content={
+                                "query": query,
+                                "search_mode": search_mode,
+                                "matches": structured_matches,
+                                "match_count": len(structured_matches),
+                                "truncated": True,
+                            },
+                        )
                 continue
             if self._is_binary_file(path):
                 continue
@@ -57,7 +85,6 @@ class SearchFilesTool(WorkspaceTool):
                 lines = path.read_text(encoding="utf-8").splitlines()
             except UnicodeDecodeError:
                 continue
-            rel_path = path.relative_to(self.root)
             for line_number, line in enumerate(lines, start=1):
                 if query in line:
                     preview = line if len(line) <= self._max_line_length else line[: self._max_line_length] + "..."
@@ -75,6 +102,7 @@ class SearchFilesTool(WorkspaceTool):
                             content="\n".join(matches),
                             structured_content={
                                 "query": query,
+                                "search_mode": search_mode,
                                 "matches": structured_matches,
                                 "match_count": len(structured_matches),
                                 "truncated": True,
@@ -85,6 +113,7 @@ class SearchFilesTool(WorkspaceTool):
             content="\n".join(matches),
             structured_content={
                 "query": query,
+                "search_mode": search_mode,
                 "matches": structured_matches,
                 "match_count": len(structured_matches),
                 "truncated": False,
