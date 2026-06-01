@@ -4,6 +4,7 @@ from .memory_tool import MemoryTool
 from .patch_tool import PatchTool
 from .read_file_tool import ReadFileTool
 from .search_files_tool import SearchFilesTool
+from .todo_tool import TodoTool, TodoItem, TodoStore
 from .write_file_tool import WriteFileTool
 
 __all__ = [
@@ -14,5 +15,8 @@ __all__ = [
     "PatchTool",
     "ReadFileTool",
     "SearchFilesTool",
+    "TodoItem",
+    "TodoStore",
+    "TodoTool",
     "WriteFileTool",
 ]

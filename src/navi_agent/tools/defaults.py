@@ -12,6 +12,7 @@ from .memory_tool import MemoryTool
 from .patch_tool import PatchTool
 from .read_file_tool import ReadFileTool
 from .search_files_tool import SearchFilesTool
+from .todo_tool import TodoTool
 from .write_file_tool import WriteFileTool
 
 
@@ -30,12 +31,14 @@ def build_default_tool_registry(
             ("file", WriteFileTool(root=workspace_root)),
             ("file", PatchTool(root=workspace_root)),
             ("memory", MemoryTool(memory_store=shared_memory_store)),
+            ("todo", TodoTool()),
         ],
         toolsets=[
             ToolsetDefinition(name="terminal", tools=["bash"]),
             ToolsetDefinition(name="file", tools=["read_file", "search_files", "write_file", "patch"]),
             ToolsetDefinition(name="memory", tools=["memory"]),
-            ToolsetDefinition(name="core", includes=["terminal", "file", "memory"]),
+            ToolsetDefinition(name="todo", tools=["todo"]),
+            ToolsetDefinition(name="core", includes=["terminal", "file", "memory", "todo"]),
         ],
         approval_provider=approval_provider,
         policy=SensitiveToolPolicy(
