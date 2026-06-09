@@ -41,19 +41,23 @@ class LangfuseTraceExporter:
 
     def export_trace(self, trace: RuntimeTrace) -> None:
         langfuse_trace = self._client.trace(
-            id=trace.session_id,
+            id=trace.trace_id,
             name="navi-agent-runtime",
             session_id=trace.session_id,
             user_id=trace.user_id,
             input=trace.user_message,
             output=trace.final_response,
             metadata={
+                "trace_id": trace.trace_id,
                 "status": trace.status,
                 "system_prompt": trace.system_prompt,
                 "tool_names": list(trace.tool_names),
                 "total_iterations": trace.total_iterations,
                 "approval_count": trace.approval_count,
                 "error_count": trace.error_count,
+                "started_at": trace.started_at,
+                "completed_at": trace.completed_at,
+                "duration_ms": trace.duration_ms,
             },
         )
         for model_call in trace.model_calls:
@@ -64,6 +68,9 @@ class LangfuseTraceExporter:
                 metadata={
                     "iteration": model_call.iteration,
                     "reasoning_content": model_call.reasoning_content,
+                    "started_at": model_call.started_at,
+                    "completed_at": model_call.completed_at,
+                    "duration_ms": model_call.duration_ms,
                 },
             )
         for tool_execution in trace.tool_executions:
@@ -78,6 +85,9 @@ class LangfuseTraceExporter:
                     "approval_required": tool_execution.approval_required,
                     "structured_content": tool_execution.structured_content,
                     "metadata": tool_execution.metadata,
+                    "started_at": tool_execution.started_at,
+                    "completed_at": tool_execution.completed_at,
+                    "duration_ms": tool_execution.duration_ms,
                 },
             )
             if tool_execution.approval_required:

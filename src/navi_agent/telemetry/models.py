@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 
 @dataclass(slots=True)
@@ -10,6 +11,9 @@ class ModelCallTrace:
     response_content: str
     tool_call_names: list[str] = field(default_factory=list)
     reasoning_content: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_ms: int = 0
 
 
 @dataclass(slots=True)
@@ -23,6 +27,9 @@ class ToolExecutionTrace:
     metadata: dict[str, Any] = field(default_factory=dict)
     structured_content: dict[str, Any] = field(default_factory=dict)
     approval_required: bool = False
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_ms: int = 0
 
 
 @dataclass(slots=True)
@@ -32,6 +39,7 @@ class RuntimeTrace:
     user_message: str
     final_response: str
     status: str
+    trace_id: str = field(default_factory=lambda: uuid4().hex)
     system_prompt: str | None = None
     tool_names: list[str] = field(default_factory=list)
     model_calls: list[ModelCallTrace] = field(default_factory=list)
@@ -39,3 +47,6 @@ class RuntimeTrace:
     total_iterations: int = 0
     approval_count: int = 0
     error_count: int = 0
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_ms: int = 0

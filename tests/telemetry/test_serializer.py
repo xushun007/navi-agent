@@ -27,7 +27,8 @@ class TraceSerializerTests(unittest.TestCase):
 
         payload = TraceSerializer.to_dict(trace)
 
-        self.assertEqual(payload["schema_version"], "trace.v1")
+        self.assertEqual(payload["schema_version"], "trace.v2")
+        self.assertIn("trace_id", payload)
         self.assertEqual(payload["model_calls"][0]["response_content"], "done")
         self.assertEqual(payload["tool_executions"][0]["tool_name"], "echo")
 
@@ -43,7 +44,7 @@ class TraceSerializerTests(unittest.TestCase):
         payload = json.loads(TraceSerializer.to_json(trace))
 
         self.assertEqual(payload["session_id"], "s1")
-        self.assertEqual(payload["schema_version"], "trace.v1")
+        self.assertEqual(payload["schema_version"], "trace.v2")
 
     def test_traces_to_json_lines_exports_multiple_traces(self) -> None:
         traces = [

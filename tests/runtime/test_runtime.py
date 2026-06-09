@@ -267,7 +267,14 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(trace.final_response, "done")
         self.assertEqual(trace.status, "success")
         self.assertEqual(trace.total_iterations, 1)
+        self.assertTrue(trace.trace_id)
+        self.assertIsNotNone(trace.started_at)
+        self.assertIsNotNone(trace.completed_at)
+        self.assertGreaterEqual(trace.duration_ms, 0)
         self.assertEqual(trace.model_calls[0].response_content, "done")
+        self.assertIsNotNone(trace.model_calls[0].started_at)
+        self.assertIsNotNone(trace.model_calls[0].completed_at)
+        self.assertGreaterEqual(trace.model_calls[0].duration_ms, 0)
 
     def test_runtime_emits_structured_events(self) -> None:
         transport = FakeTransport(
@@ -324,6 +331,9 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(trace.tool_executions[0].tool_name, "echo")
         self.assertEqual(trace.tool_executions[0].arguments["value"], "ping")
         self.assertEqual(trace.tool_executions[0].content, "tool:ping")
+        self.assertIsNotNone(trace.tool_executions[0].started_at)
+        self.assertIsNotNone(trace.tool_executions[0].completed_at)
+        self.assertGreaterEqual(trace.tool_executions[0].duration_ms, 0)
 
     def test_runtime_returns_structured_result_when_iteration_limit_is_hit(self) -> None:
         transport = FakeTransport([ModelResponse(tool_calls=[ToolCall(id="tc1", name="echo", arguments={})])])

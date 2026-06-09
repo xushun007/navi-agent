@@ -46,12 +46,16 @@ class LangfuseTraceExporterTests(unittest.TestCase):
             system_prompt="system",
             final_response="done",
             status="success",
+            trace_id="trace-1",
             tool_names=["echo"],
             model_calls=[
                 ModelCallTrace(
                     iteration=1,
                     response_content="done",
                     tool_call_names=["echo"],
+                    started_at="2026-06-10T10:00:00.000+00:00",
+                    completed_at="2026-06-10T10:00:00.010+00:00",
+                    duration_ms=10,
                 )
             ],
             tool_executions=[
@@ -63,19 +67,29 @@ class LangfuseTraceExporterTests(unittest.TestCase):
                     arguments={"value": "ping"},
                     content="pong",
                     approval_required=True,
+                    started_at="2026-06-10T10:00:00.020+00:00",
+                    completed_at="2026-06-10T10:00:00.025+00:00",
+                    duration_ms=5,
                 )
             ],
             total_iterations=1,
             approval_count=1,
             error_count=0,
+            started_at="2026-06-10T10:00:00.000+00:00",
+            completed_at="2026-06-10T10:00:00.030+00:00",
+            duration_ms=30,
         )
 
         exporter.export_trace(trace)
 
         self.assertEqual(client.trace_calls[0]["session_id"], "s1")
+        self.assertEqual(client.trace_calls[0]["id"], "trace-1")
         self.assertEqual(client.trace_calls[0]["metadata"]["approval_count"], 1)
+        self.assertEqual(client.trace_calls[0]["metadata"]["duration_ms"], 30)
         self.assertEqual(client.traces[0].generations[0]["name"], "model.iteration.1")
+        self.assertEqual(client.traces[0].generations[0]["metadata"]["duration_ms"], 10)
         self.assertEqual(client.traces[0].spans[0]["name"], "tool.echo")
+        self.assertEqual(client.traces[0].spans[0]["metadata"]["duration_ms"], 5)
         self.assertEqual(client.traces[0].events[0]["name"], "approval.echo")
         self.assertEqual(client.flush_count, 1)
 

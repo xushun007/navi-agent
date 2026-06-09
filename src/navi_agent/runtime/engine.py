@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 from collections.abc import Sequence
+from time import perf_counter
 
 from navi_agent.tooling import ToolContext
 
@@ -16,6 +18,27 @@ from .transports import ModelRequest, ModelTransport
 from navi_agent.telemetry import ModelCallTrace, ToolExecutionTrace, TraceStore, RuntimeTrace
 
 logger = logging.getLogger("navi_agent.runtime")
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _duration_ms(started_perf: float) -> int:
+    return int((perf_counter() - started_perf) * 1000)
+
+
+def _pop_trace_timing(metadata: dict[str, object]) -> tuple[dict[str, object], str | None, str | None, int]:
+    started_at = metadata.pop("_trace_started_at", None)
+    completed_at = metadata.pop("_trace_completed_at", None)
+    duration_ms = metadata.pop("_trace_duration_ms", 0)
+    if not isinstance(started_at, str):
+        started_at = None
+    if not isinstance(completed_at, str):
+        completed_at = None
+    if not isinstance(duration_ms, int):
+        duration_ms = 0
+    return metadata, started_at, completed_at, duration_ms
 
 
 class AgentRuntime:
@@ -50,6 +73,8 @@ class AgentRuntime:
         user_message: str,
         system_prompt: str | None = None,
     ) -> RuntimeResult:
+        run_started_at = _utc_now_iso()
+        run_started_perf = perf_counter()
         logger.info("Starting runtime conversation: session_id=%s user_id=%s", session_id, user_id)
         self._emit_event(
             RuntimeEvent(
@@ -84,6 +109,8 @@ class AgentRuntime:
                     iteration=iteration_number,
                 )
             )
+            model_started_at = _utc_now_iso()
+            model_started_perf = perf_counter()
             response = self._transport.generate(
                 ModelRequest(
                     messages=self._session_store.snapshot(session),
@@ -108,6 +135,9 @@ class AgentRuntime:
                     response_content=response.content,
                     tool_call_names=[tool_call.name for tool_call in response.tool_calls],
                     reasoning_content=response.reasoning_content,
+                    started_at=model_started_at,
+                    completed_at=_utc_now_iso(),
+                    duration_ms=_duration_ms(model_started_perf),
                 )
             )
 
@@ -139,6 +169,8 @@ class AgentRuntime:
                     result=result,
                     model_calls=model_calls,
                     tool_executions=tool_executions,
+                    started_at=run_started_at,
+                    duration_ms=_duration_ms(run_started_perf),
                 )
                 self._emit_event(
                     RuntimeEvent(
@@ -162,6 +194,9 @@ class AgentRuntime:
                 enabled_toolsets=self._enabled_toolsets,
                 disabled_toolsets=self._disabled_toolsets,
             ):
+                tool_metadata, tool_started_at, tool_completed_at, tool_duration_ms = _pop_trace_timing(
+                    dict(tool_result.metadata)
+                )
                 logger.debug(
                     "Tool executed: session_id=%s tool=%s",
                     session_id,
@@ -183,11 +218,14 @@ class AgentRuntime:
                             {},
                         ),
                         content=tool_result.content,
-                        metadata=dict(tool_result.metadata),
+                        metadata=tool_metadata,
                         structured_content=dict(tool_result.structured_content),
                         approval_required=bool(
                             tool_result.structured_content.get("approval_required")
                         ),
+                        started_at=tool_started_at,
+                        completed_at=tool_completed_at,
+                        duration_ms=tool_duration_ms,
                     )
                 )
                 self._emit_event(
@@ -227,6 +265,8 @@ class AgentRuntime:
             result=result,
             model_calls=model_calls,
             tool_executions=tool_executions,
+            started_at=run_started_at,
+            duration_ms=_duration_ms(run_started_perf),
         )
         self._emit_event(
             RuntimeEvent(
@@ -248,6 +288,8 @@ class AgentRuntime:
         result: RuntimeResult,
         model_calls: list[ModelCallTrace],
         tool_executions: list[ToolExecutionTrace],
+        started_at: str,
+        duration_ms: int,
     ) -> None:
         if self._trace_store is None:
             return
@@ -265,6 +307,9 @@ class AgentRuntime:
                 total_iterations=len(model_calls),
                 approval_count=sum(1 for item in tool_executions if item.approval_required),
                 error_count=sum(1 for item in tool_executions if item.status == "error"),
+                started_at=started_at,
+                completed_at=_utc_now_iso(),
+                duration_ms=duration_ms,
             )
         )
 
