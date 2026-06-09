@@ -32,6 +32,7 @@ class RuntimeTrace:
     user_message: str
     final_response: str
     status: str
+    system_prompt: str | None = None
     tool_names: list[str] = field(default_factory=list)
     model_calls: list[ModelCallTrace] = field(default_factory=list)
     tool_executions: list[ToolExecutionTrace] = field(default_factory=list)
