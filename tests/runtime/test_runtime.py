@@ -266,6 +266,8 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(trace.user_message, "hello")
         self.assertEqual(trace.final_response, "done")
         self.assertEqual(trace.status, "success")
+        self.assertEqual(trace.total_iterations, 1)
+        self.assertEqual(trace.model_calls[0].response_content, "done")
 
     def test_runtime_emits_structured_events(self) -> None:
         transport = FakeTransport(
@@ -299,6 +301,29 @@ class AgentRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(observer.events[2].metadata["tool_call_count"], 1)
         self.assertEqual(observer.events[3].metadata["tool_name"], "echo")
+
+    def test_runtime_records_tool_execution_trace_details(self) -> None:
+        transport = FakeTransport(
+            [
+                ModelResponse(
+                    tool_calls=[ToolCall(id="tc1", name="echo", arguments={"value": "ping"})]
+                ),
+                ModelResponse(content="done"),
+            ]
+        )
+        trace_store = InMemoryTraceStore()
+        runtime = AgentRuntime(
+            transport=transport,
+            trace_store=trace_store,
+            tool_registry=ToolRegistry(tools={"echo": lambda value: ok_result("echo", f"tool:{value}")}),
+        )
+
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        trace = trace_store.traces[0]
+        self.assertEqual(trace.tool_executions[0].tool_name, "echo")
+        self.assertEqual(trace.tool_executions[0].arguments["value"], "ping")
+        self.assertEqual(trace.tool_executions[0].content, "tool:ping")
 
     def test_runtime_returns_structured_result_when_iteration_limit_is_hit(self) -> None:
         transport = FakeTransport([ModelResponse(tool_calls=[ToolCall(id="tc1", name="echo", arguments={})])])
@@ -490,6 +515,7 @@ class AgentRuntimeTests(unittest.TestCase):
         )
         runtime = AgentRuntime(
             transport=transport,
+            trace_store=InMemoryTraceStore(),
             tool_registry=ToolRegistry(
                 tools={"write_file": lambda path, content: ToolResult.ok("write_file", "written")},
                 policy=DenyPolicy(),
@@ -500,6 +526,36 @@ class AgentRuntimeTests(unittest.TestCase):
 
         self.assertEqual(result.tool_results[0].status, "error")
         self.assertIn("requires approval", result.messages[-2].content)
+        trace = runtime._trace_store.traces[0]
+        self.assertEqual(trace.error_count, 1)
+        self.assertEqual(trace.approval_count, 0)
+        self.assertFalse(trace.tool_executions[0].approval_required)
+
+    def test_runtime_counts_approval_required_tool_results(self) -> None:
+        class AskPolicy:
+            def decide(self, tool_name: str, arguments: dict, context: ToolContext | None) -> ToolDecision:
+                return ToolDecision.ask("write_file requires approval")
+
+        transport = FakeTransport(
+            [
+                ModelResponse(tool_calls=[ToolCall(id="tc1", name="write_file", arguments={"path": "a.txt", "content": "x"})]),
+                ModelResponse(content="done"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            trace_store=InMemoryTraceStore(),
+            tool_registry=ToolRegistry(
+                tools={"write_file": lambda path, content: ToolResult.ok("write_file", "written")},
+                policy=AskPolicy(),
+            ),
+        )
+
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="write file")
+
+        trace = runtime._trace_store.traces[0]
+        self.assertEqual(trace.approval_count, 1)
+        self.assertTrue(trace.tool_executions[0].approval_required)
 
 
 if __name__ == "__main__":

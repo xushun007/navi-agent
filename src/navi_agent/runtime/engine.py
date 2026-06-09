@@ -13,7 +13,7 @@ from .store import SessionStore
 from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
 from .tools import ToolRegistry
 from .transports import ModelRequest, ModelTransport
-from navi_agent.telemetry import TraceStore, RuntimeTrace
+from navi_agent.telemetry import ModelCallTrace, ToolExecutionTrace, TraceStore, RuntimeTrace
 
 logger = logging.getLogger("navi_agent.runtime")
 
@@ -66,6 +66,8 @@ class AgentRuntime:
         ):
             self._session_store.append(session, message)
         tool_results = []
+        model_calls: list[ModelCallTrace] = []
+        tool_executions: list[ToolExecutionTrace] = []
 
         for iteration in range(self._max_iterations):
             iteration_number = iteration + 1
@@ -100,6 +102,14 @@ class AgentRuntime:
                     metadata={"tool_call_count": len(response.tool_calls)},
                 )
             )
+            model_calls.append(
+                ModelCallTrace(
+                    iteration=iteration_number,
+                    response_content=response.content,
+                    tool_call_names=[tool_call.name for tool_call in response.tool_calls],
+                    reasoning_content=response.reasoning_content,
+                )
+            )
 
             assistant_message = Message(
                 role="assistant",
@@ -126,6 +136,8 @@ class AgentRuntime:
                     user_id=user_id,
                     user_message=user_message,
                     result=result,
+                    model_calls=model_calls,
+                    tool_executions=tool_executions,
                 )
                 self._emit_event(
                     RuntimeEvent(
@@ -155,6 +167,28 @@ class AgentRuntime:
                     tool_result.name,
                 )
                 tool_results.append(tool_result)
+                tool_executions.append(
+                    ToolExecutionTrace(
+                        iteration=iteration_number,
+                        tool_call_id=tool_result.tool_call_id,
+                        tool_name=tool_result.name,
+                        status=tool_result.status,
+                        arguments=next(
+                            (
+                                tool_call.arguments
+                                for tool_call in response.tool_calls
+                                if tool_call.id == tool_result.tool_call_id
+                            ),
+                            {},
+                        ),
+                        content=tool_result.content,
+                        metadata=dict(tool_result.metadata),
+                        structured_content=dict(tool_result.structured_content),
+                        approval_required=bool(
+                            tool_result.structured_content.get("approval_required")
+                        ),
+                    )
+                )
                 self._emit_event(
                     RuntimeEvent(
                         name="tool.executed",
@@ -189,6 +223,8 @@ class AgentRuntime:
             user_id=user_id,
             user_message=user_message,
             result=result,
+            model_calls=model_calls,
+            tool_executions=tool_executions,
         )
         self._emit_event(
             RuntimeEvent(
@@ -207,6 +243,8 @@ class AgentRuntime:
         user_id: str,
         user_message: str,
         result: RuntimeResult,
+        model_calls: list[ModelCallTrace],
+        tool_executions: list[ToolExecutionTrace],
     ) -> None:
         if self._trace_store is None:
             return
@@ -218,6 +256,11 @@ class AgentRuntime:
                 final_response=result.final_response,
                 status=result.status,
                 tool_names=[item.name for item in result.tool_results],
+                model_calls=list(model_calls),
+                tool_executions=list(tool_executions),
+                total_iterations=len(model_calls),
+                approval_count=sum(1 for item in tool_executions if item.approval_required),
+                error_count=sum(1 for item in tool_executions if item.status == "error"),
             )
         )
 
