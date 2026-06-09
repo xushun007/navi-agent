@@ -3,9 +3,10 @@ import unittest
 from unittest.mock import patch
 
 from navi_agent.bootstrap import build_runtime
-from navi_agent.config import ModelSettings, RuntimeSettings
+from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings
 from navi_agent.runtime import ToolCall, ToolContext
 from navi_agent.runtime.approval import AutoApproveApprovalProvider
+from navi_agent.telemetry import CompositeTraceStore, InMemoryTraceStore
 
 
 class BootstrapTests(unittest.TestCase):
@@ -83,6 +84,42 @@ class BootstrapTests(unittest.TestCase):
 
         _, kwargs = build_registry_mock.call_args
         self.assertIs(kwargs["approval_provider"], provider)
+
+    def test_build_runtime_uses_composite_trace_store_when_langfuse_enabled(self) -> None:
+        with patch("navi_agent.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.bootstrap.setup_logging"):
+                with patch(
+                    "navi_agent.bootstrap.LangfuseSettings.from_sources",
+                    return_value=LangfuseSettings(enabled=True, public_key="pk", secret_key="sk"),
+                ):
+                    with patch(
+                        "navi_agent.bootstrap.LangfuseTraceExporter.from_settings",
+                        return_value=object(),
+                    ):
+                        runtime = build_runtime(
+                            model_settings=ModelSettings(model="demo", api_key="x"),
+                            runtime_settings=RuntimeSettings(max_iterations=3),
+                        )
+
+        self.assertIsInstance(runtime._trace_store, CompositeTraceStore)
+
+    def test_build_runtime_falls_back_to_in_memory_trace_store_when_exporter_init_fails(self) -> None:
+        with patch("navi_agent.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.bootstrap.setup_logging"):
+                with patch(
+                    "navi_agent.bootstrap.LangfuseSettings.from_sources",
+                    return_value=LangfuseSettings(enabled=True, public_key="pk", secret_key="sk"),
+                ):
+                    with patch(
+                        "navi_agent.bootstrap.LangfuseTraceExporter.from_settings",
+                        side_effect=RuntimeError("boom"),
+                    ):
+                        runtime = build_runtime(
+                            model_settings=ModelSettings(model="demo", api_key="x"),
+                            runtime_settings=RuntimeSettings(max_iterations=3),
+                        )
+
+        self.assertIsInstance(runtime._trace_store, InMemoryTraceStore)
 
 
 if __name__ == "__main__":

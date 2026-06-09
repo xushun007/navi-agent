@@ -72,3 +72,35 @@ def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+@dataclass(slots=True)
+class LangfuseSettings:
+    enabled: bool = False
+    public_key: str | None = None
+    secret_key: str | None = None
+    host: str | None = None
+
+    @classmethod
+    def from_sources(cls, config: dict | None = None) -> "LangfuseSettings":
+        config = config or {}
+        telemetry_cfg = config.get("telemetry") or {}
+        langfuse_cfg = telemetry_cfg.get("langfuse") or {}
+        enabled = _as_bool(
+            os.getenv("NAVI_LANGFUSE_ENABLED"),
+            bool(langfuse_cfg.get("enabled", False)),
+        )
+        return cls(
+            enabled=enabled,
+            public_key=os.getenv("LANGFUSE_PUBLIC_KEY") or _optional_str(langfuse_cfg.get("public_key")),
+            secret_key=os.getenv("LANGFUSE_SECRET_KEY") or _optional_str(langfuse_cfg.get("secret_key")),
+            host=os.getenv("LANGFUSE_HOST") or _optional_str(langfuse_cfg.get("host")),
+        )
+
+
+def _as_bool(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
