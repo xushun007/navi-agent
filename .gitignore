@@ -1,6 +1,7 @@
 AGENTS.md
 design
 BUILD_LOG.md
+.DS_Store
 .navi-agent/
 __pycache__/
 .pytest_cache/
