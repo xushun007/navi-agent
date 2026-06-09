@@ -21,6 +21,7 @@ class SimpleEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.session_id, "s1")
         self.assertEqual(result.score, 1.0)
         self.assertEqual(result.metadata["tool_names"], ["echo"])
+        self.assertEqual(result.metadata["signals"], [])
 
     def test_build_candidate_for_failed_evaluation(self) -> None:
         evaluator = SimpleEvaluator()
@@ -31,14 +32,35 @@ class SimpleEvaluatorTests(unittest.TestCase):
                 user_message="hello",
                 final_response="failed",
                 status="failed",
+                error_count=1,
             )
         )
 
         candidate = evaluator.build_candidate(result)
 
         self.assertIsNotNone(candidate)
-        self.assertEqual(candidate.target, "prompt")
+        self.assertEqual(candidate.target, "tooling")
         self.assertEqual(candidate.metadata["session_id"], "s1")
+
+    def test_evaluate_approval_blocked_trace(self) -> None:
+        evaluator = SimpleEvaluator()
+        result = evaluator.evaluate(
+            RuntimeTrace(
+                session_id="s1",
+                user_id="u1",
+                user_message="hello",
+                final_response="",
+                status="success",
+                approval_count=2,
+                total_iterations=2,
+            )
+        )
+
+        self.assertLess(result.score, 1.0)
+        self.assertIn("approvals:2", result.metadata["signals"])
+        candidate = evaluator.build_candidate(result)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.target, "tool_policy")
 
     def test_store_candidate_writes_to_store(self) -> None:
         evaluator = SimpleEvaluator()

@@ -8,23 +8,56 @@ from .store import CandidateStore
 
 class SimpleEvaluator:
     def evaluate(self, trace: RuntimeTrace) -> EvaluationResult:
-        score = 1.0 if trace.status == "success" else 0.0
-        summary = "Successful run" if trace.status == "success" else "Failed run"
+        score = 1.0
+        signals: list[str] = []
+
+        if trace.status != "success":
+            score -= 0.5
+            signals.append(f"status:{trace.status}")
+        if trace.error_count:
+            score -= min(0.3, trace.error_count * 0.1)
+            signals.append(f"tool_errors:{trace.error_count}")
+        if trace.approval_count:
+            score -= min(0.2, trace.approval_count * 0.1)
+            signals.append(f"approvals:{trace.approval_count}")
+        if trace.total_iterations > 3:
+            score -= 0.1
+            signals.append(f"iterations:{trace.total_iterations}")
+
+        score = max(0.0, round(score, 3))
+        summary = self._build_summary(trace, signals)
         return EvaluationResult(
             session_id=trace.session_id,
             score=score,
             summary=summary,
-            metadata={"tool_names": list(trace.tool_names)},
+            metadata={
+                "tool_names": list(trace.tool_names),
+                "status": trace.status,
+                "error_count": trace.error_count,
+                "approval_count": trace.approval_count,
+                "total_iterations": trace.total_iterations,
+                "signals": signals,
+            },
         )
 
     def build_candidate(self, evaluation: EvaluationResult) -> EvolutionCandidate | None:
         if evaluation.score >= 1.0:
             return None
+        target = "prompt"
+        if evaluation.metadata.get("approval_count", 0):
+            target = "tool_policy"
+        elif evaluation.metadata.get("error_count", 0):
+            target = "tooling"
+        elif evaluation.metadata.get("status") == "iteration_limit_exceeded":
+            target = "prompt"
         return EvolutionCandidate(
-            target="prompt",
-            summary="Review failed runtime session",
+            target=target,
+            summary=f"Review underperforming runtime session ({target})",
             rationale=evaluation.summary,
-            metadata={"session_id": evaluation.session_id},
+            metadata={
+                "session_id": evaluation.session_id,
+                "signals": list(evaluation.metadata.get("signals", [])),
+            },
         )
 
     def store_candidate(
@@ -35,3 +68,16 @@ class SimpleEvaluator:
         if candidate is None:
             return
         candidate_store.add(candidate)
+
+    def _build_summary(self, trace: RuntimeTrace, signals: list[str]) -> str:
+        if not signals:
+            return "Successful run with no obvious issues"
+        if trace.status == "iteration_limit_exceeded":
+            return "Run hit the iteration limit before finishing"
+        if trace.approval_count:
+            return "Run was blocked by approval-gated tool usage"
+        if trace.error_count:
+            return "Run encountered tool execution errors"
+        if trace.status != "success":
+            return f"Run ended with status {trace.status}"
+        return "Run completed with inefficiencies that should be reviewed"
