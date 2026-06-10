@@ -3,7 +3,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from navi_agent.cli import build_parser, main
+from navi_agent.cli import _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, RuntimeResult
 
 
@@ -32,6 +32,15 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.session_id, "s1")
         self.assertEqual(args.system_prompt, "system")
         self.assertEqual(args.message, "hello")
+        self.assertFalse(args.interactive)
+
+    def test_build_parser_parses_interactive_flag(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["--interactive"])
+
+        self.assertTrue(args.interactive)
+        self.assertIsNone(args.message)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -49,6 +58,47 @@ class CliTests(unittest.TestCase):
         self.assertEqual(kwargs["default_system_prompt"], None)
         self.assertIsInstance(kwargs["approval_provider"], CliApprovalProvider)
         self.assertEqual(fake_app.calls[0].user_id, "u1")
+        self.assertEqual(fake_app.calls[0].message, "hello")
+
+    def test_main_requires_message_without_interactive(self) -> None:
+        with patch("sys.argv", ["navi-agent"]):
+            with self.assertRaises(SystemExit):
+                main()
+
+    def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("builtins.input", side_effect=["hello", "again", "exit"]):
+            with redirect_stdout(stdout):
+                exit_code = _run_interactive(
+                    app=fake_app,
+                    user_id="u1",
+                    session_id="s1",
+                    system_prompt="system",
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            [(request.session_id, request.message) for request in fake_app.calls],
+            [("s1", "hello"), ("s1", "again")],
+        )
+        self.assertIn("Interactive session: s1", stdout.getvalue())
+        self.assertEqual(stdout.getvalue().strip().splitlines()[-2:], ["done", "done"])
+
+    def test_main_runs_interactive_mode_with_first_message(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("builtins.input", side_effect=["quit"]):
+                with patch("sys.argv", ["navi-agent", "--interactive", "--session-id", "s1", "hello"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(fake_app.calls), 1)
+        self.assertEqual(fake_app.calls[0].session_id, "s1")
         self.assertEqual(fake_app.calls[0].message, "hello")
 
 

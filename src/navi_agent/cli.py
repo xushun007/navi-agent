@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from uuid import uuid4
 
 from navi_agent.app import AppRequest
 from navi_agent.bootstrap import build_application
@@ -9,21 +10,32 @@ from navi_agent.runtime import CliApprovalProvider
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="navi-agent")
-    parser.add_argument("message", help="User message to send to the agent")
+    parser.add_argument("message", nargs="?")
     parser.add_argument("--user-id", default="local-user")
     parser.add_argument("--session-id")
     parser.add_argument("--system-prompt")
+    parser.add_argument("--interactive", action="store_true")
     return parser
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if not args.interactive and not args.message:
+        parser.error("message is required unless --interactive is set")
 
     app = build_application(
         default_system_prompt=args.system_prompt,
         approval_provider=CliApprovalProvider(),
     )
+    if args.interactive:
+        return _run_interactive(
+            app=app,
+            user_id=args.user_id,
+            session_id=args.session_id or uuid4().hex,
+            system_prompt=args.system_prompt,
+            first_message=args.message,
+        )
     result = app.handle(
         AppRequest(
             user_id=args.user_id,
@@ -34,6 +46,42 @@ def main() -> int:
     )
     print(result.final_response)
     return 0
+
+
+def _run_interactive(
+    *,
+    app,
+    user_id: str,
+    session_id: str,
+    system_prompt: str | None,
+    first_message: str | None = None,
+) -> int:
+    print(f"Interactive session: {session_id}")
+    print("Type 'exit' or 'quit' to stop.")
+
+    pending_message = first_message
+    while True:
+        message = pending_message
+        pending_message = None
+        if message is None:
+            try:
+                message = input("> ").strip()
+            except EOFError:
+                print()
+                return 0
+        if not message:
+            continue
+        if message.lower() in {"exit", "quit"}:
+            return 0
+        result = app.handle(
+            AppRequest(
+                user_id=user_id,
+                session_id=session_id,
+                message=message,
+                system_prompt=system_prompt,
+            )
+        )
+        print(result.final_response)
 
 
 if __name__ == "__main__":
