@@ -42,6 +42,14 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.interactive)
         self.assertIsNone(args.message)
 
+    def test_build_parser_parses_doctor_flag(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["--doctor"])
+
+        self.assertTrue(args.doctor)
+        self.assertIsNone(args.message)
+
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
@@ -64,6 +72,14 @@ class CliTests(unittest.TestCase):
         with patch("sys.argv", ["navi-agent"]):
             with self.assertRaises(SystemExit):
                 main()
+
+    def test_main_runs_doctor_mode(self) -> None:
+        with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:
+            with patch("sys.argv", ["navi-agent", "--doctor"]):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        run_doctor_mock.assert_called_once_with()
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()

@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from navi_agent.app import AppRequest
 from navi_agent.bootstrap import build_application
+from navi_agent.doctor import run_doctor
 from navi_agent.runtime import CliApprovalProvider
 
 
@@ -15,12 +16,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session-id")
     parser.add_argument("--system-prompt")
     parser.add_argument("--interactive", action="store_true")
+    parser.add_argument("--doctor", action="store_true")
     return parser
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if args.doctor:
+        return run_doctor()
     if not args.interactive and not args.message:
         parser.error("message is required unless --interactive is set")
 

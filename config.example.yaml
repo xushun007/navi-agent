@@ -5,3 +5,10 @@ model:
 
 runtime:
   max_iterations: 8
+
+telemetry:
+  langfuse:
+    enabled: false
+    public_key: replace-with-your-langfuse-public-key
+    secret_key: replace-with-your-langfuse-secret-key
+    host: https://cloud.langfuse.com
