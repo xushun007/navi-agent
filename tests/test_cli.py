@@ -50,6 +50,14 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.doctor)
         self.assertIsNone(args.message)
 
+    def test_build_parser_parses_smoke_flags(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["--smoke", "config-check"])
+
+        self.assertEqual(args.smoke, "config-check")
+        self.assertFalse(args.list_smoke_tasks)
+
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
@@ -80,6 +88,37 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         run_doctor_mock.assert_called_once_with()
+
+    def test_main_lists_smoke_tasks(self) -> None:
+        stdout = io.StringIO()
+
+        with patch(
+            "navi_agent.cli.list_smoke_tasks",
+            return_value=[type("Task", (), {"name": "config-check", "description": "desc"})()],
+        ):
+            with patch("sys.argv", ["navi-agent", "--list-smoke-tasks"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue().strip(), "config-check: desc")
+
+    def test_main_runs_smoke_task(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch(
+                "navi_agent.cli.run_smoke_task",
+                return_value=RuntimeResult(session_id="s1", status="success", final_response="done"),
+            ) as run_smoke_task_mock:
+                with patch("sys.argv", ["navi-agent", "--smoke", "config-check"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue().strip(), "done")
+        run_smoke_task_mock.assert_called_once()
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()
