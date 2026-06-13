@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
 from navi_agent.paths import get_app_log_path, get_config_path, get_navi_home, get_state_db_path
 from navi_agent.runtime import build_transport
+from navi_agent.telemetry import LangfuseTraceExporter, is_langfuse_sdk_available
 
 
 @dataclass(slots=True)
@@ -31,6 +32,7 @@ def collect_report() -> DoctorReport:
         f"api_key_configured: {_format_bool(bool(model_settings.api_key))}",
         f"max_iterations: {runtime_settings.max_iterations}",
         f"langfuse_enabled: {_format_bool(langfuse_settings.enabled)}",
+        f"langfuse_sdk_installed: {_format_bool(is_langfuse_sdk_available())}",
     ]
 
     ok = True
@@ -46,6 +48,15 @@ def collect_report() -> DoctorReport:
         lines.append(f"langfuse_keys_configured: {_format_bool(langfuse_ready)}")
         if not langfuse_ready:
             ok = False
+            lines.append("langfuse_exporter: error: missing public_key or secret_key")
+        else:
+            try:
+                LangfuseTraceExporter.from_settings(langfuse_settings)
+            except Exception as exc:
+                ok = False
+                lines.append(f"langfuse_exporter: error: {exc}")
+            else:
+                lines.append("langfuse_exporter: ok")
     return DoctorReport(ok=ok, lines=lines)
 
 

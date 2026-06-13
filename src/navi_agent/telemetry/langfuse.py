@@ -7,6 +7,14 @@ from navi_agent.config import LangfuseSettings
 from .models import RuntimeTrace
 
 
+def is_langfuse_sdk_available() -> bool:
+    try:
+        from langfuse import Langfuse  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 class LangfuseTraceClient(Protocol):
     def generation(self, **kwargs: Any) -> None: ...
     def span(self, **kwargs: Any) -> None: ...
@@ -26,6 +34,10 @@ class LangfuseTraceExporter:
     def from_settings(cls, settings: LangfuseSettings) -> "LangfuseTraceExporter":
         if not settings.enabled:
             raise ValueError("Langfuse is not enabled")
+        if not is_langfuse_sdk_available():
+            raise RuntimeError(
+                "Langfuse SDK is not installed. Add the 'langfuse' package to enable exporting."
+            )
         try:
             from langfuse import Langfuse
         except ImportError as exc:

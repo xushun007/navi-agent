@@ -1,5 +1,5 @@
 from .export import CompositeTraceStore, TraceExporter
-from .langfuse import LangfuseTraceExporter
+from .langfuse import LangfuseTraceExporter, is_langfuse_sdk_available
 from .memory import InMemoryTraceStore
 from .models import ModelCallTrace, RuntimeTrace, ToolExecutionTrace
 from .replay import TraceReplayResult, TraceReplayService
@@ -18,4 +18,5 @@ __all__ = [
     "TraceExporter",
     "ToolExecutionTrace",
     "TraceStore",
+    "is_langfuse_sdk_available",
 ]
