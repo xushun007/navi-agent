@@ -3,20 +3,26 @@ import unittest
 from navi_agent.telemetry import LangfuseTraceExporter, ModelCallTrace, RuntimeTrace, ToolExecutionTrace
 
 
-class FakeLangfuseTrace:
+class FakeLangfuseObservation:
     def __init__(self) -> None:
-        self.generations = []
-        self.spans = []
+        self.observations = []
         self.events = []
+        self.end_count = 0
+        self.trace_id = "trace-1"
+        self.id = "obs-1"
 
-    def generation(self, **kwargs) -> None:
-        self.generations.append(kwargs)
+    def start_observation(self, **kwargs):
+        child = FakeLangfuseObservation()
+        child.trace_id = self.trace_id
+        child.id = f"child-{len(self.observations) + 1}"
+        self.observations.append({"kwargs": kwargs, "child": child})
+        return child
 
-    def span(self, **kwargs) -> None:
-        self.spans.append(kwargs)
-
-    def event(self, **kwargs) -> None:
+    def create_event(self, **kwargs) -> None:
         self.events.append(kwargs)
+
+    def end(self, **kwargs) -> None:
+        self.end_count += 1
 
 
 class FakeLangfuseClient:
@@ -25,9 +31,10 @@ class FakeLangfuseClient:
         self.traces = []
         self.flush_count = 0
 
-    def trace(self, **kwargs) -> FakeLangfuseTrace:
+    def start_observation(self, **kwargs) -> FakeLangfuseObservation:
         self.trace_calls.append(kwargs)
-        trace = FakeLangfuseTrace()
+        trace = FakeLangfuseObservation()
+        trace.trace_id = kwargs["trace_context"]["trace_id"]
         self.traces.append(trace)
         return trace
 
@@ -82,15 +89,18 @@ class LangfuseTraceExporterTests(unittest.TestCase):
 
         exporter.export_trace(trace)
 
-        self.assertEqual(client.trace_calls[0]["session_id"], "s1")
-        self.assertEqual(client.trace_calls[0]["id"], "trace-1")
+        self.assertEqual(client.trace_calls[0]["trace_context"]["trace_id"], "trace-1")
+        self.assertEqual(client.trace_calls[0]["as_type"], "agent")
         self.assertEqual(client.trace_calls[0]["metadata"]["approval_count"], 1)
         self.assertEqual(client.trace_calls[0]["metadata"]["duration_ms"], 30)
-        self.assertEqual(client.traces[0].generations[0]["name"], "model.iteration.1")
-        self.assertEqual(client.traces[0].generations[0]["metadata"]["duration_ms"], 10)
-        self.assertEqual(client.traces[0].spans[0]["name"], "tool.echo")
-        self.assertEqual(client.traces[0].spans[0]["metadata"]["duration_ms"], 5)
+        self.assertEqual(client.traces[0].observations[0]["kwargs"]["name"], "model.iteration.1")
+        self.assertEqual(client.traces[0].observations[0]["kwargs"]["metadata"]["duration_ms"], 10)
+        self.assertEqual(client.traces[0].observations[0]["kwargs"]["as_type"], "generation")
+        self.assertEqual(client.traces[0].observations[1]["kwargs"]["name"], "tool.echo")
+        self.assertEqual(client.traces[0].observations[1]["kwargs"]["metadata"]["duration_ms"], 5)
+        self.assertEqual(client.traces[0].observations[1]["kwargs"]["as_type"], "tool")
         self.assertEqual(client.traces[0].events[0]["name"], "approval.echo")
+        self.assertEqual(client.traces[0].end_count, 1)
         self.assertEqual(client.flush_count, 1)
 
 

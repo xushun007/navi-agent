@@ -15,14 +15,17 @@ def is_langfuse_sdk_available() -> bool:
     return True
 
 
-class LangfuseTraceClient(Protocol):
-    def generation(self, **kwargs: Any) -> None: ...
-    def span(self, **kwargs: Any) -> None: ...
-    def event(self, **kwargs: Any) -> None: ...
+class LangfuseObservationClient(Protocol):
+    id: str
+    trace_id: str
+
+    def start_observation(self, **kwargs: Any) -> "LangfuseObservationClient": ...
+    def create_event(self, **kwargs: Any) -> Any: ...
+    def end(self, **kwargs: Any) -> Any: ...
 
 
 class LangfuseClient(Protocol):
-    def trace(self, **kwargs: Any) -> LangfuseTraceClient: ...
+    def start_observation(self, **kwargs: Any) -> LangfuseObservationClient: ...
     def flush(self) -> None: ...
 
 
@@ -52,15 +55,16 @@ class LangfuseTraceExporter:
         return cls(client=client)
 
     def export_trace(self, trace: RuntimeTrace) -> None:
-        langfuse_trace = self._client.trace(
-            id=trace.trace_id,
+        langfuse_trace = self._client.start_observation(
+            trace_context={"trace_id": trace.trace_id},
             name="navi-agent-runtime",
-            session_id=trace.session_id,
-            user_id=trace.user_id,
+            as_type="agent",
             input=trace.user_message,
             output=trace.final_response,
             metadata={
                 "trace_id": trace.trace_id,
+                "session_id": trace.session_id,
+                "user_id": trace.user_id,
                 "status": trace.status,
                 "system_prompt": trace.system_prompt,
                 "tool_names": list(trace.tool_names),
@@ -73,8 +77,9 @@ class LangfuseTraceExporter:
             },
         )
         for model_call in trace.model_calls:
-            langfuse_trace.generation(
+            generation = langfuse_trace.start_observation(
                 name=f"model.iteration.{model_call.iteration}",
+                as_type="generation",
                 input={"tool_call_names": list(model_call.tool_call_names)},
                 output=model_call.response_content,
                 metadata={
@@ -85,9 +90,11 @@ class LangfuseTraceExporter:
                     "duration_ms": model_call.duration_ms,
                 },
             )
+            generation.end()
         for tool_execution in trace.tool_executions:
-            langfuse_trace.span(
+            tool = langfuse_trace.start_observation(
                 name=f"tool.{tool_execution.tool_name}",
+                as_type="tool",
                 input=tool_execution.arguments,
                 output=tool_execution.content,
                 metadata={
@@ -102,8 +109,9 @@ class LangfuseTraceExporter:
                     "duration_ms": tool_execution.duration_ms,
                 },
             )
+            tool.end()
             if tool_execution.approval_required:
-                langfuse_trace.event(
+                langfuse_trace.create_event(
                     name=f"approval.{tool_execution.tool_name}",
                     metadata={
                         "iteration": tool_execution.iteration,
@@ -111,4 +119,5 @@ class LangfuseTraceExporter:
                         "arguments": tool_execution.arguments,
                     },
                 )
+        langfuse_trace.end()
         self._client.flush()
