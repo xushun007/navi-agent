@@ -41,6 +41,12 @@ class FakeApp:
                 return candidate
         return None
 
+    def apply_candidate(self, candidate_id, review_note=None):
+        candidate = self.update_candidate_status(candidate_id, "applied", review_note=review_note)
+        if candidate is not None:
+            self.applied_candidate = candidate
+        return candidate
+
 
 class CliTests(unittest.TestCase):
     def test_build_parser_parses_expected_arguments(self) -> None:
@@ -451,6 +457,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_status: accepted", stdout.getvalue())
         self.assertEqual(candidate.status, "accepted")
+
+    def test_main_applies_prompt_candidate(self) -> None:
+        fake_app = FakeApp()
+        candidate = type(
+            "Candidate",
+            (),
+            {
+                "candidate_id": "c1",
+                "status": "pending",
+                "target": "prompt",
+                "summary": "Review prompt",
+                "review_note": None,
+            },
+        )()
+        fake_app.saved_candidates.append(candidate)
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("sys.argv", ["navi-agent", "--candidate-id", "c1", "--apply-candidate"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("candidate_status: applied", stdout.getvalue())
+        self.assertEqual(candidate.status, "applied")
 
     def test_main_lists_workflow_samples(self) -> None:
         fake_app = FakeApp()

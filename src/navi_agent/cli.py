@@ -72,13 +72,22 @@ def main() -> int:
         )
         if not args.candidate_id:
             parser.error("--candidate-id is required for candidate status updates")
-        updated = app.update_candidate_status(
-            args.candidate_id,
-            candidate_action,
-            review_note=args.candidate_note,
-        )
+        if candidate_action == "applied":
+            updated = app.apply_candidate(
+                args.candidate_id,
+                review_note=args.candidate_note,
+            )
+        else:
+            updated = app.update_candidate_status(
+                args.candidate_id,
+                candidate_action,
+                review_note=args.candidate_note,
+            )
         if updated is None:
-            print(f"candidate not found: {args.candidate_id}")
+            if candidate_action == "applied":
+                print(f"candidate cannot be applied: {args.candidate_id}")
+            else:
+                print(f"candidate not found: {args.candidate_id}")
             return 1
         print(f"candidate_id: {updated.candidate_id}")
         print(f"candidate_status: {updated.status}")

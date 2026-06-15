@@ -76,6 +76,18 @@ class FakeWorkflowSampleStore:
         return items[:limit]
 
 
+class FakePromptOverlayStore:
+    def __init__(self) -> None:
+        self.text = None
+
+    def get(self):
+        return self.text
+
+    def append_candidate(self, candidate):
+        self.text = f"overlay for {candidate.candidate_id}"
+        return self.text
+
+
 class ApplicationServiceTests(unittest.TestCase):
     def test_handle_uses_existing_session_id(self) -> None:
         runtime = FakeRuntime()
@@ -182,6 +194,46 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertIsNotNone(updated)
         self.assertEqual(updated.status, "accepted")
         self.assertEqual(updated.review_note, "good")
+
+    def test_apply_prompt_candidate_uses_overlay_store(self) -> None:
+        overlay_store = FakePromptOverlayStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=FakeCandidateStore(),
+            prompt_overlay_store=overlay_store,
+        )
+        candidate = EvolutionCandidate(
+            target="prompt",
+            summary="Review prompt",
+            rationale="Need better final answer",
+        )
+        service.add_candidate(candidate)
+
+        updated = service.apply_candidate(candidate.candidate_id, review_note="applied")
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "applied")
+        self.assertEqual(updated.review_note, "applied")
+        self.assertEqual(overlay_store.text, f"overlay for {candidate.candidate_id}")
+
+    def test_apply_non_prompt_candidate_is_rejected(self) -> None:
+        overlay_store = FakePromptOverlayStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=FakeCandidateStore(),
+            prompt_overlay_store=overlay_store,
+        )
+        candidate = EvolutionCandidate(
+            target="tooling",
+            summary="Review tooling",
+            rationale="Need better tool selection",
+        )
+        service.add_candidate(candidate)
+
+        updated = service.apply_candidate(candidate.candidate_id)
+
+        self.assertIsNone(updated)
+        self.assertIsNone(overlay_store.text)
 
     def test_add_and_list_workflow_samples_use_store(self) -> None:
         service = ApplicationService(

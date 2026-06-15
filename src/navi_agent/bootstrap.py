@@ -4,12 +4,13 @@ import logging
 
 from navi_agent.app import ApplicationService
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
-from navi_agent.evolution import JsonlCandidateStore, JsonlWorkflowSampleStore
+from navi_agent.evolution import JsonlCandidateStore, JsonlWorkflowSampleStore, PromptOverlayStore
 from navi_agent.logging import setup_logging
 from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.paths import (
     get_app_log_path,
     get_candidate_store_path,
+    get_prompt_overlay_path,
     get_state_db_path,
     get_workflow_sample_store_path,
 )
@@ -64,11 +65,18 @@ def build_application(
         runtime_settings=runtime_settings,
         approval_provider=approval_provider,
     )
+    prompt_overlay = PromptOverlayStore(get_prompt_overlay_path()).get()
+    default_prompt = default_system_prompt
+    if prompt_overlay:
+        default_prompt = "\n\n".join(
+            part for part in [default_system_prompt, prompt_overlay] if part
+        ) or None
     return ApplicationService(
         runtime=runtime,
-        default_system_prompt=default_system_prompt,
+        default_system_prompt=default_prompt,
         candidate_store=JsonlCandidateStore(get_candidate_store_path()),
         workflow_sample_store=JsonlWorkflowSampleStore(get_workflow_sample_store_path()),
+        prompt_overlay_store=PromptOverlayStore(get_prompt_overlay_path()),
     )
 
 

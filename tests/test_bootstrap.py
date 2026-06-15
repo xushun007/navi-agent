@@ -7,7 +7,7 @@ from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings
 from navi_agent.runtime import ToolCall, ToolContext
 from navi_agent.runtime.approval import AutoApproveApprovalProvider
 from navi_agent.telemetry import CompositeTraceStore, InMemoryTraceStore
-from navi_agent.evolution import JsonlCandidateStore, JsonlWorkflowSampleStore
+from navi_agent.evolution import JsonlCandidateStore, JsonlWorkflowSampleStore, PromptOverlayStore
 from navi_agent.bootstrap import build_application
 
 
@@ -133,6 +133,20 @@ class BootstrapTests(unittest.TestCase):
         build_runtime_mock.assert_called_once()
         self.assertIsInstance(app._candidate_store, JsonlCandidateStore)
         self.assertIsInstance(app._workflow_sample_store, JsonlWorkflowSampleStore)
+        self.assertIsInstance(app._prompt_overlay_store, PromptOverlayStore)
+
+    def test_build_application_merges_prompt_overlay_into_default_prompt(self) -> None:
+        with patch("navi_agent.bootstrap.build_runtime") as build_runtime_mock:
+            with patch("navi_agent.bootstrap.PromptOverlayStore") as overlay_cls:
+                overlay_cls.return_value.get.return_value = "overlay prompt"
+                app = build_application(
+                    model_settings=ModelSettings(model="demo", api_key="x"),
+                    runtime_settings=RuntimeSettings(max_iterations=3),
+                    default_system_prompt="base prompt",
+                )
+
+        self.assertEqual(app._default_system_prompt, "base prompt\n\noverlay prompt")
+        build_runtime_mock.assert_called_once()
 
 
 if __name__ == "__main__":

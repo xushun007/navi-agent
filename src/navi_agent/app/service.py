@@ -3,7 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import uuid4
 
-from navi_agent.evolution import CandidateStore, WorkflowEvolutionSample, WorkflowSampleStore, EvolutionCandidate
+from navi_agent.evolution import (
+    CandidateStore,
+    EvolutionCandidate,
+    PromptOverlayStore,
+    WorkflowEvolutionSample,
+    WorkflowSampleStore,
+)
 from navi_agent.runtime import AgentRuntime, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -23,11 +29,13 @@ class ApplicationService:
         default_system_prompt: str | None = None,
         candidate_store: CandidateStore | None = None,
         workflow_sample_store: WorkflowSampleStore | None = None,
+        prompt_overlay_store: PromptOverlayStore | None = None,
     ) -> None:
         self._runtime = runtime
         self._default_system_prompt = default_system_prompt
         self._candidate_store = candidate_store
         self._workflow_sample_store = workflow_sample_store
+        self._prompt_overlay_store = prompt_overlay_store
 
     def handle(self, request: AppRequest) -> RuntimeResult:
         session_id = request.session_id or self._new_session_id()
@@ -87,6 +95,26 @@ class ApplicationService:
             candidate_id,
             status,
             review_note=review_note,
+        )
+
+    def apply_candidate(
+        self,
+        candidate_id: str,
+        *,
+        review_note: str | None = None,
+    ) -> EvolutionCandidate | None:
+        candidate = self.get_candidate(candidate_id)
+        if candidate is None:
+            return None
+        if candidate.target != "prompt":
+            return None
+        if self._prompt_overlay_store is None:
+            return None
+        self._prompt_overlay_store.append_candidate(candidate)
+        return self.update_candidate_status(
+            candidate_id,
+            "applied",
+            review_note=review_note or "applied prompt overlay",
         )
 
     def list_candidates(
