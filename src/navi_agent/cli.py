@@ -7,7 +7,12 @@ from navi_agent.app import AppRequest
 from navi_agent.bootstrap import build_application
 from navi_agent.doctor import run_doctor
 from navi_agent.runtime import CliApprovalProvider
-from navi_agent.smoke import list_smoke_tasks, run_smoke_task
+from navi_agent.smoke import (
+    list_smoke_tasks,
+    list_smoke_workflows,
+    run_smoke_task,
+    run_smoke_workflow,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,7 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--doctor", action="store_true")
     parser.add_argument("--smoke")
+    parser.add_argument("--workflow")
     parser.add_argument("--list-smoke-tasks", action="store_true")
+    parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
 
 
@@ -32,7 +39,11 @@ def main() -> int:
         for task in list_smoke_tasks():
             print(f"{task.name}: {task.description}")
         return 0
-    if not args.interactive and not args.smoke and not args.message:
+    if args.list_smoke_workflows:
+        for workflow in list_smoke_workflows():
+            print(f"{workflow.name}: {workflow.description}")
+        return 0
+    if not args.interactive and not args.smoke and not args.workflow and not args.message:
         parser.error("message is required unless --interactive is set")
 
     app = build_application(
@@ -48,6 +59,21 @@ def main() -> int:
             system_prompt=args.system_prompt,
         )
         print(result.final_response)
+        return 0
+    if args.workflow:
+        workflow_result = run_smoke_workflow(
+            app=app,
+            workflow_name=args.workflow,
+            user_id=args.user_id,
+            session_id=args.session_id,
+            system_prompt=args.system_prompt,
+        )
+        print(f"workflow: {workflow_result.workflow.name}")
+        print(f"session_id: {workflow_result.session_id}")
+        for index, result in enumerate(workflow_result.results, start=1):
+            step_name = workflow_result.workflow.steps[index - 1]
+            print(f"[{index}] {step_name}")
+            print(result.final_response)
         return 0
     if args.interactive:
         return _run_interactive(

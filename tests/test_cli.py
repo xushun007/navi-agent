@@ -57,6 +57,15 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(args.smoke, "config-check")
         self.assertFalse(args.list_smoke_tasks)
+        self.assertIsNone(args.workflow)
+
+    def test_build_parser_parses_workflow_flags(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["--workflow", "prototype-baseline"])
+
+        self.assertEqual(args.workflow, "prototype-baseline")
+        self.assertFalse(args.list_smoke_workflows)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -103,6 +112,20 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "config-check: desc")
 
+    def test_main_lists_smoke_workflows(self) -> None:
+        stdout = io.StringIO()
+
+        with patch(
+            "navi_agent.cli.list_smoke_workflows",
+            return_value=[type("Workflow", (), {"name": "prototype-baseline", "description": "desc"})()],
+        ):
+            with patch("sys.argv", ["navi-agent", "--list-smoke-workflows"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue().strip(), "prototype-baseline: desc")
+
     def test_main_runs_smoke_task(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
@@ -119,6 +142,38 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "done")
         run_smoke_task_mock.assert_called_once()
+
+    def test_main_runs_smoke_workflow(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        workflow_result = type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow": type("Workflow", (), {"name": "prototype-baseline", "steps": ["config-check", "workspace-search"]})(),
+                "session_id": "wf-1",
+                "results": [
+                    RuntimeResult(session_id="wf-1", status="success", final_response="first"),
+                    RuntimeResult(session_id="wf-1", status="success", final_response="second"),
+                ],
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch(
+                "navi_agent.cli.run_smoke_workflow",
+                return_value=workflow_result,
+            ) as run_smoke_workflow_mock:
+                with patch("sys.argv", ["navi-agent", "--workflow", "prototype-baseline"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("[1] config-check", stdout.getvalue())
+        self.assertIn("second", stdout.getvalue())
+        run_smoke_workflow_mock.assert_called_once()
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()

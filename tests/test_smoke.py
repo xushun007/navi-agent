@@ -1,7 +1,14 @@
 import unittest
 
 from navi_agent.runtime import RuntimeResult
-from navi_agent.smoke import get_smoke_task, list_smoke_tasks, run_smoke_task
+from navi_agent.smoke import (
+    get_smoke_task,
+    get_smoke_workflow,
+    list_smoke_tasks,
+    list_smoke_workflows,
+    run_smoke_task,
+    run_smoke_workflow,
+)
 
 
 class FakeApp:
@@ -34,6 +41,22 @@ class SmokeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             get_smoke_task("missing")
 
+    def test_list_smoke_workflows_returns_sorted_workflows(self) -> None:
+        workflows = list_smoke_workflows()
+
+        self.assertGreaterEqual(len(workflows), 2)
+        self.assertEqual([workflow.name for workflow in workflows], sorted(workflow.name for workflow in workflows))
+
+    def test_get_smoke_workflow_returns_workflow(self) -> None:
+        workflow = get_smoke_workflow("prototype-baseline")
+
+        self.assertEqual(workflow.name, "prototype-baseline")
+        self.assertEqual(workflow.steps[0], "config-check")
+
+    def test_get_smoke_workflow_raises_for_unknown_workflow(self) -> None:
+        with self.assertRaises(ValueError):
+            get_smoke_workflow("missing")
+
     def test_run_smoke_task_uses_preset_prompt(self) -> None:
         app = FakeApp()
 
@@ -49,6 +72,22 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(app.calls[0].session_id, "s1")
         self.assertEqual(app.calls[0].user_id, "u1")
         self.assertIn("README.md", app.calls[0].message)
+
+    def test_run_smoke_workflow_reuses_single_session_across_steps(self) -> None:
+        app = FakeApp()
+
+        workflow_result = run_smoke_workflow(
+            app=app,
+            workflow_name="product-orientation",
+            user_id="u1",
+            session_id="wf-1",
+            system_prompt="system",
+        )
+
+        self.assertEqual(workflow_result.workflow.name, "product-orientation")
+        self.assertEqual(workflow_result.session_id, "wf-1")
+        self.assertEqual(len(workflow_result.results), 2)
+        self.assertEqual([request.session_id for request in app.calls], ["wf-1", "wf-1"])
 
 
 if __name__ == "__main__":
