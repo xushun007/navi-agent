@@ -7,8 +7,14 @@ from navi_agent.app import AppRequest
 from navi_agent.banner import render_banner
 from navi_agent.bootstrap import build_application
 from navi_agent.doctor import run_doctor
-from navi_agent.evolution import EvolutionReportStore, EvolutionReportWriter, ReviewLoopService
+from navi_agent.evolution import (
+    EvolutionReportStore,
+    EvolutionReportWriter,
+    PromptOverlayStore,
+    ReviewLoopService,
+)
 from navi_agent.paths import get_evolution_reports_dir
+from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.smoke import (
     compare_smoke_workflow_results,
@@ -42,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-note")
     parser.add_argument("--list-candidates", action="store_true")
     parser.add_argument("--list-workflow-samples", action="store_true")
+    parser.add_argument("--prompt-overlay-status", action="store_true")
+    parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--review-loop", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
@@ -121,6 +129,25 @@ def main() -> int:
                 f"(source={sample.source_average_score}, replay={sample.replay_average_score}, delta={sample.score_delta})"
             )
         return 0
+    if args.prompt_overlay_status:
+        overlay = PromptOverlayStore(get_prompt_overlay_path())
+        info = overlay.describe()
+        print(f"prompt_overlay_path: {info['path']}")
+        print(f"prompt_overlay_exists: {info['exists']}")
+        print(f"prompt_overlay_candidate_count: {info['candidate_count']}")
+        if info["candidate_ids"]:
+            print("prompt_overlay_candidate_ids:")
+            for candidate_id in info["candidate_ids"]:
+                print(f"- {candidate_id}")
+        return 0
+    if args.show_prompt_overlay:
+        overlay = PromptOverlayStore(get_prompt_overlay_path())
+        text = overlay.get()
+        if text is None:
+            print("prompt overlay is empty")
+            return 0
+        print(text)
+        return 0
     if args.evolution_status:
         app = build_application(
             default_system_prompt=args.system_prompt,
@@ -150,6 +177,8 @@ def main() -> int:
                 print(f"latest_candidate_target: {latest_report.candidate_target}")
             if latest_report.candidate_status:
                 print(f"latest_candidate_status: {latest_report.candidate_status}")
+        overlay_info = PromptOverlayStore(get_prompt_overlay_path()).describe()
+        print(f"prompt_overlay_candidate_count: {overlay_info['candidate_count']}")
         print(f"recommendation: {summary.recommendation}")
         return 0
     if args.review_loop:
@@ -187,6 +216,8 @@ def main() -> int:
         and not args.compare_workflow
         and not args.evolution_run
         and not args.evolution_status
+        and not args.prompt_overlay_status
+        and not args.show_prompt_overlay
         and not args.review_loop
         and not args.message
     ):

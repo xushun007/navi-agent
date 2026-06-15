@@ -126,6 +126,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.candidate_status, "pending")
         args = parser.parse_args(["--list-workflow-samples"])
         self.assertTrue(args.list_workflow_samples)
+        args = parser.parse_args(["--prompt-overlay-status"])
+        self.assertTrue(args.prompt_overlay_status)
+        args = parser.parse_args(["--show-prompt-overlay"])
+        self.assertTrue(args.show_prompt_overlay)
         args = parser.parse_args(["--review-loop"])
         self.assertTrue(args.review_loop)
 
@@ -573,6 +577,36 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("c1 [accepted] prompt: Review prompt", stdout.getvalue())
+
+    def test_main_shows_prompt_overlay_status(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+            overlay_cls.return_value.describe.return_value = {
+                "path": "/tmp/prompt-overlay.md",
+                "exists": True,
+                "candidate_count": 2,
+                "candidate_ids": ["c1", "c2"],
+            }
+            with patch("sys.argv", ["navi-agent", "--prompt-overlay-status"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("prompt_overlay_candidate_count: 2", stdout.getvalue())
+        self.assertIn("prompt_overlay_candidate_ids:", stdout.getvalue())
+
+    def test_main_shows_prompt_overlay_content(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+            overlay_cls.return_value.get.return_value = "overlay text"
+            with patch("sys.argv", ["navi-agent", "--show-prompt-overlay"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue().strip(), "overlay text")
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()

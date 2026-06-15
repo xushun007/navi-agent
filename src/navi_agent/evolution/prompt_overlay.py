@@ -23,6 +23,33 @@ class PromptOverlayStore:
         self._path.write_text(next_text + "\n", encoding="utf-8")
         return next_text
 
+    def list_candidate_ids(self) -> list[str]:
+        blocks = self._blocks()
+        ids: list[str] = []
+        for block in blocks:
+            for line in block.splitlines():
+                if line.startswith("## Candidate "):
+                    ids.append(line.removeprefix("## Candidate ").strip())
+                    break
+        return ids
+
+    def candidate_count(self) -> int:
+        return len(self.list_candidate_ids())
+
+    def describe(self) -> dict[str, object]:
+        return {
+            "path": str(self._path),
+            "exists": self._path.exists(),
+            "candidate_count": self.candidate_count(),
+            "candidate_ids": self.list_candidate_ids(),
+        }
+
+    def _blocks(self) -> list[str]:
+        text = self.get()
+        if not text:
+            return []
+        return [block.strip() for block in text.split("\n\n") if block.strip()]
+
     @staticmethod
     def _format_candidate_block(candidate: EvolutionCandidate) -> str:
         return "\n".join(
