@@ -56,6 +56,13 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.interactive)
         self.assertIsNone(args.message)
 
+    def test_build_parser_parses_banner_flag(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["--banner"])
+
+        self.assertTrue(args.banner)
+
     def test_build_parser_parses_doctor_flag(self) -> None:
         parser = build_parser()
 
@@ -132,6 +139,17 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         run_doctor_mock.assert_called_once_with()
+
+    def test_main_prints_banner(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("sys.argv", ["navi-agent", "--banner"]):
+            with redirect_stdout(stdout):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("powered by xushun", stdout.getvalue())
+        self.assertIn("███╗   ██╗", stdout.getvalue())
 
     def test_main_lists_smoke_tasks(self) -> None:
         stdout = io.StringIO()
@@ -463,6 +481,7 @@ class CliTests(unittest.TestCase):
             [(request.session_id, request.message) for request in fake_app.calls],
             [("s1", "hello"), ("s1", "again")],
         )
+        self.assertIn("powered by xushun", stdout.getvalue())
         self.assertIn("Interactive session: s1", stdout.getvalue())
         self.assertEqual(stdout.getvalue().strip().splitlines()[-2:], ["done", "done"])
 

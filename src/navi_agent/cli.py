@@ -4,6 +4,7 @@ import argparse
 from uuid import uuid4
 
 from navi_agent.app import AppRequest
+from navi_agent.banner import render_banner
 from navi_agent.bootstrap import build_application
 from navi_agent.doctor import run_doctor
 from navi_agent.evolution import EvolutionReportStore, EvolutionReportWriter, ReviewLoopService
@@ -25,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--user-id", default="local-user")
     parser.add_argument("--session-id")
     parser.add_argument("--system-prompt")
+    parser.add_argument("--banner", action="store_true")
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--doctor", action="store_true")
     parser.add_argument("--smoke")
@@ -43,6 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if args.banner:
+        print(render_banner())
+        return 0
     if args.doctor:
         return run_doctor()
     if args.list_smoke_tasks:
@@ -253,6 +258,7 @@ def _run_interactive(
     system_prompt: str | None,
     first_message: str | None = None,
 ) -> int:
+    print(render_banner())
     print(f"Interactive session: {session_id}")
     print("Type 'exit' or 'quit' to stop.")
 
