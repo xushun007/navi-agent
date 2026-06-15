@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from navi_agent.app import AppRequest, ApplicationService
+from navi_agent.evolution import EvaluationResult, SimpleEvaluator
 from navi_agent.runtime import RuntimeResult
+from navi_agent.telemetry import RuntimeTrace
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,15 +27,49 @@ class SmokeWorkflow:
 class SmokeStepResult:
     task_name: str
     runtime_result: RuntimeResult
-    trace_id: str | None = None
-    trace_status: str | None = None
+    trace: RuntimeTrace | None = None
+
+    @property
+    def trace_id(self) -> str | None:
+        if self.trace is None:
+            return None
+        return self.trace.trace_id
+
+    @property
+    def trace_status(self) -> str | None:
+        if self.trace is None:
+            return None
+        return self.trace.status
 
 
 @dataclass(frozen=True, slots=True)
 class SmokeWorkflowResult:
     workflow: SmokeWorkflow
     session_id: str
+    user_id: str
+    system_prompt: str | None
     steps: list[SmokeStepResult]
+
+
+@dataclass(frozen=True, slots=True)
+class SmokeStepComparison:
+    task_name: str
+    source_step: SmokeStepResult
+    replay_step: SmokeStepResult
+    source_evaluation: EvaluationResult | None
+    replay_evaluation: EvaluationResult | None
+    score_delta: float
+
+
+@dataclass(frozen=True, slots=True)
+class SmokeWorkflowComparison:
+    workflow_name: str
+    source_session_id: str
+    replay_session_id: str
+    step_comparisons: list[SmokeStepComparison]
+    source_average_score: float
+    replay_average_score: float
+    score_delta: float
 
 
 SMOKE_TASKS: dict[str, SmokeTask] = {
@@ -149,13 +185,91 @@ def run_smoke_workflow(
             SmokeStepResult(
                 task_name=task_name,
                 runtime_result=result,
-                trace_id=latest_trace.trace_id if latest_trace is not None else None,
-                trace_status=latest_trace.status if latest_trace is not None else None,
+                trace=latest_trace,
             )
         )
 
     return SmokeWorkflowResult(
         workflow=workflow,
         session_id=workflow_session_id,
+        user_id=user_id,
+        system_prompt=system_prompt,
         steps=steps,
     )
+
+
+def replay_smoke_workflow(
+    *,
+    app: ApplicationService,
+    workflow_result: SmokeWorkflowResult,
+    user_id: str | None = None,
+    session_id: str | None = None,
+    system_prompt: str | None = None,
+) -> SmokeWorkflowResult:
+    replay_session_id = session_id or f"{workflow_result.session_id}:replay:{uuid4().hex[:8]}"
+    return run_smoke_workflow(
+        app=app,
+        workflow_name=workflow_result.workflow.name,
+        user_id=user_id or workflow_result.user_id,
+        session_id=replay_session_id,
+        system_prompt=workflow_result.system_prompt if system_prompt is None else system_prompt,
+    )
+
+
+def compare_smoke_workflow_results(
+    source: SmokeWorkflowResult,
+    replay: SmokeWorkflowResult,
+    *,
+    evaluator: SimpleEvaluator | None = None,
+) -> SmokeWorkflowComparison:
+    if source.workflow.name != replay.workflow.name:
+        raise ValueError("Cannot compare workflow results from different workflows")
+    if len(source.steps) != len(replay.steps):
+        raise ValueError("Cannot compare workflow results with different step counts")
+
+    evaluator = evaluator or SimpleEvaluator()
+    step_comparisons: list[SmokeStepComparison] = []
+
+    for source_step, replay_step in zip(source.steps, replay.steps, strict=True):
+        source_evaluation = evaluator.evaluate(source_step.trace) if source_step.trace is not None else None
+        replay_evaluation = evaluator.evaluate(replay_step.trace) if replay_step.trace is not None else None
+        source_score = source_evaluation.score if source_evaluation is not None else 0.0
+        replay_score = replay_evaluation.score if replay_evaluation is not None else 0.0
+        step_comparisons.append(
+            SmokeStepComparison(
+                task_name=source_step.task_name,
+                source_step=source_step,
+                replay_step=replay_step,
+                source_evaluation=source_evaluation,
+                replay_evaluation=replay_evaluation,
+                score_delta=round(replay_score - source_score, 3),
+            )
+        )
+
+    source_average_score = _average_score(
+        comparison.source_evaluation.score
+        for comparison in step_comparisons
+        if comparison.source_evaluation is not None
+    )
+    replay_average_score = _average_score(
+        comparison.replay_evaluation.score
+        for comparison in step_comparisons
+        if comparison.replay_evaluation is not None
+    )
+
+    return SmokeWorkflowComparison(
+        workflow_name=source.workflow.name,
+        source_session_id=source.session_id,
+        replay_session_id=replay.session_id,
+        step_comparisons=step_comparisons,
+        source_average_score=source_average_score,
+        replay_average_score=replay_average_score,
+        score_delta=round(replay_average_score - source_average_score, 3),
+    )
+
+
+def _average_score(scores) -> float:
+    values = list(scores)
+    if not values:
+        return 0.0
+    return round(sum(values) / len(values), 3)

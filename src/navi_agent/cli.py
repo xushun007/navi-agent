@@ -8,8 +8,10 @@ from navi_agent.bootstrap import build_application
 from navi_agent.doctor import run_doctor
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.smoke import (
+    compare_smoke_workflow_results,
     list_smoke_tasks,
     list_smoke_workflows,
+    replay_smoke_workflow,
     run_smoke_task,
     run_smoke_workflow,
 )
@@ -25,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--doctor", action="store_true")
     parser.add_argument("--smoke")
     parser.add_argument("--workflow")
+    parser.add_argument("--compare-workflow")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
@@ -43,7 +46,7 @@ def main() -> int:
         for workflow in list_smoke_workflows():
             print(f"{workflow.name}: {workflow.description}")
         return 0
-    if not args.interactive and not args.smoke and not args.workflow and not args.message:
+    if not args.interactive and not args.smoke and not args.workflow and not args.compare_workflow and not args.message:
         parser.error("message is required unless --interactive is set")
 
     app = build_application(
@@ -75,6 +78,34 @@ def main() -> int:
             if step.trace_id:
                 print(f"trace_id: {step.trace_id}")
             print(step.runtime_result.final_response)
+        return 0
+    if args.compare_workflow:
+        source = run_smoke_workflow(
+            app=app,
+            workflow_name=args.compare_workflow,
+            user_id=args.user_id,
+            session_id=args.session_id,
+            system_prompt=args.system_prompt,
+        )
+        replay = replay_smoke_workflow(
+            app=app,
+            workflow_result=source,
+            system_prompt=args.system_prompt,
+        )
+        comparison = compare_smoke_workflow_results(source, replay)
+        print(f"workflow: {comparison.workflow_name}")
+        print(f"source_session_id: {comparison.source_session_id}")
+        print(f"replay_session_id: {comparison.replay_session_id}")
+        print(f"source_average_score: {comparison.source_average_score}")
+        print(f"replay_average_score: {comparison.replay_average_score}")
+        print(f"score_delta: {comparison.score_delta}")
+        for index, step in enumerate(comparison.step_comparisons, start=1):
+            print(f"[{index}] {step.task_name}")
+            if step.source_step.trace_id:
+                print(f"source_trace_id: {step.source_step.trace_id}")
+            if step.replay_step.trace_id:
+                print(f"replay_trace_id: {step.replay_step.trace_id}")
+            print(f"step_score_delta: {step.score_delta}")
         return 0
     if args.interactive:
         return _run_interactive(

@@ -67,6 +67,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.workflow, "prototype-baseline")
         self.assertFalse(args.list_smoke_workflows)
 
+    def test_build_parser_parses_compare_workflow_flag(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["--compare-workflow", "prototype-baseline"])
+
+        self.assertEqual(args.compare_workflow, "prototype-baseline")
+
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
@@ -191,6 +198,59 @@ class CliTests(unittest.TestCase):
         self.assertIn("trace_id: trace-1", stdout.getvalue())
         self.assertIn("second", stdout.getvalue())
         run_smoke_workflow_mock.assert_called_once()
+
+    def test_main_runs_compare_workflow(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        workflow_result = type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "session_id": "wf-1",
+            },
+        )()
+        comparison = type(
+            "WorkflowComparison",
+            (),
+            {
+                "workflow_name": "prototype-baseline",
+                "source_session_id": "wf-1",
+                "replay_session_id": "wf-1:replay:abcd1234",
+                "source_average_score": 1.0,
+                "replay_average_score": 0.9,
+                "score_delta": -0.1,
+                "step_comparisons": [
+                    type(
+                        "StepComparison",
+                        (),
+                        {
+                            "task_name": "config-check",
+                            "source_step": type("Step", (), {"trace_id": "trace-1"})(),
+                            "replay_step": type("Step", (), {"trace_id": "trace-2"})(),
+                            "score_delta": -0.1,
+                        },
+                    )()
+                ],
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result) as run_smoke_workflow_mock:
+                with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result) as replay_mock:
+                    with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison) as compare_mock:
+                        with patch("sys.argv", ["navi-agent", "--compare-workflow", "prototype-baseline"]):
+                            with redirect_stdout(stdout):
+                                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("source_session_id: wf-1", stdout.getvalue())
+        self.assertIn("replay_trace_id: trace-2", stdout.getvalue())
+        run_smoke_workflow_mock.assert_called_once()
+        replay_mock.assert_called_once()
+        compare_mock.assert_called_once()
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()

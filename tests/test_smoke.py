@@ -3,10 +3,12 @@ import unittest
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 from navi_agent.smoke import (
+    compare_smoke_workflow_results,
     get_smoke_task,
     get_smoke_workflow,
     list_smoke_tasks,
     list_smoke_workflows,
+    replay_smoke_workflow,
     run_smoke_task,
     run_smoke_workflow,
 )
@@ -99,10 +101,56 @@ class SmokeTests(unittest.TestCase):
 
         self.assertEqual(workflow_result.workflow.name, "product-orientation")
         self.assertEqual(workflow_result.session_id, "wf-1")
+        self.assertEqual(workflow_result.user_id, "u1")
+        self.assertEqual(workflow_result.system_prompt, "system")
         self.assertEqual(len(workflow_result.steps), 2)
         self.assertEqual([request.session_id for request in app.calls], ["wf-1", "wf-1"])
         self.assertEqual([step.trace_id for step in workflow_result.steps], ["trace-1", "trace-2"])
         self.assertEqual([step.trace_status for step in workflow_result.steps], ["success", "success"])
+
+    def test_replay_smoke_workflow_uses_new_session_id(self) -> None:
+        app = FakeApp()
+        source = run_smoke_workflow(
+            app=app,
+            workflow_name="product-orientation",
+            user_id="u1",
+            session_id="wf-1",
+            system_prompt="system",
+        )
+
+        replay = replay_smoke_workflow(
+            app=app,
+            workflow_result=source,
+        )
+
+        self.assertNotEqual(replay.session_id, "wf-1")
+        self.assertTrue(replay.session_id.startswith("wf-1:replay:"))
+        self.assertEqual(replay.workflow.name, source.workflow.name)
+        self.assertEqual(replay.user_id, "u1")
+
+    def test_compare_smoke_workflow_results_computes_score_delta(self) -> None:
+        source = run_smoke_workflow(
+            app=FakeApp(),
+            workflow_name="product-orientation",
+            user_id="u1",
+            session_id="wf-1",
+            system_prompt="system",
+        )
+        replay = run_smoke_workflow(
+            app=FakeApp(),
+            workflow_name="product-orientation",
+            user_id="u1",
+            session_id="wf-2",
+            system_prompt="system",
+        )
+
+        comparison = compare_smoke_workflow_results(source, replay)
+
+        self.assertEqual(comparison.workflow_name, "product-orientation")
+        self.assertEqual(comparison.source_session_id, "wf-1")
+        self.assertEqual(comparison.replay_session_id, "wf-2")
+        self.assertEqual(len(comparison.step_comparisons), 2)
+        self.assertEqual(comparison.score_delta, 0.0)
 
 
 if __name__ == "__main__":
