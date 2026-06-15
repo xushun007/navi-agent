@@ -221,6 +221,8 @@ class CliTests(unittest.TestCase):
                 "source_average_score": 1.0,
                 "replay_average_score": 0.9,
                 "score_delta": -0.1,
+                "sample": type("Sample", (), {"status": "regressed"})(),
+                "candidate": type("Candidate", (), {"target": "prompt", "summary": "Review workflow regression"})(),
                 "step_comparisons": [
                     type(
                         "StepComparison",
@@ -247,6 +249,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("workflow: prototype-baseline", stdout.getvalue())
         self.assertIn("source_session_id: wf-1", stdout.getvalue())
+        self.assertIn("workflow_status: regressed", stdout.getvalue())
+        self.assertIn("candidate_target: prompt", stdout.getvalue())
         self.assertIn("replay_trace_id: trace-2", stdout.getvalue())
         run_smoke_workflow_mock.assert_called_once()
         replay_mock.assert_called_once()

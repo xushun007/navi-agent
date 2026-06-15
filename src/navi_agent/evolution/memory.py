@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import EvolutionCandidate
+from .models import EvolutionCandidate, WorkflowEvolutionSample
 
 
 class InMemoryCandidateStore:
@@ -9,3 +9,11 @@ class InMemoryCandidateStore:
 
     def add(self, candidate: EvolutionCandidate) -> None:
         self.candidates.append(candidate)
+
+
+class InMemoryWorkflowSampleStore:
+    def __init__(self) -> None:
+        self.samples: list[WorkflowEvolutionSample] = []
+
+    def add(self, sample: WorkflowEvolutionSample) -> None:
+        self.samples.append(sample)

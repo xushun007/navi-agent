@@ -18,3 +18,16 @@ class EvolutionCandidate:
     summary: str
     rationale: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class WorkflowEvolutionSample:
+    workflow_name: str
+    source_session_id: str
+    replay_session_id: str
+    source_average_score: float
+    replay_average_score: float
+    score_delta: float
+    status: str
+    summary: str
+    metadata: dict[str, Any] = field(default_factory=dict)

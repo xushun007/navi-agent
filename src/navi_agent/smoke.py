@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from navi_agent.app import AppRequest, ApplicationService
-from navi_agent.evolution import EvaluationResult, SimpleEvaluator
+from navi_agent.evolution import EvaluationResult, EvolutionCandidate, SimpleEvaluator, WorkflowEvolutionSample
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -70,6 +70,8 @@ class SmokeWorkflowComparison:
     source_average_score: float
     replay_average_score: float
     score_delta: float
+    sample: WorkflowEvolutionSample
+    candidate: EvolutionCandidate | None
 
 
 SMOKE_TASKS: dict[str, SmokeTask] = {
@@ -257,6 +259,22 @@ def compare_smoke_workflow_results(
         if comparison.replay_evaluation is not None
     )
 
+    score_delta = round(replay_average_score - source_average_score, 3)
+    sample = _build_workflow_sample(
+        workflow_name=source.workflow.name,
+        source_session_id=source.session_id,
+        replay_session_id=replay.session_id,
+        source_average_score=source_average_score,
+        replay_average_score=replay_average_score,
+        score_delta=score_delta,
+        step_comparisons=step_comparisons,
+    )
+    candidate = _build_candidate_from_comparison(
+        step_comparisons=step_comparisons,
+        sample=sample,
+        evaluator=evaluator,
+    )
+
     return SmokeWorkflowComparison(
         workflow_name=source.workflow.name,
         source_session_id=source.session_id,
@@ -264,7 +282,9 @@ def compare_smoke_workflow_results(
         step_comparisons=step_comparisons,
         source_average_score=source_average_score,
         replay_average_score=replay_average_score,
-        score_delta=round(replay_average_score - source_average_score, 3),
+        score_delta=score_delta,
+        sample=sample,
+        candidate=candidate,
     )
 
 
@@ -273,3 +293,91 @@ def _average_score(scores) -> float:
     if not values:
         return 0.0
     return round(sum(values) / len(values), 3)
+
+
+def _build_workflow_sample(
+    *,
+    workflow_name: str,
+    source_session_id: str,
+    replay_session_id: str,
+    source_average_score: float,
+    replay_average_score: float,
+    score_delta: float,
+    step_comparisons: list[SmokeStepComparison],
+) -> WorkflowEvolutionSample:
+    if score_delta > 0.01:
+        status = "improved"
+        summary = "Workflow replay improved over the source run"
+    elif score_delta < -0.01:
+        status = "regressed"
+        summary = "Workflow replay regressed compared with the source run"
+    else:
+        status = "unchanged"
+        summary = "Workflow replay produced roughly the same score as the source run"
+
+    return WorkflowEvolutionSample(
+        workflow_name=workflow_name,
+        source_session_id=source_session_id,
+        replay_session_id=replay_session_id,
+        source_average_score=source_average_score,
+        replay_average_score=replay_average_score,
+        score_delta=score_delta,
+        status=status,
+        summary=summary,
+        metadata={
+            "step_count": len(step_comparisons),
+            "steps": [
+                {
+                    "task_name": comparison.task_name,
+                    "source_trace_id": comparison.source_step.trace_id,
+                    "replay_trace_id": comparison.replay_step.trace_id,
+                    "score_delta": comparison.score_delta,
+                }
+                for comparison in step_comparisons
+            ],
+        },
+    )
+
+
+def _build_candidate_from_comparison(
+    *,
+    step_comparisons: list[SmokeStepComparison],
+    sample: WorkflowEvolutionSample,
+    evaluator: SimpleEvaluator,
+) -> EvolutionCandidate | None:
+    worst_step = min(
+        step_comparisons,
+        key=lambda comparison: (
+            comparison.replay_evaluation.score
+            if comparison.replay_evaluation is not None
+            else 1.0
+        ),
+        default=None,
+    )
+    if worst_step is None or worst_step.replay_evaluation is None:
+        return None
+
+    candidate = evaluator.build_candidate(worst_step.replay_evaluation)
+    if candidate is None:
+        return None
+
+    candidate.metadata.update(
+        {
+            "workflow_name": sample.workflow_name,
+            "workflow_status": sample.status,
+            "workflow_score_delta": sample.score_delta,
+            "source_session_id": sample.source_session_id,
+            "replay_session_id": sample.replay_session_id,
+            "task_name": worst_step.task_name,
+            "source_trace_id": worst_step.source_step.trace_id,
+            "replay_trace_id": worst_step.replay_step.trace_id,
+            "step_score_delta": worst_step.score_delta,
+        }
+    )
+
+    if sample.status == "regressed":
+        candidate.summary = f"Review workflow regression in {worst_step.task_name} ({candidate.target})"
+    elif sample.status == "unchanged":
+        candidate.summary = f"Review stagnant workflow step {worst_step.task_name} ({candidate.target})"
+
+    return candidate

@@ -96,9 +96,13 @@ def main() -> int:
         print(f"workflow: {comparison.workflow_name}")
         print(f"source_session_id: {comparison.source_session_id}")
         print(f"replay_session_id: {comparison.replay_session_id}")
+        print(f"workflow_status: {comparison.sample.status}")
         print(f"source_average_score: {comparison.source_average_score}")
         print(f"replay_average_score: {comparison.replay_average_score}")
         print(f"score_delta: {comparison.score_delta}")
+        if comparison.candidate is not None:
+            print(f"candidate_target: {comparison.candidate.target}")
+            print(f"candidate_summary: {comparison.candidate.summary}")
         for index, step in enumerate(comparison.step_comparisons, start=1):
             print(f"[{index}] {step.task_name}")
             if step.source_step.trace_id:
