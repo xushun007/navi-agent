@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,16 @@ from .review import ReviewLoopSummary
 
 if TYPE_CHECKING:
     from navi_agent.smoke import SmokeWorkflowComparison
+
+
+@dataclass(frozen=True, slots=True)
+class EvolutionReportRecord:
+    workflow_name: str
+    status: str
+    score_delta: float
+    report_path: Path
+    candidate_target: str | None = None
+    created_at: str | None = None
 
 
 class EvolutionReportWriter:
@@ -133,3 +144,45 @@ class EvolutionReportWriter:
                 ]
             )
         return "\n".join(lines) + "\n"
+
+
+class EvolutionReportStore:
+    def __init__(self, reports_root: Path) -> None:
+        self._reports_root = reports_root
+
+    def get_latest(self) -> EvolutionReportRecord | None:
+        reports = self.list_recent(limit=1)
+        if not reports:
+            return None
+        return reports[0]
+
+    def list_recent(self, limit: int | None = None) -> list[EvolutionReportRecord]:
+        if not self._reports_root.exists():
+            return []
+        run_dirs = [path for path in self._reports_root.iterdir() if path.is_dir() and (path / "run.json").exists()]
+        run_dirs.sort(key=lambda path: path.name, reverse=True)
+        if limit is not None:
+            run_dirs = run_dirs[:limit]
+        records: list[EvolutionReportRecord] = []
+        for run_dir in run_dirs:
+            record = self._load_record(run_dir)
+            if record is not None:
+                records.append(record)
+        return records
+
+    @staticmethod
+    def _load_record(run_dir: Path) -> EvolutionReportRecord | None:
+        try:
+            payload = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        sample = payload.get("workflow_sample") or {}
+        candidate = payload.get("candidate") or {}
+        return EvolutionReportRecord(
+            workflow_name=str(payload.get("workflow_name", "")),
+            status=str(sample.get("status", "")),
+            score_delta=float(payload.get("score_delta", 0.0)),
+            report_path=run_dir,
+            candidate_target=candidate.get("target") if isinstance(candidate, dict) else None,
+            created_at=run_dir.name,
+        )

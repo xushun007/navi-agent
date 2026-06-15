@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from navi_agent.evolution import EvolutionReportWriter, ReviewLoopSummary
+from navi_agent.evolution import EvolutionReportStore, EvolutionReportWriter, ReviewLoopSummary
 from navi_agent.evolution.models import EvaluationResult, EvolutionCandidate, WorkflowEvolutionSample
 from navi_agent.runtime import RuntimeResult
 from navi_agent.smoke import (
@@ -102,6 +102,43 @@ class EvolutionReportWriterTests(unittest.TestCase):
         self.assertIn("# Evolution workflow comparison", report_md)
         self.assertIn("## Candidate", report_md)
         self.assertIn("prototype-baseline", report_md)
+
+    def test_report_store_loads_latest_report(self) -> None:
+        comparison = SmokeWorkflowComparison(
+            workflow_name="prototype-baseline",
+            source_session_id="wf-1",
+            replay_session_id="wf-2",
+            step_comparisons=[],
+            source_average_score=1.0,
+            replay_average_score=0.8,
+            score_delta=-0.2,
+            sample=WorkflowEvolutionSample(
+                workflow_name="prototype-baseline",
+                source_session_id="wf-1",
+                replay_session_id="wf-2",
+                source_average_score=1.0,
+                replay_average_score=0.8,
+                score_delta=-0.2,
+                status="regressed",
+                summary="regressed",
+            ),
+            candidate=EvolutionCandidate(
+                target="prompt",
+                summary="candidate",
+                rationale="rationale",
+            ),
+        )
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            writer = EvolutionReportWriter(root)
+            writer.write_workflow_comparison_report(comparison=comparison)
+
+            latest = EvolutionReportStore(root).get_latest()
+
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.workflow_name, "prototype-baseline")
+        self.assertEqual(latest.status, "regressed")
+        self.assertEqual(latest.candidate_target, "prompt")
 
 
 if __name__ == "__main__":

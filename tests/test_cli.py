@@ -87,6 +87,10 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["--compare-workflow", "prototype-baseline"])
 
         self.assertEqual(args.compare_workflow, "prototype-baseline")
+        args = parser.parse_args(["--evolution-run", "prototype-baseline"])
+        self.assertEqual(args.evolution_run, "prototype-baseline")
+        args = parser.parse_args(["--evolution-status"])
+        self.assertTrue(args.evolution_status)
 
     def test_build_parser_parses_evolution_listing_flags(self) -> None:
         parser = build_parser()
@@ -310,6 +314,50 @@ class CliTests(unittest.TestCase):
         run_smoke_workflow_mock.assert_called_once()
         replay_mock.assert_called_once()
         compare_mock.assert_called_once()
+
+    def test_main_runs_evolution_status(self) -> None:
+        fake_app = FakeApp()
+        fake_app.list_candidates = lambda limit=50: [
+            type("Candidate", (), {"target": "prompt", "summary": "Review prompt"})()
+        ]
+        fake_app.list_workflow_samples = lambda limit=50: [
+            type(
+                "Sample",
+                (),
+                {
+                    "workflow_name": "prototype-baseline",
+                    "status": "regressed",
+                    "source_average_score": 1.0,
+                    "replay_average_score": 0.8,
+                    "score_delta": -0.2,
+                },
+            )()
+        ]
+        stdout = io.StringIO()
+
+        latest_report = type(
+            "Report",
+            (),
+            {
+                "report_path": "/tmp/evolution-report",
+                "workflow_name": "prototype-baseline",
+                "status": "regressed",
+                "score_delta": -0.2,
+                "candidate_target": "prompt",
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.EvolutionReportStore") as report_store_cls:
+                report_store_cls.return_value.get_latest.return_value = latest_report
+                with patch("sys.argv", ["navi-agent", "--evolution-status"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("latest_report: /tmp/evolution-report", stdout.getvalue())
+        self.assertIn("latest_workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("recommendation:", stdout.getvalue())
 
     def test_main_lists_candidates(self) -> None:
         fake_app = FakeApp()
