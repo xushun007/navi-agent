@@ -20,6 +20,8 @@ class EvolutionReportRecord:
     score_delta: float
     report_path: Path
     candidate_target: str | None = None
+    candidate_id: str | None = None
+    candidate_status: str | None = None
     created_at: str | None = None
 
 
@@ -125,6 +127,8 @@ class EvolutionReportWriter:
                 [
                     "",
                     "## Candidate",
+                    f"- id: `{comparison.candidate.candidate_id}`",
+                    f"- status: `{comparison.candidate.status}`",
                     f"- target: `{comparison.candidate.target}`",
                     f"- summary: {comparison.candidate.summary}",
                     f"- rationale: {comparison.candidate.rationale}",
@@ -184,5 +188,7 @@ class EvolutionReportStore:
             score_delta=float(payload.get("score_delta", 0.0)),
             report_path=run_dir,
             candidate_target=candidate.get("target") if isinstance(candidate, dict) else None,
+            candidate_id=candidate.get("candidate_id") if isinstance(candidate, dict) else None,
+            candidate_status=candidate.get("status") if isinstance(candidate, dict) else None,
             created_at=run_dir.name,
         )

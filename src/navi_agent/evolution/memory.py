@@ -16,6 +16,26 @@ class InMemoryCandidateStore:
             return items
         return items[:limit]
 
+    def get(self, candidate_id: str) -> EvolutionCandidate | None:
+        for candidate in self.candidates:
+            if candidate.candidate_id == candidate_id:
+                return candidate
+        return None
+
+    def update_status(
+        self,
+        candidate_id: str,
+        status: str,
+        *,
+        review_note: str | None = None,
+    ) -> EvolutionCandidate | None:
+        candidate = self.get(candidate_id)
+        if candidate is None:
+            return None
+        candidate.status = status
+        candidate.review_note = review_note
+        return candidate
+
 
 class InMemoryWorkflowSampleStore:
     def __init__(self) -> None:

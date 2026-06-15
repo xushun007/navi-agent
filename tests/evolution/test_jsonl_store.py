@@ -33,6 +33,26 @@ class JsonlStoreTests(unittest.TestCase):
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].summary, "second")
+        self.assertEqual(items[0].status, "pending")
+
+    def test_candidate_store_updates_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = JsonlCandidateStore(Path(tmpdir) / "candidates.jsonl")
+            candidate = EvolutionCandidate(
+                target="prompt",
+                summary="first",
+                rationale="r1",
+            )
+            store.add(candidate)
+
+            updated = store.update_status(candidate.candidate_id, "accepted", review_note="looks good")
+            latest = store.get(candidate.candidate_id)
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "accepted")
+        self.assertEqual(updated.review_note, "looks good")
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.status, "accepted")
 
     def test_workflow_sample_store_persists_and_lists_recent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

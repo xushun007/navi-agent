@@ -76,6 +76,10 @@ class EvolutionReportWriterTests(unittest.TestCase):
         )
         review_summary = ReviewLoopSummary(
             candidate_count=1,
+            pending_candidate_count=1,
+            accepted_candidate_count=0,
+            rejected_candidate_count=0,
+            applied_candidate_count=0,
             workflow_sample_count=2,
             regressed_count=1,
             improved_count=1,
@@ -97,6 +101,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
 
         self.assertEqual(payload["workflow_name"], "prototype-baseline")
         self.assertEqual(payload["candidate"]["target"], "prompt")
+        self.assertEqual(payload["candidate"]["status"], "pending")
         self.assertEqual(payload["step_comparisons"][0]["source_trace_id"], "trace-1")
         self.assertEqual(payload["review_summary"]["regressed_count"], 1)
         self.assertIn("# Evolution workflow comparison", report_md)
@@ -139,6 +144,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
         self.assertEqual(latest.workflow_name, "prototype-baseline")
         self.assertEqual(latest.status, "regressed")
         self.assertEqual(latest.candidate_target, "prompt")
+        self.assertEqual(latest.candidate_status, "pending")
 
 
 if __name__ == "__main__":

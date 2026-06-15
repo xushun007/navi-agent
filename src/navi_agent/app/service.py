@@ -69,10 +69,38 @@ class ApplicationService:
             return
         self._candidate_store.add(candidate)
 
-    def list_candidates(self, limit: int | None = None) -> list[EvolutionCandidate]:
+    def get_candidate(self, candidate_id: str) -> EvolutionCandidate | None:
+        if self._candidate_store is None:
+            return None
+        return self._candidate_store.get(candidate_id)
+
+    def update_candidate_status(
+        self,
+        candidate_id: str,
+        status: str,
+        *,
+        review_note: str | None = None,
+    ) -> EvolutionCandidate | None:
+        if self._candidate_store is None:
+            return None
+        return self._candidate_store.update_status(
+            candidate_id,
+            status,
+            review_note=review_note,
+        )
+
+    def list_candidates(
+        self,
+        limit: int | None = None,
+        *,
+        status: str | None = None,
+    ) -> list[EvolutionCandidate]:
         if self._candidate_store is None:
             return []
-        return self._candidate_store.list_recent(limit=limit)
+        items = self._candidate_store.list_recent(limit=limit)
+        if status is None:
+            return items
+        return [candidate for candidate in items if candidate.status == status]
 
     def add_workflow_sample(self, sample: WorkflowEvolutionSample) -> None:
         if self._workflow_sample_store is None:

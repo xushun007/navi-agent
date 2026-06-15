@@ -27,11 +27,19 @@ class FakeApp:
     def add_workflow_sample(self, sample) -> None:
         self.saved_samples.append(sample)
 
-    def list_candidates(self, limit=10):
+    def list_candidates(self, limit=10, status=None):
         return list(reversed(self.saved_candidates[-limit:]))
 
     def list_workflow_samples(self, limit=10):
         return list(reversed(self.saved_samples[-limit:]))
+
+    def update_candidate_status(self, candidate_id, status, review_note=None):
+        for candidate in self.saved_candidates:
+            if getattr(candidate, "candidate_id", None) == candidate_id:
+                candidate.status = status
+                candidate.review_note = review_note
+                return candidate
+        return None
 
 
 class CliTests(unittest.TestCase):
@@ -98,12 +106,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.evolution_run, "prototype-baseline")
         args = parser.parse_args(["--evolution-status"])
         self.assertTrue(args.evolution_status)
+        args = parser.parse_args(["--candidate-id", "c1", "--accept-candidate"])
+        self.assertEqual(args.candidate_id, "c1")
+        self.assertTrue(args.accept_candidate)
 
     def test_build_parser_parses_evolution_listing_flags(self) -> None:
         parser = build_parser()
 
         args = parser.parse_args(["--list-candidates"])
         self.assertTrue(args.list_candidates)
+        self.assertEqual(args.candidate_status, "all")
+        args = parser.parse_args(["--candidate-status", "pending", "--list-candidates"])
+        self.assertEqual(args.candidate_status, "pending")
         args = parser.parse_args(["--list-workflow-samples"])
         self.assertTrue(args.list_workflow_samples)
         args = parser.parse_args(["--review-loop"])
@@ -200,7 +214,7 @@ class CliTests(unittest.TestCase):
         fake_app = FakeApp()
         stdout = io.StringIO()
         fake_app.list_candidates = lambda limit=50: [
-            type("Candidate", (), {"target": "prompt", "summary": "Review prompt"})()
+            type("Candidate", (), {"candidate_id": "c1", "status": "pending", "target": "prompt", "summary": "Review prompt"})()
         ]
         fake_app.list_workflow_samples = lambda limit=50: [
             type(
@@ -294,7 +308,16 @@ class CliTests(unittest.TestCase):
                         "score_delta": -0.1,
                     },
                 )(),
-                "candidate": type("Candidate", (), {"target": "prompt", "summary": "Review workflow regression"})(),
+                "candidate": type(
+                    "Candidate",
+                    (),
+                    {
+                        "candidate_id": "c1",
+                        "status": "pending",
+                        "target": "prompt",
+                        "summary": "Review workflow regression",
+                    },
+                )(),
                 "step_comparisons": [
                     type(
                         "StepComparison",
@@ -335,8 +358,8 @@ class CliTests(unittest.TestCase):
 
     def test_main_runs_evolution_status(self) -> None:
         fake_app = FakeApp()
-        fake_app.list_candidates = lambda limit=50: [
-            type("Candidate", (), {"target": "prompt", "summary": "Review prompt"})()
+        fake_app.list_candidates = lambda limit=50, status=None: [
+            type("Candidate", (), {"candidate_id": "c1", "status": "pending", "target": "prompt", "summary": "Review prompt"})()
         ]
         fake_app.list_workflow_samples = lambda limit=50: [
             type(
@@ -362,6 +385,7 @@ class CliTests(unittest.TestCase):
                 "status": "regressed",
                 "score_delta": -0.2,
                 "candidate_target": "prompt",
+                "candidate_status": "pending",
             },
         )()
 
@@ -375,12 +399,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("latest_report: /tmp/evolution-report", stdout.getvalue())
         self.assertIn("latest_workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("latest_candidate_target: prompt", stdout.getvalue())
+        self.assertIn("latest_candidate_status: pending", stdout.getvalue())
         self.assertIn("recommendation:", stdout.getvalue())
 
     def test_main_lists_candidates(self) -> None:
         fake_app = FakeApp()
-        fake_app.list_candidates = lambda limit=10: [
-            type("Candidate", (), {"target": "prompt", "summary": "Review prompt"})()
+        fake_app.list_candidates = lambda limit=10, status=None: [
+            type(
+                "Candidate",
+                (),
+                {
+                    "candidate_id": "c1",
+                    "status": "pending",
+                    "target": "prompt",
+                    "summary": "Review prompt",
+                },
+            )()
         ]
         stdout = io.StringIO()
 
@@ -390,7 +425,32 @@ class CliTests(unittest.TestCase):
                     exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(stdout.getvalue().strip(), "prompt: Review prompt")
+        self.assertEqual(stdout.getvalue().strip(), "c1 [pending] prompt: Review prompt")
+
+    def test_main_updates_candidate_status(self) -> None:
+        fake_app = FakeApp()
+        candidate = type(
+            "Candidate",
+            (),
+            {
+                "candidate_id": "c1",
+                "status": "pending",
+                "target": "prompt",
+                "summary": "Review prompt",
+                "review_note": None,
+            },
+        )()
+        fake_app.saved_candidates.append(candidate)
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("sys.argv", ["navi-agent", "--candidate-id", "c1", "--accept-candidate"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("candidate_status: accepted", stdout.getvalue())
+        self.assertEqual(candidate.status, "accepted")
 
     def test_main_lists_workflow_samples(self) -> None:
         fake_app = FakeApp()
@@ -419,8 +479,8 @@ class CliTests(unittest.TestCase):
 
     def test_main_runs_review_loop(self) -> None:
         fake_app = FakeApp()
-        fake_app.list_candidates = lambda limit=50: [
-            type("Candidate", (), {"target": "prompt", "summary": "Review prompt"})()
+        fake_app.list_candidates = lambda limit=50, status=None: [
+            type("Candidate", (), {"candidate_id": "c1", "status": "pending", "target": "prompt", "summary": "Review prompt"})()
         ]
         fake_app.list_workflow_samples = lambda limit=50: [
             type(
@@ -441,6 +501,10 @@ class CliTests(unittest.TestCase):
             (),
             {
                 "candidate_count": 1,
+                "pending_candidate_count": 1,
+                "accepted_candidate_count": 0,
+                "rejected_candidate_count": 0,
+                "applied_candidate_count": 0,
                 "workflow_sample_count": 1,
                 "regressed_count": 1,
                 "improved_count": 0,
@@ -460,8 +524,24 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_count: 1", stdout.getvalue())
+        self.assertIn("pending_candidate_count: 1", stdout.getvalue())
         self.assertIn("top_candidate_targets:", stdout.getvalue())
         self.assertIn("recommendation: Prioritize prompt improvements", stdout.getvalue())
+
+    def test_main_lists_candidates_by_status(self) -> None:
+        fake_app = FakeApp()
+        fake_app.list_candidates = lambda limit=10, status=None: [
+            type("Candidate", (), {"candidate_id": "c1", "status": "accepted", "target": "prompt", "summary": "Review prompt"})()
+        ]
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("sys.argv", ["navi-agent", "--candidate-status", "accepted", "--list-candidates"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("c1 [accepted] prompt: Review prompt", stdout.getvalue())
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()

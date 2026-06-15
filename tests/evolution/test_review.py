@@ -8,8 +8,8 @@ class ReviewLoopServiceTests(unittest.TestCase):
         summary = ReviewLoopService().summarize(
             candidates=[
                 EvolutionCandidate(target="prompt", summary="a", rationale="r"),
-                EvolutionCandidate(target="prompt", summary="b", rationale="r"),
-                EvolutionCandidate(target="tooling", summary="c", rationale="r"),
+                EvolutionCandidate(target="prompt", summary="b", rationale="r", status="accepted"),
+                EvolutionCandidate(target="tooling", summary="c", rationale="r", status="rejected"),
             ],
             workflow_samples=[
                 WorkflowEvolutionSample(
@@ -46,6 +46,10 @@ class ReviewLoopServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(summary.candidate_count, 3)
+        self.assertEqual(summary.pending_candidate_count, 1)
+        self.assertEqual(summary.accepted_candidate_count, 1)
+        self.assertEqual(summary.rejected_candidate_count, 1)
+        self.assertEqual(summary.applied_candidate_count, 0)
         self.assertEqual(summary.workflow_sample_count, 3)
         self.assertEqual(summary.regressed_count, 2)
         self.assertEqual(summary.top_candidate_targets[0], ("prompt", 2))

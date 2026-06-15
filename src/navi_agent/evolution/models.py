@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 
 @dataclass(slots=True)
@@ -17,6 +18,10 @@ class EvolutionCandidate:
     target: str
     summary: str
     rationale: str
+    candidate_id: str = field(default_factory=lambda: uuid4().hex)
+    status: str = "pending"
+    reviewed_at: str | None = None
+    review_note: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

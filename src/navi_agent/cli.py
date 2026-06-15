@@ -34,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compare-workflow")
     parser.add_argument("--evolution-run")
     parser.add_argument("--evolution-status", action="store_true")
+    parser.add_argument("--candidate-id")
+    parser.add_argument("--candidate-status", choices=["pending", "accepted", "rejected", "applied", "all"], default="all")
+    parser.add_argument("--accept-candidate", action="store_true")
+    parser.add_argument("--reject-candidate", action="store_true")
+    parser.add_argument("--apply-candidate", action="store_true")
+    parser.add_argument("--candidate-note")
     parser.add_argument("--list-candidates", action="store_true")
     parser.add_argument("--list-workflow-samples", action="store_true")
     parser.add_argument("--review-loop", action="store_true")
@@ -58,13 +64,42 @@ def main() -> int:
         for workflow in list_smoke_workflows():
             print(f"{workflow.name}: {workflow.description}")
         return 0
+    candidate_action = _candidate_action_from_args(args)
+    if candidate_action is not None:
+        app = build_application(
+            default_system_prompt=args.system_prompt,
+            approval_provider=CliApprovalProvider(),
+        )
+        if not args.candidate_id:
+            parser.error("--candidate-id is required for candidate status updates")
+        updated = app.update_candidate_status(
+            args.candidate_id,
+            candidate_action,
+            review_note=args.candidate_note,
+        )
+        if updated is None:
+            print(f"candidate not found: {args.candidate_id}")
+            return 1
+        print(f"candidate_id: {updated.candidate_id}")
+        print(f"candidate_status: {updated.status}")
+        print(f"candidate_target: {updated.target}")
+        if updated.review_note:
+            print(f"candidate_note: {updated.review_note}")
+        return 0
     if args.list_candidates:
         app = build_application(
             default_system_prompt=args.system_prompt,
             approval_provider=CliApprovalProvider(),
         )
-        for candidate in app.list_candidates(limit=10):
-            print(f"{candidate.target}: {candidate.summary}")
+        candidates = app.list_candidates(
+            limit=10,
+            status=None if args.candidate_status == "all" else args.candidate_status,
+        )
+        for candidate in candidates:
+            print(
+                f"{candidate.candidate_id} [{candidate.status}] "
+                f"{candidate.target}: {candidate.summary}"
+            )
         return 0
     if args.list_workflow_samples:
         app = build_application(
@@ -88,6 +123,10 @@ def main() -> int:
         )
         print(f"evolution_reports_dir: {get_evolution_reports_dir()}")
         print(f"candidate_count: {summary.candidate_count}")
+        print(f"pending_candidate_count: {summary.pending_candidate_count}")
+        print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
+        print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
+        print(f"applied_candidate_count: {summary.applied_candidate_count}")
         print(f"workflow_sample_count: {summary.workflow_sample_count}")
         print(f"regressed_count: {summary.regressed_count}")
         print(f"improved_count: {summary.improved_count}")
@@ -100,6 +139,8 @@ def main() -> int:
             print(f"latest_score_delta: {latest_report.score_delta}")
             if latest_report.candidate_target:
                 print(f"latest_candidate_target: {latest_report.candidate_target}")
+            if latest_report.candidate_status:
+                print(f"latest_candidate_status: {latest_report.candidate_status}")
         print(f"recommendation: {summary.recommendation}")
         return 0
     if args.review_loop:
@@ -112,6 +153,10 @@ def main() -> int:
             workflow_samples=app.list_workflow_samples(limit=50),
         )
         print(f"candidate_count: {summary.candidate_count}")
+        print(f"pending_candidate_count: {summary.pending_candidate_count}")
+        print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
+        print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
+        print(f"applied_candidate_count: {summary.applied_candidate_count}")
         print(f"workflow_sample_count: {summary.workflow_sample_count}")
         print(f"regressed_count: {summary.regressed_count}")
         print(f"improved_count: {summary.improved_count}")
@@ -195,6 +240,20 @@ def main() -> int:
     )
     print(result.final_response)
     return 0
+
+
+def _candidate_action_from_args(args) -> str | None:
+    actions = [
+        ("accepted", bool(args.accept_candidate)),
+        ("rejected", bool(args.reject_candidate)),
+        ("applied", bool(args.apply_candidate)),
+    ]
+    selected = [status for status, enabled in actions if enabled]
+    if not selected:
+        return None
+    if len(selected) > 1:
+        raise SystemExit("Only one of --accept-candidate, --reject-candidate, or --apply-candidate may be set")
+    return selected[0]
 
 
 def _run_evolution_workflow(

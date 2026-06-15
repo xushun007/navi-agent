@@ -9,6 +9,10 @@ from .models import EvolutionCandidate, WorkflowEvolutionSample
 @dataclass(slots=True)
 class ReviewLoopSummary:
     candidate_count: int
+    pending_candidate_count: int
+    accepted_candidate_count: int
+    rejected_candidate_count: int
+    applied_candidate_count: int
     workflow_sample_count: int
     regressed_count: int
     improved_count: int
@@ -28,6 +32,10 @@ class ReviewLoopService:
         regressed = [sample for sample in workflow_samples if sample.status == "regressed"]
         improved = [sample for sample in workflow_samples if sample.status == "improved"]
         unchanged = [sample for sample in workflow_samples if sample.status == "unchanged"]
+        pending_candidates = [candidate for candidate in candidates if candidate.status == "pending"]
+        accepted_candidates = [candidate for candidate in candidates if candidate.status == "accepted"]
+        rejected_candidates = [candidate for candidate in candidates if candidate.status == "rejected"]
+        applied_candidates = [candidate for candidate in candidates if candidate.status == "applied"]
 
         target_counts = Counter(candidate.target for candidate in candidates)
         workflow_counts = Counter(sample.workflow_name for sample in regressed)
@@ -43,6 +51,10 @@ class ReviewLoopService:
 
         return ReviewLoopSummary(
             candidate_count=len(candidates),
+            pending_candidate_count=len(pending_candidates),
+            accepted_candidate_count=len(accepted_candidates),
+            rejected_candidate_count=len(rejected_candidates),
+            applied_candidate_count=len(applied_candidates),
             workflow_sample_count=len(workflow_samples),
             regressed_count=len(regressed),
             improved_count=len(improved),

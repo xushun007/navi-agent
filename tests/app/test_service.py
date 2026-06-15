@@ -47,6 +47,20 @@ class FakeCandidateStore:
             return items
         return items[:limit]
 
+    def get(self, candidate_id):
+        for candidate in self.items:
+            if candidate.candidate_id == candidate_id:
+                return candidate
+        return None
+
+    def update_status(self, candidate_id, status, review_note=None):
+        candidate = self.get(candidate_id)
+        if candidate is None:
+            return None
+        candidate.status = status
+        candidate.review_note = review_note
+        return candidate
+
 
 class FakeWorkflowSampleStore:
     def __init__(self) -> None:
@@ -149,6 +163,25 @@ class ApplicationServiceTests(unittest.TestCase):
         items = service.list_candidates(limit=10)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].summary, "Review prompt")
+
+    def test_update_candidate_status_uses_store(self) -> None:
+        store = FakeCandidateStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=store,
+        )
+        candidate = EvolutionCandidate(
+            target="prompt",
+            summary="Review prompt",
+            rationale="Need better final answer",
+        )
+        service.add_candidate(candidate)
+
+        updated = service.update_candidate_status(candidate.candidate_id, "accepted", review_note="good")
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "accepted")
+        self.assertEqual(updated.review_note, "good")
 
     def test_add_and_list_workflow_samples_use_store(self) -> None:
         service = ApplicationService(
