@@ -89,6 +89,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.list_candidates)
         args = parser.parse_args(["--list-workflow-samples"])
         self.assertTrue(args.list_workflow_samples)
+        args = parser.parse_args(["--review-loop"])
+        self.assertTrue(args.review_loop)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -313,6 +315,52 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("prototype-baseline: regressed", stdout.getvalue())
+
+    def test_main_runs_review_loop(self) -> None:
+        fake_app = FakeApp()
+        fake_app.list_candidates = lambda limit=50: [
+            type("Candidate", (), {"target": "prompt", "summary": "Review prompt"})()
+        ]
+        fake_app.list_workflow_samples = lambda limit=50: [
+            type(
+                "Sample",
+                (),
+                {
+                    "workflow_name": "prototype-baseline",
+                    "status": "regressed",
+                    "source_average_score": 1.0,
+                    "replay_average_score": 0.8,
+                    "score_delta": -0.2,
+                },
+            )()
+        ]
+        stdout = io.StringIO()
+        summary = type(
+            "ReviewSummary",
+            (),
+            {
+                "candidate_count": 1,
+                "workflow_sample_count": 1,
+                "regressed_count": 1,
+                "improved_count": 0,
+                "unchanged_count": 0,
+                "top_candidate_targets": [("prompt", 1)],
+                "top_regressed_workflows": [("prototype-baseline", 1)],
+                "recommendation": "Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.ReviewLoopService") as review_service_cls:
+                review_service_cls.return_value.summarize.return_value = summary
+                with patch("sys.argv", ["navi-agent", "--review-loop"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("candidate_count: 1", stdout.getvalue())
+        self.assertIn("top_candidate_targets:", stdout.getvalue())
+        self.assertIn("recommendation: Prioritize prompt improvements", stdout.getvalue())
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()

@@ -6,6 +6,7 @@ from uuid import uuid4
 from navi_agent.app import AppRequest
 from navi_agent.bootstrap import build_application
 from navi_agent.doctor import run_doctor
+from navi_agent.evolution import ReviewLoopService
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.smoke import (
     compare_smoke_workflow_results,
@@ -30,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compare-workflow")
     parser.add_argument("--list-candidates", action="store_true")
     parser.add_argument("--list-workflow-samples", action="store_true")
+    parser.add_argument("--review-loop", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
@@ -67,7 +69,38 @@ def main() -> int:
                 f"(source={sample.source_average_score}, replay={sample.replay_average_score}, delta={sample.score_delta})"
             )
         return 0
-    if not args.interactive and not args.smoke and not args.workflow and not args.compare_workflow and not args.message:
+    if args.review_loop:
+        app = build_application(
+            default_system_prompt=args.system_prompt,
+            approval_provider=CliApprovalProvider(),
+        )
+        summary = ReviewLoopService().summarize(
+            candidates=app.list_candidates(limit=50),
+            workflow_samples=app.list_workflow_samples(limit=50),
+        )
+        print(f"candidate_count: {summary.candidate_count}")
+        print(f"workflow_sample_count: {summary.workflow_sample_count}")
+        print(f"regressed_count: {summary.regressed_count}")
+        print(f"improved_count: {summary.improved_count}")
+        print(f"unchanged_count: {summary.unchanged_count}")
+        if summary.top_candidate_targets:
+            print("top_candidate_targets:")
+            for target, count in summary.top_candidate_targets:
+                print(f"- {target}: {count}")
+        if summary.top_regressed_workflows:
+            print("top_regressed_workflows:")
+            for workflow, count in summary.top_regressed_workflows:
+                print(f"- {workflow}: {count}")
+        print(f"recommendation: {summary.recommendation}")
+        return 0
+    if (
+        not args.interactive
+        and not args.smoke
+        and not args.workflow
+        and not args.compare_workflow
+        and not args.review_loop
+        and not args.message
+    ):
         parser.error("message is required unless --interactive is set")
 
     app = build_application(
