@@ -70,10 +70,11 @@ def main() -> int:
         )
         print(f"workflow: {workflow_result.workflow.name}")
         print(f"session_id: {workflow_result.session_id}")
-        for index, result in enumerate(workflow_result.results, start=1):
-            step_name = workflow_result.workflow.steps[index - 1]
-            print(f"[{index}] {step_name}")
-            print(result.final_response)
+        for index, step in enumerate(workflow_result.steps, start=1):
+            print(f"[{index}] {step.task_name}")
+            if step.trace_id:
+                print(f"trace_id: {step.trace_id}")
+            print(step.runtime_result.final_response)
         return 0
     if args.interactive:
         return _run_interactive(

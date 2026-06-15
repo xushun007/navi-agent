@@ -22,10 +22,18 @@ class SmokeWorkflow:
 
 
 @dataclass(frozen=True, slots=True)
+class SmokeStepResult:
+    task_name: str
+    runtime_result: RuntimeResult
+    trace_id: str | None = None
+    trace_status: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SmokeWorkflowResult:
     workflow: SmokeWorkflow
     session_id: str
-    results: list[RuntimeResult]
+    steps: list[SmokeStepResult]
 
 
 SMOKE_TASKS: dict[str, SmokeTask] = {
@@ -123,7 +131,7 @@ def run_smoke_workflow(
 ) -> SmokeWorkflowResult:
     workflow = get_smoke_workflow(workflow_name)
     workflow_session_id = session_id or f"workflow-{workflow.name}-{uuid4().hex[:8]}"
-    results: list[RuntimeResult] = []
+    steps: list[SmokeStepResult] = []
 
     for task_name in workflow.steps:
         result = run_smoke_task(
@@ -133,10 +141,21 @@ def run_smoke_workflow(
             session_id=workflow_session_id,
             system_prompt=system_prompt,
         )
-        results.append(result)
+        latest_trace = app.get_latest_trace(
+            session_id=workflow_session_id,
+            user_id=user_id,
+        )
+        steps.append(
+            SmokeStepResult(
+                task_name=task_name,
+                runtime_result=result,
+                trace_id=latest_trace.trace_id if latest_trace is not None else None,
+                trace_status=latest_trace.status if latest_trace is not None else None,
+            )
+        )
 
     return SmokeWorkflowResult(
         workflow=workflow,
         session_id=workflow_session_id,
-        results=results,
+        steps=steps,
     )

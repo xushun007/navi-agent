@@ -153,9 +153,25 @@ class CliTests(unittest.TestCase):
             {
                 "workflow": type("Workflow", (), {"name": "prototype-baseline", "steps": ["config-check", "workspace-search"]})(),
                 "session_id": "wf-1",
-                "results": [
-                    RuntimeResult(session_id="wf-1", status="success", final_response="first"),
-                    RuntimeResult(session_id="wf-1", status="success", final_response="second"),
+                "steps": [
+                    type(
+                        "StepResult",
+                        (),
+                        {
+                            "task_name": "config-check",
+                            "trace_id": "trace-1",
+                            "runtime_result": RuntimeResult(session_id="wf-1", status="success", final_response="first"),
+                        },
+                    )(),
+                    type(
+                        "StepResult",
+                        (),
+                        {
+                            "task_name": "workspace-search",
+                            "trace_id": "trace-2",
+                            "runtime_result": RuntimeResult(session_id="wf-1", status="success", final_response="second"),
+                        },
+                    )(),
                 ],
             },
         )()
@@ -172,6 +188,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("workflow: prototype-baseline", stdout.getvalue())
         self.assertIn("[1] config-check", stdout.getvalue())
+        self.assertIn("trace_id: trace-1", stdout.getvalue())
         self.assertIn("second", stdout.getvalue())
         run_smoke_workflow_mock.assert_called_once()
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from navi_agent.runtime import AgentRuntime, RuntimeResult
+from navi_agent.telemetry import RuntimeTrace
 
 
 @dataclass(slots=True)
@@ -34,6 +35,28 @@ class ApplicationService:
             user_id=request.user_id,
             user_message=request.message,
             system_prompt=system_prompt,
+        )
+
+    def get_latest_trace(
+        self,
+        *,
+        session_id: str | None = None,
+        user_id: str | None = None,
+    ) -> RuntimeTrace | None:
+        return self._runtime.get_latest_trace(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+    def get_session_traces(
+        self,
+        session_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> list[RuntimeTrace]:
+        return self._runtime.get_session_traces(
+            session_id=session_id,
+            user_id=user_id,
         )
 
     @staticmethod

@@ -316,3 +316,29 @@ class AgentRuntime:
     def _emit_event(self, event: RuntimeEvent) -> None:
         for observer in self._observers:
             observer.on_event(event)
+
+    def get_latest_trace(
+        self,
+        *,
+        session_id: str | None = None,
+        user_id: str | None = None,
+    ) -> RuntimeTrace | None:
+        if self._trace_store is None:
+            return None
+        return self._trace_store.get_latest_trace(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+    def get_session_traces(
+        self,
+        session_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> list[RuntimeTrace]:
+        if self._trace_store is None:
+            return []
+        return self._trace_store.get_session_traces(
+            session_id=session_id,
+            user_id=user_id,
+        )

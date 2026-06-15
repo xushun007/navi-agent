@@ -1,6 +1,7 @@
 import unittest
 
 from navi_agent.runtime import RuntimeResult
+from navi_agent.telemetry import RuntimeTrace
 from navi_agent.smoke import (
     get_smoke_task,
     get_smoke_workflow,
@@ -14,13 +15,25 @@ from navi_agent.smoke import (
 class FakeApp:
     def __init__(self) -> None:
         self.calls = []
+        self.trace_counter = 0
 
     def handle(self, request):
         self.calls.append(request)
+        self.trace_counter += 1
         return RuntimeResult(
             session_id=request.session_id or "generated",
             status="success",
             final_response="done",
+        )
+
+    def get_latest_trace(self, session_id=None, user_id=None):
+        return RuntimeTrace(
+            session_id=session_id or "generated",
+            user_id=user_id or "u1",
+            user_message="prompt",
+            final_response="done",
+            status="success",
+            trace_id=f"trace-{self.trace_counter}",
         )
 
 
@@ -86,8 +99,10 @@ class SmokeTests(unittest.TestCase):
 
         self.assertEqual(workflow_result.workflow.name, "product-orientation")
         self.assertEqual(workflow_result.session_id, "wf-1")
-        self.assertEqual(len(workflow_result.results), 2)
+        self.assertEqual(len(workflow_result.steps), 2)
         self.assertEqual([request.session_id for request in app.calls], ["wf-1", "wf-1"])
+        self.assertEqual([step.trace_id for step in workflow_result.steps], ["trace-1", "trace-2"])
+        self.assertEqual([step.trace_status for step in workflow_result.steps], ["success", "success"])
 
 
 if __name__ == "__main__":
