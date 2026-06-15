@@ -7,6 +7,8 @@ from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings
 from navi_agent.runtime import ToolCall, ToolContext
 from navi_agent.runtime.approval import AutoApproveApprovalProvider
 from navi_agent.telemetry import CompositeTraceStore, InMemoryTraceStore
+from navi_agent.evolution import JsonlCandidateStore, JsonlWorkflowSampleStore
+from navi_agent.bootstrap import build_application
 
 
 class BootstrapTests(unittest.TestCase):
@@ -120,6 +122,17 @@ class BootstrapTests(unittest.TestCase):
                         )
 
         self.assertIsInstance(runtime._trace_store, InMemoryTraceStore)
+
+    def test_build_application_wires_evolution_stores(self) -> None:
+        with patch("navi_agent.bootstrap.build_runtime") as build_runtime_mock:
+            app = build_application(
+                model_settings=ModelSettings(model="demo", api_key="x"),
+                runtime_settings=RuntimeSettings(max_iterations=3),
+            )
+
+        build_runtime_mock.assert_called_once()
+        self.assertIsInstance(app._candidate_store, JsonlCandidateStore)
+        self.assertIsInstance(app._workflow_sample_store, JsonlWorkflowSampleStore)
 
 
 if __name__ == "__main__":

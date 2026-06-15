@@ -4,9 +4,15 @@ import logging
 
 from navi_agent.app import ApplicationService
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
+from navi_agent.evolution import JsonlCandidateStore, JsonlWorkflowSampleStore
 from navi_agent.logging import setup_logging
 from navi_agent.memory import InMemoryMemoryStore
-from navi_agent.paths import get_app_log_path, get_state_db_path
+from navi_agent.paths import (
+    get_app_log_path,
+    get_candidate_store_path,
+    get_state_db_path,
+    get_workflow_sample_store_path,
+)
 from navi_agent.runtime import AgentRuntime, PromptBuilder, SQLiteSessionStore, build_transport
 from navi_agent.runtime.approval import ApprovalProvider
 from navi_agent.telemetry import CompositeTraceStore, InMemoryTraceStore, LangfuseTraceExporter
@@ -61,6 +67,8 @@ def build_application(
     return ApplicationService(
         runtime=runtime,
         default_system_prompt=default_system_prompt,
+        candidate_store=JsonlCandidateStore(get_candidate_store_path()),
+        workflow_sample_store=JsonlWorkflowSampleStore(get_workflow_sample_store_path()),
     )
 
 

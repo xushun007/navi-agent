@@ -28,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--smoke")
     parser.add_argument("--workflow")
     parser.add_argument("--compare-workflow")
+    parser.add_argument("--list-candidates", action="store_true")
+    parser.add_argument("--list-workflow-samples", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
@@ -45,6 +47,25 @@ def main() -> int:
     if args.list_smoke_workflows:
         for workflow in list_smoke_workflows():
             print(f"{workflow.name}: {workflow.description}")
+        return 0
+    if args.list_candidates:
+        app = build_application(
+            default_system_prompt=args.system_prompt,
+            approval_provider=CliApprovalProvider(),
+        )
+        for candidate in app.list_candidates(limit=10):
+            print(f"{candidate.target}: {candidate.summary}")
+        return 0
+    if args.list_workflow_samples:
+        app = build_application(
+            default_system_prompt=args.system_prompt,
+            approval_provider=CliApprovalProvider(),
+        )
+        for sample in app.list_workflow_samples(limit=10):
+            print(
+                f"{sample.workflow_name}: {sample.status} "
+                f"(source={sample.source_average_score}, replay={sample.replay_average_score}, delta={sample.score_delta})"
+            )
         return 0
     if not args.interactive and not args.smoke and not args.workflow and not args.compare_workflow and not args.message:
         parser.error("message is required unless --interactive is set")
@@ -93,6 +114,9 @@ def main() -> int:
             system_prompt=args.system_prompt,
         )
         comparison = compare_smoke_workflow_results(source, replay)
+        app.add_workflow_sample(comparison.sample)
+        if comparison.candidate is not None:
+            app.add_candidate(comparison.candidate)
         print(f"workflow: {comparison.workflow_name}")
         print(f"source_session_id: {comparison.source_session_id}")
         print(f"replay_session_id: {comparison.replay_session_id}")

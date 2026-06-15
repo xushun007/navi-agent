@@ -5,10 +5,13 @@ from unittest.mock import patch
 
 from navi_agent.paths import (
     get_app_log_path,
+    get_candidate_store_path,
     get_config_path,
+    get_evolution_dir,
     get_logs_dir,
     get_navi_home,
     get_state_db_path,
+    get_workflow_sample_store_path,
 )
 
 
@@ -26,6 +29,12 @@ class PathsTests(unittest.TestCase):
             self.assertEqual(get_logs_dir(), Path("/tmp/navi-home/logs"))
             self.assertEqual(get_app_log_path(), Path("/tmp/navi-home/logs/navi-agent.log"))
             self.assertEqual(get_config_path(), Path("/tmp/navi-home/config.yaml"))
+            self.assertEqual(get_evolution_dir(), Path("/tmp/navi-home/evolution"))
+            self.assertEqual(get_candidate_store_path(), Path("/tmp/navi-home/evolution/candidates.jsonl"))
+            self.assertEqual(
+                get_workflow_sample_store_path(),
+                Path("/tmp/navi-home/evolution/workflow-samples.jsonl"),
+            )
 
     def test_get_navi_home_defaults_under_workspace_when_env_missing(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

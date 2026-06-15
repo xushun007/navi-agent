@@ -25,3 +25,15 @@ def get_logs_dir() -> Path:
 
 def get_app_log_path() -> Path:
     return get_logs_dir() / "navi-agent.log"
+
+
+def get_evolution_dir() -> Path:
+    return get_navi_home() / "evolution"
+
+
+def get_candidate_store_path() -> Path:
+    return get_evolution_dir() / "candidates.jsonl"
+
+
+def get_workflow_sample_store_path() -> Path:
+    return get_evolution_dir() / "workflow-samples.jsonl"

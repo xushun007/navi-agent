@@ -10,6 +10,8 @@ from navi_agent.runtime import CliApprovalProvider, RuntimeResult
 class FakeApp:
     def __init__(self) -> None:
         self.calls = []
+        self.saved_candidates = []
+        self.saved_samples = []
 
     def handle(self, request):
         self.calls.append(request)
@@ -18,6 +20,12 @@ class FakeApp:
             status="success",
             final_response="done",
         )
+
+    def add_candidate(self, candidate) -> None:
+        self.saved_candidates.append(candidate)
+
+    def add_workflow_sample(self, sample) -> None:
+        self.saved_samples.append(sample)
 
 
 class CliTests(unittest.TestCase):
@@ -73,6 +81,14 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["--compare-workflow", "prototype-baseline"])
 
         self.assertEqual(args.compare_workflow, "prototype-baseline")
+
+    def test_build_parser_parses_evolution_listing_flags(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["--list-candidates"])
+        self.assertTrue(args.list_candidates)
+        args = parser.parse_args(["--list-workflow-samples"])
+        self.assertTrue(args.list_workflow_samples)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -252,9 +268,51 @@ class CliTests(unittest.TestCase):
         self.assertIn("workflow_status: regressed", stdout.getvalue())
         self.assertIn("candidate_target: prompt", stdout.getvalue())
         self.assertIn("replay_trace_id: trace-2", stdout.getvalue())
+        self.assertEqual(len(fake_app.saved_samples), 1)
+        self.assertEqual(len(fake_app.saved_candidates), 1)
         run_smoke_workflow_mock.assert_called_once()
         replay_mock.assert_called_once()
         compare_mock.assert_called_once()
+
+    def test_main_lists_candidates(self) -> None:
+        fake_app = FakeApp()
+        fake_app.list_candidates = lambda limit=10: [
+            type("Candidate", (), {"target": "prompt", "summary": "Review prompt"})()
+        ]
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("sys.argv", ["navi-agent", "--list-candidates"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue().strip(), "prompt: Review prompt")
+
+    def test_main_lists_workflow_samples(self) -> None:
+        fake_app = FakeApp()
+        fake_app.list_workflow_samples = lambda limit=10: [
+            type(
+                "Sample",
+                (),
+                {
+                    "workflow_name": "prototype-baseline",
+                    "status": "regressed",
+                    "source_average_score": 1.0,
+                    "replay_average_score": 0.8,
+                    "score_delta": -0.2,
+                },
+            )()
+        ]
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("sys.argv", ["navi-agent", "--list-workflow-samples"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("prototype-baseline: regressed", stdout.getvalue())
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()

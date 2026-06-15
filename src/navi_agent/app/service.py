@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import uuid4
 
+from navi_agent.evolution import CandidateStore, WorkflowEvolutionSample, WorkflowSampleStore, EvolutionCandidate
 from navi_agent.runtime import AgentRuntime, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -20,9 +21,13 @@ class ApplicationService:
         self,
         runtime: AgentRuntime,
         default_system_prompt: str | None = None,
+        candidate_store: CandidateStore | None = None,
+        workflow_sample_store: WorkflowSampleStore | None = None,
     ) -> None:
         self._runtime = runtime
         self._default_system_prompt = default_system_prompt
+        self._candidate_store = candidate_store
+        self._workflow_sample_store = workflow_sample_store
 
     def handle(self, request: AppRequest) -> RuntimeResult:
         session_id = request.session_id or self._new_session_id()
@@ -58,6 +63,26 @@ class ApplicationService:
             session_id=session_id,
             user_id=user_id,
         )
+
+    def add_candidate(self, candidate: EvolutionCandidate) -> None:
+        if self._candidate_store is None:
+            return
+        self._candidate_store.add(candidate)
+
+    def list_candidates(self, limit: int | None = None) -> list[EvolutionCandidate]:
+        if self._candidate_store is None:
+            return []
+        return self._candidate_store.list_recent(limit=limit)
+
+    def add_workflow_sample(self, sample: WorkflowEvolutionSample) -> None:
+        if self._workflow_sample_store is None:
+            return
+        self._workflow_sample_store.add(sample)
+
+    def list_workflow_samples(self, limit: int | None = None) -> list[WorkflowEvolutionSample]:
+        if self._workflow_sample_store is None:
+            return []
+        return self._workflow_sample_store.list_recent(limit=limit)
 
     @staticmethod
     def _new_session_id() -> str:

@@ -1,6 +1,7 @@
 import unittest
 
 from navi_agent.app import AppRequest, ApplicationService
+from navi_agent.evolution import EvolutionCandidate, WorkflowEvolutionSample
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -31,6 +32,34 @@ class FakeRuntime:
 
     def get_session_traces(self, session_id, user_id=None):
         return self.session_traces
+
+
+class FakeCandidateStore:
+    def __init__(self) -> None:
+        self.items = []
+
+    def add(self, candidate) -> None:
+        self.items.append(candidate)
+
+    def list_recent(self, limit=None):
+        items = list(reversed(self.items))
+        if limit is None:
+            return items
+        return items[:limit]
+
+
+class FakeWorkflowSampleStore:
+    def __init__(self) -> None:
+        self.items = []
+
+    def add(self, sample) -> None:
+        self.items.append(sample)
+
+    def list_recent(self, limit=None):
+        items = list(reversed(self.items))
+        if limit is None:
+            return items
+        return items[:limit]
 
 
 class ApplicationServiceTests(unittest.TestCase):
@@ -103,6 +132,45 @@ class ApplicationServiceTests(unittest.TestCase):
 
         self.assertEqual(len(traces), 1)
         self.assertEqual(traces[0].trace_id, "trace-1")
+
+    def test_add_and_list_candidates_use_store(self) -> None:
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=FakeCandidateStore(),
+        )
+        candidate = EvolutionCandidate(
+            target="prompt",
+            summary="Review prompt",
+            rationale="Need better final answer",
+        )
+
+        service.add_candidate(candidate)
+
+        items = service.list_candidates(limit=10)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].summary, "Review prompt")
+
+    def test_add_and_list_workflow_samples_use_store(self) -> None:
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            workflow_sample_store=FakeWorkflowSampleStore(),
+        )
+        sample = WorkflowEvolutionSample(
+            workflow_name="prototype-baseline",
+            source_session_id="wf-1",
+            replay_session_id="wf-2",
+            source_average_score=1.0,
+            replay_average_score=0.8,
+            score_delta=-0.2,
+            status="regressed",
+            summary="Workflow replay regressed compared with the source run",
+        )
+
+        service.add_workflow_sample(sample)
+
+        items = service.list_workflow_samples(limit=10)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].workflow_name, "prototype-baseline")
 
 
 if __name__ == "__main__":
