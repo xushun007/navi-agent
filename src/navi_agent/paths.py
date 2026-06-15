@@ -31,6 +31,10 @@ def get_evolution_dir() -> Path:
     return get_navi_home() / "evolution"
 
 
+def get_evolution_reports_dir() -> Path:
+    return get_logs_dir() / "evolution"
+
+
 def get_candidate_store_path() -> Path:
     return get_evolution_dir() / "candidates.jsonl"
 

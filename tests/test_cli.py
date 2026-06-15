@@ -27,6 +27,12 @@ class FakeApp:
     def add_workflow_sample(self, sample) -> None:
         self.saved_samples.append(sample)
 
+    def list_candidates(self, limit=10):
+        return list(reversed(self.saved_candidates[-limit:]))
+
+    def list_workflow_samples(self, limit=10):
+        return list(reversed(self.saved_samples[-limit:]))
+
 
 class CliTests(unittest.TestCase):
     def test_build_parser_parses_expected_arguments(self) -> None:
@@ -171,6 +177,22 @@ class CliTests(unittest.TestCase):
     def test_main_runs_smoke_workflow(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
+        fake_app.list_candidates = lambda limit=50: [
+            type("Candidate", (), {"target": "prompt", "summary": "Review prompt"})()
+        ]
+        fake_app.list_workflow_samples = lambda limit=50: [
+            type(
+                "Sample",
+                (),
+                {
+                    "workflow_name": "prototype-baseline",
+                    "status": "regressed",
+                    "source_average_score": 1.0,
+                    "replay_average_score": 0.9,
+                    "score_delta": -0.1,
+                },
+            )()
+        ]
 
         workflow_result = type(
             "WorkflowResult",
@@ -239,7 +261,17 @@ class CliTests(unittest.TestCase):
                 "source_average_score": 1.0,
                 "replay_average_score": 0.9,
                 "score_delta": -0.1,
-                "sample": type("Sample", (), {"status": "regressed"})(),
+                "sample": type(
+                    "Sample",
+                    (),
+                    {
+                        "workflow_name": "prototype-baseline",
+                        "status": "regressed",
+                        "source_average_score": 1.0,
+                        "replay_average_score": 0.9,
+                        "score_delta": -0.1,
+                    },
+                )(),
                 "candidate": type("Candidate", (), {"target": "prompt", "summary": "Review workflow regression"})(),
                 "step_comparisons": [
                     type(
@@ -260,14 +292,17 @@ class CliTests(unittest.TestCase):
             with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result) as run_smoke_workflow_mock:
                 with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result) as replay_mock:
                     with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison) as compare_mock:
-                        with patch("sys.argv", ["navi-agent", "--compare-workflow", "prototype-baseline"]):
-                            with redirect_stdout(stdout):
-                                exit_code = main()
+                        with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
+                            with patch("sys.argv", ["navi-agent", "--compare-workflow", "prototype-baseline"]):
+                                with redirect_stdout(stdout):
+                                    report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
+                                    exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("workflow: prototype-baseline", stdout.getvalue())
         self.assertIn("source_session_id: wf-1", stdout.getvalue())
         self.assertIn("workflow_status: regressed", stdout.getvalue())
+        self.assertIn("report_path: /tmp/report", stdout.getvalue())
         self.assertIn("candidate_target: prompt", stdout.getvalue())
         self.assertIn("replay_trace_id: trace-2", stdout.getvalue())
         self.assertEqual(len(fake_app.saved_samples), 1)

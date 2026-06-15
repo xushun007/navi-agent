@@ -6,7 +6,8 @@ from uuid import uuid4
 from navi_agent.app import AppRequest
 from navi_agent.bootstrap import build_application
 from navi_agent.doctor import run_doctor
-from navi_agent.evolution import ReviewLoopService
+from navi_agent.evolution import EvolutionReportWriter, ReviewLoopService
+from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.smoke import (
     compare_smoke_workflow_results,
@@ -150,6 +151,14 @@ def main() -> int:
         app.add_workflow_sample(comparison.sample)
         if comparison.candidate is not None:
             app.add_candidate(comparison.candidate)
+        review_summary = ReviewLoopService().summarize(
+            candidates=app.list_candidates(limit=50),
+            workflow_samples=app.list_workflow_samples(limit=50),
+        )
+        report_dir = EvolutionReportWriter(get_evolution_reports_dir()).write_workflow_comparison_report(
+            comparison=comparison,
+            review_summary=review_summary,
+        )
         print(f"workflow: {comparison.workflow_name}")
         print(f"source_session_id: {comparison.source_session_id}")
         print(f"replay_session_id: {comparison.replay_session_id}")
@@ -157,6 +166,7 @@ def main() -> int:
         print(f"source_average_score: {comparison.source_average_score}")
         print(f"replay_average_score: {comparison.replay_average_score}")
         print(f"score_delta: {comparison.score_delta}")
+        print(f"report_path: {report_dir}")
         if comparison.candidate is not None:
             print(f"candidate_target: {comparison.candidate.target}")
             print(f"candidate_summary: {comparison.candidate.summary}")
