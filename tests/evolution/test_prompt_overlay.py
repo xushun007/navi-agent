@@ -18,17 +18,31 @@ class PromptOverlayStoreTests(unittest.TestCase):
                 target="prompt",
                 summary="Review prompt",
                 rationale="Need better final answer",
+                metadata={
+                    "workflow_name": "prototype-baseline",
+                    "source_session_id": "source-1",
+                    "replay_session_id": "replay-1",
+                },
             )
 
             store.append_candidate(candidate)
             text = store.get()
             ids = store.list_candidate_ids()
             count = store.candidate_count()
+            workflow_names = store.list_workflow_names()
+            source_session_ids = store.list_source_session_ids()
+            replay_session_ids = store.list_replay_session_ids()
 
         self.assertIsNotNone(text)
         self.assertIn(candidate.candidate_id, text)
+        self.assertIn("workflow: prototype-baseline", text or "")
+        self.assertIn("source session: source-1", text or "")
+        self.assertIn("replay session: replay-1", text or "")
         self.assertEqual(ids, [candidate.candidate_id])
         self.assertEqual(count, 1)
+        self.assertEqual(workflow_names, ["prototype-baseline"])
+        self.assertEqual(source_session_ids, ["source-1"])
+        self.assertEqual(replay_session_ids, ["replay-1"])
 
     def test_snapshot_and_rollback_restore_previous_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

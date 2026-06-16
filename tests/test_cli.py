@@ -591,6 +591,9 @@ class CliTests(unittest.TestCase):
                 "exists": True,
                 "candidate_count": 2,
                 "candidate_ids": ["c1", "c2"],
+                "workflow_names": ["prototype-baseline"],
+                "source_session_ids": ["source-1"],
+                "replay_session_ids": ["replay-1"],
             }
             with patch("sys.argv", ["navi-agent", "--prompt-overlay-status"]):
                 with redirect_stdout(stdout):
@@ -599,6 +602,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("prompt_overlay_candidate_count: 2", stdout.getvalue())
         self.assertIn("prompt_overlay_candidate_ids:", stdout.getvalue())
+        self.assertIn("prompt_overlay_workflow_names:", stdout.getvalue())
+        self.assertIn("prompt_overlay_source_session_ids:", stdout.getvalue())
+        self.assertIn("prompt_overlay_replay_session_ids:", stdout.getvalue())
 
     def test_main_shows_prompt_overlay_content(self) -> None:
         stdout = io.StringIO()

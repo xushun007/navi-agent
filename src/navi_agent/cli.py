@@ -142,6 +142,18 @@ def main() -> int:
             print("prompt_overlay_candidate_ids:")
             for candidate_id in info["candidate_ids"]:
                 print(f"- {candidate_id}")
+        if info["workflow_names"]:
+            print("prompt_overlay_workflow_names:")
+            for workflow_name in info["workflow_names"]:
+                print(f"- {workflow_name}")
+        if info["source_session_ids"]:
+            print("prompt_overlay_source_session_ids:")
+            for session_id in info["source_session_ids"]:
+                print(f"- {session_id}")
+        if info["replay_session_ids"]:
+            print("prompt_overlay_replay_session_ids:")
+            for session_id in info["replay_session_ids"]:
+                print(f"- {session_id}")
         return 0
     if args.show_prompt_overlay:
         overlay = PromptOverlayStore(get_prompt_overlay_path())

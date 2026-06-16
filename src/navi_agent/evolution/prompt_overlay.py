@@ -79,6 +79,15 @@ class PromptOverlayStore:
                     break
         return ids
 
+    def list_workflow_names(self) -> list[str]:
+        return self._list_block_values("workflow")
+
+    def list_source_session_ids(self) -> list[str]:
+        return self._list_block_values("source session")
+
+    def list_replay_session_ids(self) -> list[str]:
+        return self._list_block_values("replay session")
+
     def candidate_count(self) -> int:
         return len(self.list_candidate_ids())
 
@@ -88,6 +97,9 @@ class PromptOverlayStore:
             "exists": self._path.exists(),
             "candidate_count": self.candidate_count(),
             "candidate_ids": self.list_candidate_ids(),
+            "workflow_names": self.list_workflow_names(),
+            "source_session_ids": self.list_source_session_ids(),
+            "replay_session_ids": self.list_replay_session_ids(),
             "snapshot_count": len(self.list_snapshots()),
         }
 
@@ -117,13 +129,43 @@ class PromptOverlayStore:
 
     @staticmethod
     def _format_candidate_block(candidate: EvolutionCandidate) -> str:
-        return "\n".join(
-            [
-                f"## Candidate {candidate.candidate_id}",
-                f"- status: {candidate.status}",
-                f"- target: {candidate.target}",
-                f"- summary: {candidate.summary}",
-                f"- rationale: {candidate.rationale}",
-                f"- note: apply as a small, focused prompt improvement.",
-            ]
-        )
+        lines = [
+            f"## Candidate {candidate.candidate_id}",
+            f"- status: {candidate.status}",
+            f"- target: {candidate.target}",
+            f"- summary: {candidate.summary}",
+            f"- rationale: {candidate.rationale}",
+        ]
+        metadata = candidate.metadata or {}
+        workflow_name = metadata.get("workflow_name")
+        if workflow_name:
+            lines.append(f"- workflow: {workflow_name}")
+        source_session_id = metadata.get("source_session_id")
+        if source_session_id:
+            lines.append(f"- source session: {source_session_id}")
+        replay_session_id = metadata.get("replay_session_id")
+        if replay_session_id:
+            lines.append(f"- replay session: {replay_session_id}")
+        source_trace_id = metadata.get("source_trace_id")
+        if source_trace_id:
+            lines.append(f"- source trace: {source_trace_id}")
+        replay_trace_id = metadata.get("replay_trace_id")
+        if replay_trace_id:
+            lines.append(f"- replay trace: {replay_trace_id}")
+        step_name = metadata.get("task_name")
+        if step_name:
+            lines.append(f"- step: {step_name}")
+        lines.append(f"- note: apply as a small, focused prompt improvement.")
+        return "\n".join(lines)
+
+    def _list_block_values(self, field_name: str) -> list[str]:
+        values: list[str] = []
+        prefix = f"- {field_name}: "
+        for block in self._blocks():
+            for line in block.splitlines():
+                if line.startswith(prefix):
+                    value = line.removeprefix(prefix).strip()
+                    if value:
+                        values.append(value)
+                    break
+        return values
