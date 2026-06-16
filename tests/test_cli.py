@@ -130,6 +130,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
         self.assertTrue(args.show_prompt_overlay)
+        args = parser.parse_args(["--list-prompt-overlay-entries"])
+        self.assertTrue(args.list_prompt_overlay_entries)
         args = parser.parse_args(["--list-prompt-overlay-snapshots"])
         self.assertTrue(args.list_prompt_overlay_snapshots)
         args = parser.parse_args(["--rollback-prompt-overlay", "snapshot-1"])
@@ -617,6 +619,38 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "overlay text")
+
+    def test_main_lists_prompt_overlay_entries(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+            overlay_cls.return_value.list_entries_by_workflow.return_value = {
+                "prototype-baseline": [
+                    type(
+                        "Entry",
+                        (),
+                        {
+                            "candidate_id": "c1",
+                            "status": "applied",
+                            "target": "prompt",
+                            "summary": "Tighten final answer behavior",
+                            "step_name": "runtime-trace-check",
+                            "source_session_id": "source-1",
+                            "replay_session_id": "replay-1",
+                        },
+                    )()
+                ]
+            }
+            with patch("sys.argv", ["navi-agent", "--list-prompt-overlay-entries"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("- c1 [applied] prompt: Tighten final answer behavior", stdout.getvalue())
+        self.assertIn("step: runtime-trace-check", stdout.getvalue())
+        self.assertIn("source_session_id: source-1", stdout.getvalue())
+        self.assertIn("replay_session_id: replay-1", stdout.getvalue())
 
     def test_main_lists_prompt_overlay_snapshots(self) -> None:
         stdout = io.StringIO()

@@ -32,6 +32,8 @@ class PromptOverlayStoreTests(unittest.TestCase):
             workflow_names = store.list_workflow_names()
             source_session_ids = store.list_source_session_ids()
             replay_session_ids = store.list_replay_session_ids()
+            entries = store.list_entries()
+            grouped_entries = store.list_entries_by_workflow()
 
         self.assertIsNotNone(text)
         self.assertIn(candidate.candidate_id, text)
@@ -43,6 +45,12 @@ class PromptOverlayStoreTests(unittest.TestCase):
         self.assertEqual(workflow_names, ["prototype-baseline"])
         self.assertEqual(source_session_ids, ["source-1"])
         self.assertEqual(replay_session_ids, ["replay-1"])
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].workflow_name, "prototype-baseline")
+        self.assertEqual(entries[0].source_session_id, "source-1")
+        self.assertEqual(entries[0].replay_session_id, "replay-1")
+        self.assertEqual(list(grouped_entries), ["prototype-baseline"])
+        self.assertEqual(grouped_entries["prototype-baseline"][0].candidate_id, candidate.candidate_id)
 
     def test_snapshot_and_rollback_restore_previous_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

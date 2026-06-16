@@ -14,6 +14,22 @@ class PromptOverlaySnapshot:
     candidate_id: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class PromptOverlayEntry:
+    candidate_id: str
+    status: str | None = None
+    target: str | None = None
+    summary: str | None = None
+    rationale: str | None = None
+    workflow_name: str | None = None
+    source_session_id: str | None = None
+    replay_session_id: str | None = None
+    source_trace_id: str | None = None
+    replay_trace_id: str | None = None
+    step_name: str | None = None
+    note: str | None = None
+
+
 class PromptOverlayStore:
     def __init__(self, path: Path, snapshots_dir: Path | None = None) -> None:
         self._path = path
@@ -69,15 +85,23 @@ class PromptOverlayStore:
         self._path.write_text(text + "\n", encoding="utf-8")
         return text
 
+    def list_entries(self) -> list[PromptOverlayEntry]:
+        entries: list[PromptOverlayEntry] = []
+        for block in self._blocks():
+            entry = self._parse_block(block)
+            if entry is not None:
+                entries.append(entry)
+        return entries
+
+    def list_entries_by_workflow(self) -> dict[str, list[PromptOverlayEntry]]:
+        grouped: dict[str, list[PromptOverlayEntry]] = {}
+        for entry in self.list_entries():
+            workflow_name = entry.workflow_name or "unscoped"
+            grouped.setdefault(workflow_name, []).append(entry)
+        return grouped
+
     def list_candidate_ids(self) -> list[str]:
-        blocks = self._blocks()
-        ids: list[str] = []
-        for block in blocks:
-            for line in block.splitlines():
-                if line.startswith("## Candidate "):
-                    ids.append(line.removeprefix("## Candidate ").strip())
-                    break
-        return ids
+        return [entry.candidate_id for entry in self.list_entries()]
 
     def list_workflow_names(self) -> list[str]:
         return self._list_block_values("workflow")
@@ -92,14 +116,15 @@ class PromptOverlayStore:
         return len(self.list_candidate_ids())
 
     def describe(self) -> dict[str, object]:
+        entries = self.list_entries()
         return {
             "path": str(self._path),
             "exists": self._path.exists(),
-            "candidate_count": self.candidate_count(),
-            "candidate_ids": self.list_candidate_ids(),
-            "workflow_names": self.list_workflow_names(),
-            "source_session_ids": self.list_source_session_ids(),
-            "replay_session_ids": self.list_replay_session_ids(),
+            "candidate_count": len(entries),
+            "candidate_ids": [entry.candidate_id for entry in entries],
+            "workflow_names": [entry.workflow_name for entry in entries if entry.workflow_name],
+            "source_session_ids": [entry.source_session_id for entry in entries if entry.source_session_id],
+            "replay_session_ids": [entry.replay_session_id for entry in entries if entry.replay_session_id],
             "snapshot_count": len(self.list_snapshots()),
         }
 
@@ -169,3 +194,30 @@ class PromptOverlayStore:
                         values.append(value)
                     break
         return values
+
+    @staticmethod
+    def _parse_block(block: str) -> PromptOverlayEntry | None:
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not lines or not lines[0].startswith("## Candidate "):
+            return None
+        candidate_id = lines[0].removeprefix("## Candidate ").strip()
+        fields: dict[str, str] = {}
+        for line in lines[1:]:
+            if not line.startswith("- ") or ": " not in line:
+                continue
+            key, value = line[2:].split(": ", 1)
+            fields[key.strip()] = value.strip()
+        return PromptOverlayEntry(
+            candidate_id=candidate_id,
+            status=fields.get("status"),
+            target=fields.get("target"),
+            summary=fields.get("summary"),
+            rationale=fields.get("rationale"),
+            workflow_name=fields.get("workflow"),
+            source_session_id=fields.get("source session"),
+            replay_session_id=fields.get("replay session"),
+            source_trace_id=fields.get("source trace"),
+            replay_trace_id=fields.get("replay trace"),
+            step_name=fields.get("step"),
+            note=fields.get("note"),
+        )

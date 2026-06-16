@@ -51,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-workflow-samples", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
+    parser.add_argument("--list-prompt-overlay-entries", action="store_true")
     parser.add_argument("--list-prompt-overlay-snapshots", action="store_true")
     parser.add_argument("--rollback-prompt-overlay")
     parser.add_argument("--review-loop", action="store_true")
@@ -163,6 +164,26 @@ def main() -> int:
             return 0
         print(text)
         return 0
+    if args.list_prompt_overlay_entries:
+        overlay = PromptOverlayStore(get_prompt_overlay_path())
+        grouped = overlay.list_entries_by_workflow()
+        if not grouped:
+            print("no prompt overlay entries")
+            return 0
+        for workflow_name in sorted(grouped):
+            print(f"workflow: {workflow_name}")
+            for entry in grouped[workflow_name]:
+                print(
+                    f"- {entry.candidate_id} [{entry.status or 'unknown'}] "
+                    f"{entry.target or 'unknown'}: {entry.summary or ''}".rstrip()
+                )
+                if entry.step_name:
+                    print(f"  step: {entry.step_name}")
+                if entry.source_session_id:
+                    print(f"  source_session_id: {entry.source_session_id}")
+                if entry.replay_session_id:
+                    print(f"  replay_session_id: {entry.replay_session_id}")
+        return 0
     if args.list_prompt_overlay_snapshots:
         overlay = PromptOverlayStore(
             get_prompt_overlay_path(),
@@ -257,6 +278,7 @@ def main() -> int:
         and not args.evolution_status
         and not args.prompt_overlay_status
         and not args.show_prompt_overlay
+        and not args.list_prompt_overlay_entries
         and not args.list_prompt_overlay_snapshots
         and not args.rollback_prompt_overlay
         and not args.review_loop
