@@ -18,6 +18,8 @@ class ReviewLoopSummary:
     improved_count: int
     unchanged_count: int
     top_candidate_targets: list[tuple[str, int]] = field(default_factory=list)
+    pending_targets: list[tuple[str, int]] = field(default_factory=list)
+    candidates_by_target: dict[str, list[EvolutionCandidate]] = field(default_factory=dict)
     top_regressed_workflows: list[tuple[str, int]] = field(default_factory=list)
     recommendation: str = ""
 
@@ -38,13 +40,17 @@ class ReviewLoopService:
         applied_candidates = [candidate for candidate in candidates if candidate.status == "applied"]
 
         target_counts = Counter(candidate.target for candidate in candidates)
+        pending_target_counts = Counter(candidate.target for candidate in pending_candidates)
         workflow_counts = Counter(sample.workflow_name for sample in regressed)
 
         top_candidate_targets = target_counts.most_common(3)
+        pending_targets = pending_target_counts.most_common(3)
         top_regressed_workflows = workflow_counts.most_common(3)
+        candidates_by_target = self._group_candidates_by_target(candidates)
 
         recommendation = self._build_recommendation(
             top_candidate_targets=top_candidate_targets,
+            pending_targets=pending_targets,
             top_regressed_workflows=top_regressed_workflows,
             regressed_count=len(regressed),
         )
@@ -60,6 +66,8 @@ class ReviewLoopService:
             improved_count=len(improved),
             unchanged_count=len(unchanged),
             top_candidate_targets=top_candidate_targets,
+            pending_targets=pending_targets,
+            candidates_by_target=candidates_by_target,
             top_regressed_workflows=top_regressed_workflows,
             recommendation=recommendation,
         )
@@ -68,11 +76,33 @@ class ReviewLoopService:
     def _build_recommendation(
         *,
         top_candidate_targets: list[tuple[str, int]],
+        pending_targets: list[tuple[str, int]],
         top_regressed_workflows: list[tuple[str, int]],
         regressed_count: int,
     ) -> str:
         if regressed_count == 0:
+            if pending_targets:
+                target = pending_targets[0][0]
+                return f"Review pending {target} candidates before expanding the workflow set."
             return "No regressions detected in recent workflow comparisons."
-        target = top_candidate_targets[0][0] if top_candidate_targets else "prompt"
+        target = pending_targets[0][0] if pending_targets else top_candidate_targets[0][0] if top_candidate_targets else "prompt"
         workflow = top_regressed_workflows[0][0] if top_regressed_workflows else "unknown-workflow"
         return f"Prioritize {target} improvements for {workflow} based on recent regressions."
+
+    @staticmethod
+    def _group_candidates_by_target(
+        candidates: list[EvolutionCandidate],
+    ) -> dict[str, list[EvolutionCandidate]]:
+        grouped: dict[str, list[EvolutionCandidate]] = {}
+        for candidate in candidates:
+            grouped.setdefault(candidate.target, []).append(candidate)
+        for target in grouped:
+            grouped[target] = sorted(
+                grouped[target],
+                key=lambda candidate: (
+                    0 if candidate.status == "pending" else 1,
+                    getattr(candidate, "reviewed_at", None) or "",
+                    candidate.candidate_id,
+                ),
+            )
+        return grouped

@@ -53,7 +53,9 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.workflow_sample_count, 3)
         self.assertEqual(summary.regressed_count, 2)
         self.assertEqual(summary.top_candidate_targets[0], ("prompt", 2))
+        self.assertEqual(summary.pending_targets[0], ("prompt", 1))
         self.assertEqual(summary.top_regressed_workflows[0], ("prototype-baseline", 2))
+        self.assertEqual(len(summary.candidates_by_target["prompt"]), 2)
         self.assertIn("Prioritize prompt improvements", summary.recommendation)
 
     def test_summarize_handles_no_regressions(self) -> None:
@@ -77,6 +79,20 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(
             summary.recommendation,
             "No regressions detected in recent workflow comparisons.",
+        )
+
+    def test_summarize_prefers_pending_targets_without_regressions(self) -> None:
+        summary = ReviewLoopService().summarize(
+            candidates=[
+                EvolutionCandidate(target="tool_policy", summary="a", rationale="r"),
+            ],
+            workflow_samples=[],
+        )
+
+        self.assertEqual(summary.pending_targets[0], ("tool_policy", 1))
+        self.assertEqual(
+            summary.recommendation,
+            "Review pending tool_policy candidates before expanding the workflow set.",
         )
 
 

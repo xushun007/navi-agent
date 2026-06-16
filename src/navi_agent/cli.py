@@ -55,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-prompt-overlay-snapshots", action="store_true")
     parser.add_argument("--rollback-prompt-overlay")
     parser.add_argument("--review-loop", action="store_true")
+    parser.add_argument("--candidate-triage", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
@@ -269,6 +270,31 @@ def main() -> int:
                 print(f"- {workflow}: {count}")
         print(f"recommendation: {summary.recommendation}")
         return 0
+    if args.candidate_triage:
+        app = build_application(
+            default_system_prompt=args.system_prompt,
+            approval_provider=CliApprovalProvider(),
+        )
+        summary = ReviewLoopService().summarize(
+            candidates=app.list_candidates(limit=50),
+            workflow_samples=app.list_workflow_samples(limit=50),
+        )
+        print(f"candidate_count: {summary.candidate_count}")
+        print(f"pending_candidate_count: {summary.pending_candidate_count}")
+        if summary.pending_targets:
+            print("pending_targets:")
+            for target, count in summary.pending_targets:
+                print(f"- {target}: {count}")
+        if summary.candidates_by_target:
+            print("candidate_buckets:")
+            for target in sorted(summary.candidates_by_target):
+                print(f"{target}:")
+                for candidate in summary.candidates_by_target[target][:5]:
+                    print(
+                        f"- {candidate.candidate_id} [{candidate.status}] {candidate.summary}"
+                    )
+        print(f"recommendation: {summary.recommendation}")
+        return 0
     if (
         not args.interactive
         and not args.smoke
@@ -282,6 +308,7 @@ def main() -> int:
         and not args.list_prompt_overlay_snapshots
         and not args.rollback_prompt_overlay
         and not args.review_loop
+        and not args.candidate_triage
         and not args.message
     ):
         parser.error("message is required unless --interactive is set")

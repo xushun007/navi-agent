@@ -138,6 +138,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.rollback_prompt_overlay, "snapshot-1")
         args = parser.parse_args(["--review-loop"])
         self.assertTrue(args.review_loop)
+        args = parser.parse_args(["--candidate-triage"])
+        self.assertTrue(args.candidate_triage)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -568,6 +570,58 @@ class CliTests(unittest.TestCase):
         self.assertIn("pending_candidate_count: 1", stdout.getvalue())
         self.assertIn("top_candidate_targets:", stdout.getvalue())
         self.assertIn("recommendation: Prioritize prompt improvements", stdout.getvalue())
+
+    def test_main_runs_candidate_triage(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+        summary = type(
+            "ReviewSummary",
+            (),
+            {
+                "candidate_count": 2,
+                "pending_candidate_count": 1,
+                "pending_targets": [("prompt", 1)],
+                "candidates_by_target": {
+                    "prompt": [
+                        type(
+                            "Candidate",
+                            (),
+                            {
+                                "candidate_id": "c1",
+                                "status": "pending",
+                                "summary": "Review prompt overlay wording",
+                            },
+                        )()
+                    ],
+                    "tooling": [
+                        type(
+                            "Candidate",
+                            (),
+                            {
+                                "candidate_id": "c2",
+                                "status": "accepted",
+                                "summary": "Tighten file edit tool selection",
+                            },
+                        )()
+                    ],
+                },
+                "recommendation": "Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.ReviewLoopService") as review_service_cls:
+                review_service_cls.return_value.summarize.return_value = summary
+                with patch("sys.argv", ["navi-agent", "--candidate-triage"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("pending_targets:", stdout.getvalue())
+        self.assertIn("candidate_buckets:", stdout.getvalue())
+        self.assertIn("prompt:", stdout.getvalue())
+        self.assertIn("- c1 [pending] Review prompt overlay wording", stdout.getvalue())
+        self.assertIn("tooling:", stdout.getvalue())
 
     def test_main_lists_candidates_by_status(self) -> None:
         fake_app = FakeApp()
