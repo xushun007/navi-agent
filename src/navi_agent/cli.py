@@ -15,6 +15,7 @@ from navi_agent.evolution import (
 )
 from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
+from navi_agent.paths import get_prompt_overlay_snapshots_dir
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.smoke import (
     compare_smoke_workflow_results,
@@ -50,6 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-workflow-samples", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
+    parser.add_argument("--list-prompt-overlay-snapshots", action="store_true")
+    parser.add_argument("--rollback-prompt-overlay")
     parser.add_argument("--review-loop", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
@@ -148,6 +151,30 @@ def main() -> int:
             return 0
         print(text)
         return 0
+    if args.list_prompt_overlay_snapshots:
+        overlay = PromptOverlayStore(
+            get_prompt_overlay_path(),
+            get_prompt_overlay_snapshots_dir(),
+        )
+        snapshots = overlay.list_snapshots()
+        if not snapshots:
+            print("no prompt overlay snapshots")
+            return 0
+        for snapshot in snapshots:
+            suffix = f" candidate={snapshot.candidate_id}" if snapshot.candidate_id else ""
+            print(f"{snapshot.snapshot_id}: {snapshot.path}{suffix}")
+        return 0
+    if args.rollback_prompt_overlay:
+        overlay = PromptOverlayStore(
+            get_prompt_overlay_path(),
+            get_prompt_overlay_snapshots_dir(),
+        )
+        text = overlay.rollback(args.rollback_prompt_overlay)
+        if text is None:
+            print(f"prompt overlay snapshot not found: {args.rollback_prompt_overlay}")
+            return 1
+        print(f"rolled back prompt overlay to {args.rollback_prompt_overlay}")
+        return 0
     if args.evolution_status:
         app = build_application(
             default_system_prompt=args.system_prompt,
@@ -218,6 +245,8 @@ def main() -> int:
         and not args.evolution_status
         and not args.prompt_overlay_status
         and not args.show_prompt_overlay
+        and not args.list_prompt_overlay_snapshots
+        and not args.rollback_prompt_overlay
         and not args.review_loop
         and not args.message
     ):

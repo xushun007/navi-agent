@@ -11,6 +11,7 @@ from navi_agent.paths import (
     get_app_log_path,
     get_candidate_store_path,
     get_prompt_overlay_path,
+    get_prompt_overlay_snapshots_dir,
     get_state_db_path,
     get_workflow_sample_store_path,
 )
@@ -65,7 +66,11 @@ def build_application(
         runtime_settings=runtime_settings,
         approval_provider=approval_provider,
     )
-    prompt_overlay = PromptOverlayStore(get_prompt_overlay_path()).get()
+    prompt_overlay_store = PromptOverlayStore(
+        get_prompt_overlay_path(),
+        get_prompt_overlay_snapshots_dir(),
+    )
+    prompt_overlay = prompt_overlay_store.get()
     default_prompt = default_system_prompt
     if prompt_overlay:
         default_prompt = "\n\n".join(
@@ -76,7 +81,7 @@ def build_application(
         default_system_prompt=default_prompt,
         candidate_store=JsonlCandidateStore(get_candidate_store_path()),
         workflow_sample_store=JsonlWorkflowSampleStore(get_workflow_sample_store_path()),
-        prompt_overlay_store=PromptOverlayStore(get_prompt_overlay_path()),
+        prompt_overlay_store=prompt_overlay_store,
     )
 
 

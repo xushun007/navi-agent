@@ -39,6 +39,10 @@ def get_prompt_overlay_path() -> Path:
     return get_evolution_dir() / "prompt-overlay.md"
 
 
+def get_prompt_overlay_snapshots_dir() -> Path:
+    return get_evolution_dir() / "prompt-overlay-snapshots"
+
+
 def get_candidate_store_path() -> Path:
     return get_evolution_dir() / "candidates.jsonl"
 

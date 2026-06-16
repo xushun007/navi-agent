@@ -12,6 +12,7 @@ from navi_agent.paths import (
     get_logs_dir,
     get_navi_home,
     get_prompt_overlay_path,
+    get_prompt_overlay_snapshots_dir,
     get_state_db_path,
     get_workflow_sample_store_path,
 )
@@ -34,6 +35,7 @@ class PathsTests(unittest.TestCase):
             self.assertEqual(get_evolution_dir(), Path("/tmp/navi-home/evolution"))
             self.assertEqual(get_evolution_reports_dir(), Path("/tmp/navi-home/logs/evolution"))
             self.assertEqual(get_prompt_overlay_path(), Path("/tmp/navi-home/evolution/prompt-overlay.md"))
+            self.assertEqual(get_prompt_overlay_snapshots_dir(), Path("/tmp/navi-home/evolution/prompt-overlay-snapshots"))
             self.assertEqual(get_candidate_store_path(), Path("/tmp/navi-home/evolution/candidates.jsonl"))
             self.assertEqual(
                 get_workflow_sample_store_path(),

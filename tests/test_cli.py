@@ -130,6 +130,10 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
         self.assertTrue(args.show_prompt_overlay)
+        args = parser.parse_args(["--list-prompt-overlay-snapshots"])
+        self.assertTrue(args.list_prompt_overlay_snapshots)
+        args = parser.parse_args(["--rollback-prompt-overlay", "snapshot-1"])
+        self.assertEqual(args.rollback_prompt_overlay, "snapshot-1")
         args = parser.parse_args(["--review-loop"])
         self.assertTrue(args.review_loop)
 
@@ -607,6 +611,34 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "overlay text")
+
+    def test_main_lists_prompt_overlay_snapshots(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+            overlay_cls.return_value.list_snapshots.return_value = [
+                type("Snapshot", (), {"snapshot_id": "snapshot-1", "path": "/tmp/snapshots/snapshot-1.md", "candidate_id": "c1"})(),
+                type("Snapshot", (), {"snapshot_id": "snapshot-2", "path": "/tmp/snapshots/snapshot-2.md", "candidate_id": None})(),
+            ]
+            with patch("sys.argv", ["navi-agent", "--list-prompt-overlay-snapshots"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("snapshot-1: /tmp/snapshots/snapshot-1.md candidate=c1", stdout.getvalue())
+        self.assertIn("snapshot-2: /tmp/snapshots/snapshot-2.md", stdout.getvalue())
+
+    def test_main_rolls_back_prompt_overlay_snapshot(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+            overlay_cls.return_value.rollback.return_value = "rolled content"
+            with patch("sys.argv", ["navi-agent", "--rollback-prompt-overlay", "snapshot-1"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("rolled back prompt overlay to snapshot-1", stdout.getvalue())
 
     def test_run_interactive_reuses_session_and_stops_on_exit(self) -> None:
         fake_app = FakeApp()
