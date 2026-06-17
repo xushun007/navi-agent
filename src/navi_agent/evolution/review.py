@@ -20,6 +20,7 @@ class ReviewLoopSummary:
     top_candidate_targets: list[tuple[str, int]] = field(default_factory=list)
     pending_targets: list[tuple[str, int]] = field(default_factory=list)
     candidates_by_target: dict[str, list[EvolutionCandidate]] = field(default_factory=dict)
+    pending_queue: list[EvolutionCandidate] = field(default_factory=list)
     top_regressed_workflows: list[tuple[str, int]] = field(default_factory=list)
     recommendation: str = ""
 
@@ -47,6 +48,7 @@ class ReviewLoopService:
         pending_targets = pending_target_counts.most_common(3)
         top_regressed_workflows = workflow_counts.most_common(3)
         candidates_by_target = self._group_candidates_by_target(candidates)
+        pending_queue = self._build_pending_queue(pending_candidates)
 
         recommendation = self._build_recommendation(
             top_candidate_targets=top_candidate_targets,
@@ -68,6 +70,7 @@ class ReviewLoopService:
             top_candidate_targets=top_candidate_targets,
             pending_targets=pending_targets,
             candidates_by_target=candidates_by_target,
+            pending_queue=pending_queue,
             top_regressed_workflows=top_regressed_workflows,
             recommendation=recommendation,
         )
@@ -106,3 +109,38 @@ class ReviewLoopService:
                 ),
             )
         return grouped
+
+    @staticmethod
+    def _build_pending_queue(
+        pending_candidates: list[EvolutionCandidate],
+    ) -> list[EvolutionCandidate]:
+        return sorted(
+            pending_candidates,
+            key=lambda candidate: (
+                0 if ReviewLoopService._candidate_metadata(candidate).get("workflow_status") == "regressed" else 1,
+                ReviewLoopService._workflow_score_delta(candidate),
+                ReviewLoopService._step_score_delta(candidate),
+                candidate.candidate_id,
+            ),
+        )
+
+    @staticmethod
+    def _workflow_score_delta(candidate: EvolutionCandidate) -> float:
+        value = ReviewLoopService._candidate_metadata(candidate).get("workflow_score_delta")
+        if isinstance(value, (int, float)):
+            return float(value)
+        return 0.0
+
+    @staticmethod
+    def _step_score_delta(candidate: EvolutionCandidate) -> float:
+        value = ReviewLoopService._candidate_metadata(candidate).get("step_score_delta")
+        if isinstance(value, (int, float)):
+            return float(value)
+        return 0.0
+
+    @staticmethod
+    def _candidate_metadata(candidate: EvolutionCandidate) -> dict:
+        metadata = getattr(candidate, "metadata", None)
+        if isinstance(metadata, dict):
+            return metadata
+        return {}

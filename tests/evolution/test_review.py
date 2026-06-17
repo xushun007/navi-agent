@@ -95,6 +95,50 @@ class ReviewLoopServiceTests(unittest.TestCase):
             "Review pending tool_policy candidates before expanding the workflow set.",
         )
 
+    def test_summarize_orders_pending_queue_by_regression_priority(self) -> None:
+        summary = ReviewLoopService().summarize(
+            candidates=[
+                EvolutionCandidate(
+                    target="prompt",
+                    summary="mild regression",
+                    rationale="r",
+                    metadata={
+                        "workflow_name": "prototype-baseline",
+                        "workflow_status": "regressed",
+                        "workflow_score_delta": -0.1,
+                        "step_score_delta": -0.05,
+                    },
+                ),
+                EvolutionCandidate(
+                    target="tooling",
+                    summary="strong regression",
+                    rationale="r",
+                    metadata={
+                        "workflow_name": "prototype-baseline",
+                        "workflow_status": "regressed",
+                        "workflow_score_delta": -0.4,
+                        "step_score_delta": -0.2,
+                    },
+                ),
+                EvolutionCandidate(
+                    target="tool_policy",
+                    summary="unchanged run",
+                    rationale="r",
+                    metadata={
+                        "workflow_name": "product-orientation",
+                        "workflow_status": "unchanged",
+                        "workflow_score_delta": 0.0,
+                    },
+                ),
+            ],
+            workflow_samples=[],
+        )
+
+        self.assertEqual(len(summary.pending_queue), 3)
+        self.assertEqual(summary.pending_queue[0].summary, "strong regression")
+        self.assertEqual(summary.pending_queue[1].summary, "mild regression")
+        self.assertEqual(summary.pending_queue[2].summary, "unchanged run")
+
 
 if __name__ == "__main__":
     unittest.main()

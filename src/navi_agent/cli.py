@@ -56,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rollback-prompt-overlay")
     parser.add_argument("--review-loop", action="store_true")
     parser.add_argument("--candidate-triage", action="store_true")
+    parser.add_argument("--candidate-queue", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
@@ -295,6 +296,35 @@ def main() -> int:
                     )
         print(f"recommendation: {summary.recommendation}")
         return 0
+    if args.candidate_queue:
+        app = build_application(
+            default_system_prompt=args.system_prompt,
+            approval_provider=CliApprovalProvider(),
+        )
+        summary = ReviewLoopService().summarize(
+            candidates=app.list_candidates(limit=50),
+            workflow_samples=app.list_workflow_samples(limit=50),
+        )
+        print(f"pending_candidate_count: {summary.pending_candidate_count}")
+        if not summary.pending_queue:
+            print("candidate queue is empty")
+            return 0
+        print("candidate_queue:")
+        for candidate in summary.pending_queue[:10]:
+            metadata = candidate.metadata or {}
+            workflow_name = metadata.get("workflow_name", "unknown-workflow")
+            workflow_status = metadata.get("workflow_status", "unknown")
+            workflow_score_delta = metadata.get("workflow_score_delta", 0.0)
+            task_name = metadata.get("task_name", "unknown-step")
+            print(
+                f"- {candidate.candidate_id} [{candidate.target}] {candidate.summary}"
+            )
+            print(
+                f"  workflow={workflow_name} status={workflow_status} "
+                f"workflow_score_delta={workflow_score_delta} step={task_name}"
+            )
+        print(f"recommendation: {summary.recommendation}")
+        return 0
     if (
         not args.interactive
         and not args.smoke
@@ -309,6 +339,7 @@ def main() -> int:
         and not args.rollback_prompt_overlay
         and not args.review_loop
         and not args.candidate_triage
+        and not args.candidate_queue
         and not args.message
     ):
         parser.error("message is required unless --interactive is set")

@@ -140,6 +140,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.review_loop)
         args = parser.parse_args(["--candidate-triage"])
         self.assertTrue(args.candidate_triage)
+        args = parser.parse_args(["--candidate-queue"])
+        self.assertTrue(args.candidate_queue)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -622,6 +624,63 @@ class CliTests(unittest.TestCase):
         self.assertIn("prompt:", stdout.getvalue())
         self.assertIn("- c1 [pending] Review prompt overlay wording", stdout.getvalue())
         self.assertIn("tooling:", stdout.getvalue())
+
+    def test_main_runs_candidate_queue(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+        summary = type(
+            "ReviewSummary",
+            (),
+            {
+                "pending_candidate_count": 2,
+                "pending_queue": [
+                    type(
+                        "Candidate",
+                        (),
+                        {
+                            "candidate_id": "c1",
+                            "target": "prompt",
+                            "summary": "Review workflow regression in runtime-trace-check (prompt)",
+                            "metadata": {
+                                "workflow_name": "prototype-baseline",
+                                "workflow_status": "regressed",
+                                "workflow_score_delta": -0.3,
+                                "task_name": "runtime-trace-check",
+                            },
+                        },
+                    )(),
+                    type(
+                        "Candidate",
+                        (),
+                        {
+                            "candidate_id": "c2",
+                            "target": "tooling",
+                            "summary": "Review stagnant workflow step workspace-search (tooling)",
+                            "metadata": {
+                                "workflow_name": "product-orientation",
+                                "workflow_status": "unchanged",
+                                "workflow_score_delta": 0.0,
+                                "task_name": "workspace-search",
+                            },
+                        },
+                    )(),
+                ],
+                "recommendation": "Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.ReviewLoopService") as review_service_cls:
+                review_service_cls.return_value.summarize.return_value = summary
+                with patch("sys.argv", ["navi-agent", "--candidate-queue"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("pending_candidate_count: 2", stdout.getvalue())
+        self.assertIn("candidate_queue:", stdout.getvalue())
+        self.assertIn("- c1 [prompt] Review workflow regression in runtime-trace-check (prompt)", stdout.getvalue())
+        self.assertIn("workflow=prototype-baseline status=regressed workflow_score_delta=-0.3 step=runtime-trace-check", stdout.getvalue())
 
     def test_main_lists_candidates_by_status(self) -> None:
         fake_app = FakeApp()
