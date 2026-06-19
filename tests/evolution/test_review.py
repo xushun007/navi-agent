@@ -50,6 +50,9 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.accepted_candidate_count, 1)
         self.assertEqual(summary.rejected_candidate_count, 1)
         self.assertEqual(summary.applied_candidate_count, 0)
+        self.assertEqual(summary.verified_candidate_count, 0)
+        self.assertEqual(summary.no_improvement_candidate_count, 0)
+        self.assertEqual(summary.regressed_after_apply_candidate_count, 0)
         self.assertEqual(summary.workflow_sample_count, 3)
         self.assertEqual(summary.regressed_count, 2)
         self.assertEqual(summary.top_candidate_targets[0], ("prompt", 2))
@@ -141,6 +144,20 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.pending_work_items[0]["summary"], "strong regression")
         self.assertEqual(summary.pending_work_items[0]["workflow_name"], "prototype-baseline")
         self.assertEqual(summary.pending_work_items[0]["workflow_status"], "regressed")
+
+    def test_summarize_counts_candidate_outcomes(self) -> None:
+        summary = ReviewLoopService().summarize(
+            candidates=[
+                EvolutionCandidate(target="prompt", summary="v", rationale="r", status="verified"),
+                EvolutionCandidate(target="prompt", summary="n", rationale="r", status="no_improvement"),
+                EvolutionCandidate(target="prompt", summary="g", rationale="r", status="regressed_after_apply"),
+            ],
+            workflow_samples=[],
+        )
+
+        self.assertEqual(summary.verified_candidate_count, 1)
+        self.assertEqual(summary.no_improvement_candidate_count, 1)
+        self.assertEqual(summary.regressed_after_apply_candidate_count, 1)
 
 
 if __name__ == "__main__":

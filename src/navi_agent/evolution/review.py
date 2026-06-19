@@ -13,6 +13,9 @@ class ReviewLoopSummary:
     accepted_candidate_count: int
     rejected_candidate_count: int
     applied_candidate_count: int
+    verified_candidate_count: int
+    no_improvement_candidate_count: int
+    regressed_after_apply_candidate_count: int
     workflow_sample_count: int
     regressed_count: int
     improved_count: int
@@ -40,6 +43,11 @@ class ReviewLoopService:
         accepted_candidates = [candidate for candidate in candidates if candidate.status == "accepted"]
         rejected_candidates = [candidate for candidate in candidates if candidate.status == "rejected"]
         applied_candidates = [candidate for candidate in candidates if candidate.status == "applied"]
+        verified_candidates = [candidate for candidate in candidates if candidate.status == "verified"]
+        no_improvement_candidates = [candidate for candidate in candidates if candidate.status == "no_improvement"]
+        regressed_after_apply_candidates = [
+            candidate for candidate in candidates if candidate.status == "regressed_after_apply"
+        ]
 
         target_counts = Counter(candidate.target for candidate in candidates)
         pending_target_counts = Counter(candidate.target for candidate in pending_candidates)
@@ -65,6 +73,9 @@ class ReviewLoopService:
             accepted_candidate_count=len(accepted_candidates),
             rejected_candidate_count=len(rejected_candidates),
             applied_candidate_count=len(applied_candidates),
+            verified_candidate_count=len(verified_candidates),
+            no_improvement_candidate_count=len(no_improvement_candidates),
+            regressed_after_apply_candidate_count=len(regressed_after_apply_candidates),
             workflow_sample_count=len(workflow_samples),
             regressed_count=len(regressed),
             improved_count=len(improved),

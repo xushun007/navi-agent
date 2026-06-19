@@ -134,6 +134,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.candidate_status, "all")
         args = parser.parse_args(["--candidate-status", "pending", "--list-candidates"])
         self.assertEqual(args.candidate_status, "pending")
+        args = parser.parse_args(["--candidate-status", "verified", "--list-candidates"])
+        self.assertEqual(args.candidate_status, "verified")
         args = parser.parse_args(["--list-workflow-samples"])
         self.assertTrue(args.list_workflow_samples)
         args = parser.parse_args(["--prompt-overlay-status"])
@@ -406,13 +408,23 @@ class CliTests(unittest.TestCase):
             },
         )()
         first_app.saved_candidates.append(candidate)
+        rerun_app.saved_candidates = first_app.saved_candidates
+        rerun_app.saved_samples = first_app.saved_samples
 
-        workflow_result = type(
+        source_workflow_result = type(
             "WorkflowResult",
             (),
             {
                 "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
                 "session_id": "wf-1",
+            },
+        )()
+        replay_workflow_result = type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "session_id": "wf-1:candidate:c1",
             },
         )()
         comparison = type(
@@ -421,19 +433,19 @@ class CliTests(unittest.TestCase):
             {
                 "workflow_name": "prototype-baseline",
                 "source_session_id": "wf-1",
-                "replay_session_id": "wf-1:replay:abcd1234",
+                "replay_session_id": "wf-1:candidate:c1",
                 "source_average_score": 1.0,
-                "replay_average_score": 0.95,
-                "score_delta": -0.05,
+                "replay_average_score": 1.05,
+                "score_delta": 0.05,
                 "sample": type(
                     "Sample",
                     (),
                     {
                         "workflow_name": "prototype-baseline",
-                        "status": "regressed",
+                        "status": "improved",
                         "source_average_score": 1.0,
-                        "replay_average_score": 0.95,
-                        "score_delta": -0.05,
+                        "replay_average_score": 1.05,
+                        "score_delta": 0.05,
                     },
                 )(),
                 "candidate": None,
@@ -442,8 +454,11 @@ class CliTests(unittest.TestCase):
         )()
 
         with patch("navi_agent.cli.build_application", side_effect=[first_app, rerun_app]):
-            with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result) as run_smoke_workflow_mock:
-                with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result):
+            with patch(
+                "navi_agent.cli.run_smoke_workflow",
+                side_effect=[source_workflow_result, replay_workflow_result],
+            ) as run_smoke_workflow_mock:
+                with patch("navi_agent.cli.replay_smoke_workflow"):
                     with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison):
                         with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
                             with patch("sys.argv", ["navi-agent", "--candidate-id", "c1", "--apply-candidate-run"]):
@@ -453,11 +468,13 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(first_app.applied_candidate, candidate)
-        self.assertEqual(candidate.status, "applied")
+        self.assertEqual(candidate.status, "verified")
         self.assertIn("candidate_id: c1", stdout.getvalue())
-        self.assertIn("candidate_status: applied", stdout.getvalue())
+        self.assertIn("candidate_status: verified", stdout.getvalue())
         self.assertIn("workflow: prototype-baseline", stdout.getvalue())
-        run_smoke_workflow_mock.assert_called_once()
+        self.assertIn("candidate_outcome: improved", stdout.getvalue())
+        self.assertIn("candidate_report_path: /tmp/report", stdout.getvalue())
+        self.assertEqual(run_smoke_workflow_mock.call_count, 2)
 
     def test_main_runs_evolution_status(self) -> None:
         fake_app = FakeApp()
@@ -500,6 +517,9 @@ class CliTests(unittest.TestCase):
                         exit_code = main()
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("verified_candidate_count: 0", stdout.getvalue())
+        self.assertIn("no_improvement_candidate_count: 0", stdout.getvalue())
+        self.assertIn("regressed_after_apply_candidate_count: 0", stdout.getvalue())
         self.assertIn("latest_report: /tmp/evolution-report", stdout.getvalue())
         self.assertIn("latest_workflow: prototype-baseline", stdout.getvalue())
         self.assertIn("latest_candidate_target: prompt", stdout.getvalue())
@@ -633,6 +653,9 @@ class CliTests(unittest.TestCase):
                 "accepted_candidate_count": 0,
                 "rejected_candidate_count": 0,
                 "applied_candidate_count": 0,
+                "verified_candidate_count": 0,
+                "no_improvement_candidate_count": 0,
+                "regressed_after_apply_candidate_count": 0,
                 "workflow_sample_count": 1,
                 "regressed_count": 1,
                 "improved_count": 0,
@@ -653,6 +676,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_count: 1", stdout.getvalue())
         self.assertIn("pending_candidate_count: 1", stdout.getvalue())
+        self.assertIn("verified_candidate_count: 0", stdout.getvalue())
         self.assertIn("top_candidate_targets:", stdout.getvalue())
         self.assertIn("recommendation: Prioritize prompt improvements", stdout.getvalue())
 

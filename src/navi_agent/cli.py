@@ -42,7 +42,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evolution-run")
     parser.add_argument("--evolution-status", action="store_true")
     parser.add_argument("--candidate-id")
-    parser.add_argument("--candidate-status", choices=["pending", "accepted", "rejected", "applied", "all"], default="all")
+    parser.add_argument(
+        "--candidate-status",
+        choices=[
+            "pending",
+            "accepted",
+            "rejected",
+            "applied",
+            "verified",
+            "no_improvement",
+            "regressed_after_apply",
+            "all",
+        ],
+        default="all",
+    )
     parser.add_argument("--accept-candidate", action="store_true")
     parser.add_argument("--reject-candidate", action="store_true")
     parser.add_argument("--apply-candidate", action="store_true")
@@ -237,6 +250,9 @@ def main() -> int:
         print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
         print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
         print(f"applied_candidate_count: {summary.applied_candidate_count}")
+        print(f"verified_candidate_count: {summary.verified_candidate_count}")
+        print(f"no_improvement_candidate_count: {summary.no_improvement_candidate_count}")
+        print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
         print(f"workflow_sample_count: {summary.workflow_sample_count}")
         print(f"regressed_count: {summary.regressed_count}")
         print(f"improved_count: {summary.improved_count}")
@@ -269,6 +285,9 @@ def main() -> int:
         print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
         print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
         print(f"applied_candidate_count: {summary.applied_candidate_count}")
+        print(f"verified_candidate_count: {summary.verified_candidate_count}")
+        print(f"no_improvement_candidate_count: {summary.no_improvement_candidate_count}")
+        print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
         print(f"workflow_sample_count: {summary.workflow_sample_count}")
         print(f"regressed_count: {summary.regressed_count}")
         print(f"improved_count: {summary.improved_count}")
@@ -489,11 +508,11 @@ def _run_candidate_apply_workflow(
     system_prompt: str | None,
     review_note: str | None,
 ) -> int:
-    app = build_application(
+    source_app = build_application(
         default_system_prompt=system_prompt,
         approval_provider=CliApprovalProvider(),
     )
-    candidate = app.get_candidate(candidate_id)
+    candidate = source_app.get_candidate(candidate_id)
     if candidate is None:
         print(f"candidate not found: {candidate_id}")
         return 1
@@ -504,7 +523,14 @@ def _run_candidate_apply_workflow(
     if not workflow_name:
         print(f"candidate has no workflow context: {candidate_id}")
         return 1
-    applied = app.apply_candidate(
+    source_result = run_smoke_workflow(
+        app=source_app,
+        workflow_name=workflow_name,
+        user_id=user_id,
+        session_id=session_id,
+        system_prompt=system_prompt,
+    )
+    applied = source_app.apply_candidate(
         candidate_id,
         review_note=review_note or "applied prompt overlay and ran workflow validation",
     )
@@ -515,16 +541,31 @@ def _run_candidate_apply_workflow(
         default_system_prompt=system_prompt,
         approval_provider=CliApprovalProvider(),
     )
-    print(f"candidate_id: {applied.candidate_id}")
-    print(f"candidate_status: {applied.status}")
-    print(f"workflow: {workflow_name}")
-    return _run_evolution_workflow(
+    replay_result = run_smoke_workflow(
         app=rerun_app,
         workflow_name=workflow_name,
         user_id=user_id,
-        session_id=session_id,
+        session_id=(session_id or source_result.session_id) + f":candidate:{candidate_id[:8]}",
         system_prompt=system_prompt,
     )
+    comparison, report_dir = _finalize_evolution_comparison(
+        app=rerun_app,
+        source=source_result,
+        replay=replay_result,
+    )
+    outcome_status = _candidate_outcome_status(comparison.sample.status)
+    updated = rerun_app.update_candidate_status(
+        candidate_id,
+        outcome_status,
+        review_note=f"workflow={workflow_name} score_delta={comparison.score_delta} report={report_dir}",
+    )
+    print(f"candidate_id: {applied.candidate_id}")
+    print(f"candidate_status: {updated.status if updated is not None else applied.status}")
+    print(f"workflow: {workflow_name}")
+    print(f"candidate_outcome: {comparison.sample.status}")
+    print(f"candidate_report_path: {report_dir}")
+    _print_evolution_comparison(comparison=comparison, report_dir=report_dir)
+    return 0
 
 
 def _run_evolution_workflow(
@@ -547,6 +588,21 @@ def _run_evolution_workflow(
         workflow_result=source,
         system_prompt=system_prompt,
     )
+    comparison, report_dir = _finalize_evolution_comparison(
+        app=app,
+        source=source,
+        replay=replay,
+    )
+    _print_evolution_comparison(comparison=comparison, report_dir=report_dir)
+    return 0
+
+
+def _finalize_evolution_comparison(
+    *,
+    app,
+    source,
+    replay,
+):
     comparison = compare_smoke_workflow_results(source, replay)
     app.add_workflow_sample(comparison.sample)
     if comparison.candidate is not None:
@@ -559,6 +615,10 @@ def _run_evolution_workflow(
         comparison=comparison,
         review_summary=review_summary,
     )
+    return comparison, report_dir
+
+
+def _print_evolution_comparison(*, comparison, report_dir) -> None:
     print(f"workflow: {comparison.workflow_name}")
     print(f"source_session_id: {comparison.source_session_id}")
     print(f"replay_session_id: {comparison.replay_session_id}")
@@ -577,7 +637,16 @@ def _run_evolution_workflow(
         if step.replay_step.trace_id:
             print(f"replay_trace_id: {step.replay_step.trace_id}")
         print(f"step_score_delta: {step.score_delta}")
-    return 0
+
+
+def _candidate_outcome_status(sample_status: str) -> str:
+    if sample_status == "improved":
+        return "verified"
+    if sample_status == "unchanged":
+        return "no_improvement"
+    if sample_status == "regressed":
+        return "regressed_after_apply"
+    return "applied"
 
 
 def _run_interactive(
