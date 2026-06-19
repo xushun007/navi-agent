@@ -12,6 +12,7 @@ class FakeApp:
         self.calls = []
         self.saved_candidates = []
         self.saved_samples = []
+        self.applied_candidate = None
 
     def handle(self, request):
         self.calls.append(request)
@@ -32,6 +33,12 @@ class FakeApp:
 
     def list_workflow_samples(self, limit=10):
         return list(reversed(self.saved_samples[-limit:]))
+
+    def get_candidate(self, candidate_id):
+        for candidate in self.saved_candidates:
+            if getattr(candidate, "candidate_id", None) == candidate_id:
+                return candidate
+        return None
 
     def update_candidate_status(self, candidate_id, status, review_note=None):
         for candidate in self.saved_candidates:
@@ -115,6 +122,9 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["--candidate-id", "c1", "--accept-candidate"])
         self.assertEqual(args.candidate_id, "c1")
         self.assertTrue(args.accept_candidate)
+        args = parser.parse_args(["--candidate-id", "c1", "--apply-candidate-run"])
+        self.assertEqual(args.candidate_id, "c1")
+        self.assertTrue(args.apply_candidate_run)
 
     def test_build_parser_parses_evolution_listing_flags(self) -> None:
         parser = build_parser()
@@ -377,6 +387,77 @@ class CliTests(unittest.TestCase):
         run_smoke_workflow_mock.assert_called_once()
         replay_mock.assert_called_once()
         compare_mock.assert_called_once()
+
+    def test_main_runs_apply_candidate_workflow(self) -> None:
+        first_app = FakeApp()
+        rerun_app = FakeApp()
+        stdout = io.StringIO()
+
+        candidate = type(
+            "Candidate",
+            (),
+            {
+                "candidate_id": "c1",
+                "status": "pending",
+                "target": "prompt",
+                "summary": "Review workflow regression",
+                "review_note": None,
+                "metadata": {"workflow_name": "prototype-baseline"},
+            },
+        )()
+        first_app.saved_candidates.append(candidate)
+
+        workflow_result = type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "session_id": "wf-1",
+            },
+        )()
+        comparison = type(
+            "WorkflowComparison",
+            (),
+            {
+                "workflow_name": "prototype-baseline",
+                "source_session_id": "wf-1",
+                "replay_session_id": "wf-1:replay:abcd1234",
+                "source_average_score": 1.0,
+                "replay_average_score": 0.95,
+                "score_delta": -0.05,
+                "sample": type(
+                    "Sample",
+                    (),
+                    {
+                        "workflow_name": "prototype-baseline",
+                        "status": "regressed",
+                        "source_average_score": 1.0,
+                        "replay_average_score": 0.95,
+                        "score_delta": -0.05,
+                    },
+                )(),
+                "candidate": None,
+                "step_comparisons": [],
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", side_effect=[first_app, rerun_app]):
+            with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result) as run_smoke_workflow_mock:
+                with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result):
+                    with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison):
+                        with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
+                            with patch("sys.argv", ["navi-agent", "--candidate-id", "c1", "--apply-candidate-run"]):
+                                with redirect_stdout(stdout):
+                                    report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
+                                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(first_app.applied_candidate, candidate)
+        self.assertEqual(candidate.status, "applied")
+        self.assertIn("candidate_id: c1", stdout.getvalue())
+        self.assertIn("candidate_status: applied", stdout.getvalue())
+        self.assertIn("workflow: prototype-baseline", stdout.getvalue())
+        run_smoke_workflow_mock.assert_called_once()
 
     def test_main_runs_evolution_status(self) -> None:
         fake_app = FakeApp()

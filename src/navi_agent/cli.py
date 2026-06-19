@@ -46,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--accept-candidate", action="store_true")
     parser.add_argument("--reject-candidate", action="store_true")
     parser.add_argument("--apply-candidate", action="store_true")
+    parser.add_argument("--apply-candidate-run", action="store_true")
     parser.add_argument("--candidate-note")
     parser.add_argument("--list-candidates", action="store_true")
     parser.add_argument("--list-workflow-samples", action="store_true")
@@ -79,6 +80,16 @@ def main() -> int:
         for workflow in list_smoke_workflows():
             print(f"{workflow.name}: {workflow.description}")
         return 0
+    if args.apply_candidate_run:
+        if not args.candidate_id:
+            parser.error("--candidate-id is required for --apply-candidate-run")
+        return _run_candidate_apply_workflow(
+            candidate_id=args.candidate_id,
+            user_id=args.user_id,
+            session_id=args.session_id,
+            system_prompt=args.system_prompt,
+            review_note=args.candidate_note,
+        )
     candidate_action = _candidate_action_from_args(args)
     if candidate_action is not None:
         app = build_application(
@@ -386,6 +397,7 @@ def main() -> int:
         and not args.candidate_triage
         and not args.candidate_queue
         and not args.candidate_work_items
+        and not args.apply_candidate_run
         and not args.message
     ):
         parser.error("message is required unless --interactive is set")
@@ -450,6 +462,12 @@ def main() -> int:
 
 
 def _candidate_action_from_args(args) -> str | None:
+    if args.apply_candidate_run and (
+        args.accept_candidate or args.reject_candidate or args.apply_candidate
+    ):
+        raise SystemExit(
+            "--apply-candidate-run cannot be combined with --accept-candidate, --reject-candidate, or --apply-candidate"
+        )
     actions = [
         ("accepted", bool(args.accept_candidate)),
         ("rejected", bool(args.reject_candidate)),
@@ -461,6 +479,52 @@ def _candidate_action_from_args(args) -> str | None:
     if len(selected) > 1:
         raise SystemExit("Only one of --accept-candidate, --reject-candidate, or --apply-candidate may be set")
     return selected[0]
+
+
+def _run_candidate_apply_workflow(
+    *,
+    candidate_id: str,
+    user_id: str,
+    session_id: str | None,
+    system_prompt: str | None,
+    review_note: str | None,
+) -> int:
+    app = build_application(
+        default_system_prompt=system_prompt,
+        approval_provider=CliApprovalProvider(),
+    )
+    candidate = app.get_candidate(candidate_id)
+    if candidate is None:
+        print(f"candidate not found: {candidate_id}")
+        return 1
+    if candidate.target != "prompt":
+        print(f"candidate cannot be applied as a workflow run: {candidate_id}")
+        return 1
+    workflow_name = (candidate.metadata or {}).get("workflow_name")
+    if not workflow_name:
+        print(f"candidate has no workflow context: {candidate_id}")
+        return 1
+    applied = app.apply_candidate(
+        candidate_id,
+        review_note=review_note or "applied prompt overlay and ran workflow validation",
+    )
+    if applied is None:
+        print(f"candidate cannot be applied: {candidate_id}")
+        return 1
+    rerun_app = build_application(
+        default_system_prompt=system_prompt,
+        approval_provider=CliApprovalProvider(),
+    )
+    print(f"candidate_id: {applied.candidate_id}")
+    print(f"candidate_status: {applied.status}")
+    print(f"workflow: {workflow_name}")
+    return _run_evolution_workflow(
+        app=rerun_app,
+        workflow_name=workflow_name,
+        user_id=user_id,
+        session_id=session_id,
+        system_prompt=system_prompt,
+    )
 
 
 def _run_evolution_workflow(
