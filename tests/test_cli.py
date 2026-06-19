@@ -142,6 +142,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.candidate_triage)
         args = parser.parse_args(["--candidate-queue"])
         self.assertTrue(args.candidate_queue)
+        args = parser.parse_args(["--candidate-work-items"])
+        self.assertTrue(args.candidate_work_items)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -681,6 +683,52 @@ class CliTests(unittest.TestCase):
         self.assertIn("candidate_queue:", stdout.getvalue())
         self.assertIn("- c1 [prompt] Review workflow regression in runtime-trace-check (prompt)", stdout.getvalue())
         self.assertIn("workflow=prototype-baseline status=regressed workflow_score_delta=-0.3 step=runtime-trace-check", stdout.getvalue())
+
+    def test_main_runs_candidate_work_items(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+        summary = type(
+            "ReviewSummary",
+            (),
+            {
+                "pending_candidate_count": 1,
+                "pending_work_items": [
+                    {
+                        "candidate_id": "c1",
+                        "target": "prompt",
+                        "summary": "Review workflow regression in runtime-trace-check (prompt)",
+                        "rationale": "Run completed without a final answer",
+                        "workflow_name": "prototype-baseline",
+                        "workflow_status": "regressed",
+                        "workflow_score_delta": -0.3,
+                        "task_name": "runtime-trace-check",
+                        "step_score_delta": -0.2,
+                        "source_trace_id": "trace-1",
+                        "replay_trace_id": "trace-2",
+                        "source_session_id": "source-1",
+                        "replay_session_id": "replay-1",
+                        "signals": ["empty_response", "iterations:4"],
+                    }
+                ],
+                "recommendation": "Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.ReviewLoopService") as review_service_cls:
+                review_service_cls.return_value.summarize.return_value = summary
+                with patch("sys.argv", ["navi-agent", "--candidate-work-items"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("candidate_work_items:", stdout.getvalue())
+        self.assertIn("- c1 [prompt] Review workflow regression in runtime-trace-check (prompt)", stdout.getvalue())
+        self.assertIn("workflow=prototype-baseline status=regressed workflow_score_delta=-0.3", stdout.getvalue())
+        self.assertIn("step=runtime-trace-check step_score_delta=-0.2", stdout.getvalue())
+        self.assertIn("source_trace_id=trace-1 replay_trace_id=trace-2", stdout.getvalue())
+        self.assertIn("signals=empty_response,iterations:4", stdout.getvalue())
+        self.assertIn("rationale=Run completed without a final answer", stdout.getvalue())
 
     def test_main_lists_candidates_by_status(self) -> None:
         fake_app = FakeApp()

@@ -138,6 +138,9 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.pending_queue[0].summary, "strong regression")
         self.assertEqual(summary.pending_queue[1].summary, "mild regression")
         self.assertEqual(summary.pending_queue[2].summary, "unchanged run")
+        self.assertEqual(summary.pending_work_items[0]["summary"], "strong regression")
+        self.assertEqual(summary.pending_work_items[0]["workflow_name"], "prototype-baseline")
+        self.assertEqual(summary.pending_work_items[0]["workflow_status"], "regressed")
 
 
 if __name__ == "__main__":

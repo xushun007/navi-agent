@@ -57,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--review-loop", action="store_true")
     parser.add_argument("--candidate-triage", action="store_true")
     parser.add_argument("--candidate-queue", action="store_true")
+    parser.add_argument("--candidate-work-items", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
@@ -325,6 +326,50 @@ def main() -> int:
             )
         print(f"recommendation: {summary.recommendation}")
         return 0
+    if args.candidate_work_items:
+        app = build_application(
+            default_system_prompt=args.system_prompt,
+            approval_provider=CliApprovalProvider(),
+        )
+        summary = ReviewLoopService().summarize(
+            candidates=app.list_candidates(limit=50),
+            workflow_samples=app.list_workflow_samples(limit=50),
+        )
+        print(f"pending_candidate_count: {summary.pending_candidate_count}")
+        if not summary.pending_work_items:
+            print("candidate work items are empty")
+            return 0
+        print("candidate_work_items:")
+        for item in summary.pending_work_items[:10]:
+            print(f"- {item['candidate_id']} [{item['target']}] {item['summary']}")
+            print(
+                "  "
+                f"workflow={item['workflow_name'] or 'unknown-workflow'} "
+                f"status={item['workflow_status'] or 'unknown'} "
+                f"workflow_score_delta={item['workflow_score_delta']}"
+            )
+            print(
+                "  "
+                f"step={item['task_name'] or 'unknown-step'} "
+                f"step_score_delta={item['step_score_delta']}"
+            )
+            if item["source_trace_id"] or item["replay_trace_id"]:
+                print(
+                    "  "
+                    f"source_trace_id={item['source_trace_id'] or '-'} "
+                    f"replay_trace_id={item['replay_trace_id'] or '-'}"
+                )
+            if item["source_session_id"] or item["replay_session_id"]:
+                print(
+                    "  "
+                    f"source_session_id={item['source_session_id'] or '-'} "
+                    f"replay_session_id={item['replay_session_id'] or '-'}"
+                )
+            if item["signals"]:
+                print(f"  signals={','.join(item['signals'])}")
+            print(f"  rationale={item['rationale']}")
+        print(f"recommendation: {summary.recommendation}")
+        return 0
     if (
         not args.interactive
         and not args.smoke
@@ -340,6 +385,7 @@ def main() -> int:
         and not args.review_loop
         and not args.candidate_triage
         and not args.candidate_queue
+        and not args.candidate_work_items
         and not args.message
     ):
         parser.error("message is required unless --interactive is set")

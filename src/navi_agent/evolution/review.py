@@ -21,6 +21,7 @@ class ReviewLoopSummary:
     pending_targets: list[tuple[str, int]] = field(default_factory=list)
     candidates_by_target: dict[str, list[EvolutionCandidate]] = field(default_factory=dict)
     pending_queue: list[EvolutionCandidate] = field(default_factory=list)
+    pending_work_items: list[dict[str, object]] = field(default_factory=list)
     top_regressed_workflows: list[tuple[str, int]] = field(default_factory=list)
     recommendation: str = ""
 
@@ -49,6 +50,7 @@ class ReviewLoopService:
         top_regressed_workflows = workflow_counts.most_common(3)
         candidates_by_target = self._group_candidates_by_target(candidates)
         pending_queue = self._build_pending_queue(pending_candidates)
+        pending_work_items = self._build_pending_work_items(pending_queue)
 
         recommendation = self._build_recommendation(
             top_candidate_targets=top_candidate_targets,
@@ -71,6 +73,7 @@ class ReviewLoopService:
             pending_targets=pending_targets,
             candidates_by_target=candidates_by_target,
             pending_queue=pending_queue,
+            pending_work_items=pending_work_items,
             top_regressed_workflows=top_regressed_workflows,
             recommendation=recommendation,
         )
@@ -123,6 +126,33 @@ class ReviewLoopService:
                 candidate.candidate_id,
             ),
         )
+
+    @staticmethod
+    def _build_pending_work_items(
+        pending_queue: list[EvolutionCandidate],
+    ) -> list[dict[str, object]]:
+        work_items: list[dict[str, object]] = []
+        for candidate in pending_queue:
+            metadata = ReviewLoopService._candidate_metadata(candidate)
+            work_items.append(
+                {
+                    "candidate_id": candidate.candidate_id,
+                    "target": candidate.target,
+                    "summary": candidate.summary,
+                    "rationale": getattr(candidate, "rationale", ""),
+                    "workflow_name": metadata.get("workflow_name"),
+                    "workflow_status": metadata.get("workflow_status"),
+                    "workflow_score_delta": metadata.get("workflow_score_delta"),
+                    "task_name": metadata.get("task_name"),
+                    "source_session_id": metadata.get("source_session_id"),
+                    "replay_session_id": metadata.get("replay_session_id"),
+                    "source_trace_id": metadata.get("source_trace_id"),
+                    "replay_trace_id": metadata.get("replay_trace_id"),
+                    "step_score_delta": metadata.get("step_score_delta"),
+                    "signals": list(metadata.get("signals", [])) if isinstance(metadata.get("signals"), list) else [],
+                }
+            )
+        return work_items
 
     @staticmethod
     def _workflow_score_delta(candidate: EvolutionCandidate) -> float:
