@@ -530,10 +530,7 @@ def _run_curator(
         candidates=app.list_candidates(limit=50),
         workflow_samples=app.list_workflow_samples(limit=50),
     )
-    candidate = next(
-        (candidate for candidate in summary.pending_queue if getattr(candidate, "target", None) == "prompt"),
-        None,
-    )
+    candidate, selection_reason = _select_curator_candidate(summary.pending_queue)
     if candidate is None:
         print("no applicable prompt candidate found in curator queue")
         return 1
@@ -542,6 +539,7 @@ def _run_curator(
     print(f"curator_target: {candidate.target}")
     print(f"curator_workflow: {metadata.get('workflow_name', 'unknown-workflow')}")
     print(f"curator_step: {metadata.get('task_name', 'unknown-step')}")
+    print(f"curator_selection_reason: {selection_reason}")
     if dry_run:
         print("curator_dry_run: yes")
         print("curator_action: apply-candidate-run")
@@ -553,6 +551,52 @@ def _run_curator(
         system_prompt=system_prompt,
         review_note=review_note or "curator-run applied top pending prompt candidate",
     )
+
+
+def _select_curator_candidate(pending_queue) -> tuple[object | None, str]:
+    prompt_candidates = [
+        candidate
+        for candidate in pending_queue
+        if getattr(candidate, "target", None) == "prompt"
+    ]
+    if not prompt_candidates:
+        return None, "no prompt candidate"
+    candidate = min(
+        prompt_candidates,
+        key=lambda candidate: (
+            0 if _curator_metadata(candidate).get("workflow_status") == "regressed" else 1,
+            _curator_score(candidate, "workflow_score_delta"),
+            _curator_score(candidate, "step_score_delta"),
+            getattr(candidate, "candidate_id", ""),
+        ),
+    )
+    metadata = _curator_metadata(candidate)
+    workflow_status = metadata.get("workflow_status", "unknown")
+    workflow_score_delta = _curator_score(candidate, "workflow_score_delta")
+    step_score_delta = _curator_score(candidate, "step_score_delta")
+    return (
+        candidate,
+        (
+            "prompt candidate prioritized by "
+            f"workflow_status={workflow_status}, "
+            f"workflow_score_delta={workflow_score_delta}, "
+            f"step_score_delta={step_score_delta}"
+        ),
+    )
+
+
+def _curator_score(candidate, field_name: str) -> float:
+    value = _curator_metadata(candidate).get(field_name)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
+
+
+def _curator_metadata(candidate) -> dict:
+    metadata = getattr(candidate, "metadata", None)
+    if isinstance(metadata, dict):
+        return metadata
+    return {}
 
 
 def _print_curator_status(*, summary, latest_report, overlay_info) -> None:
