@@ -23,6 +23,8 @@ class AppRequest:
 
 
 class ApplicationService:
+    _INACTIVE_CANDIDATE_STATUSES = {"superseded", "archived"}
+
     def __init__(
         self,
         runtime: AgentRuntime,
@@ -75,6 +77,12 @@ class ApplicationService:
     def add_candidate(self, candidate: EvolutionCandidate) -> None:
         if self._candidate_store is None:
             return
+        for existing in self._find_superseded_candidates(candidate):
+            self._candidate_store.update_status(
+                existing.candidate_id,
+                "superseded",
+                review_note=f"superseded by {candidate.candidate_id}",
+            )
         self._candidate_store.add(candidate)
 
     def get_candidate(self, candidate_id: str) -> EvolutionCandidate | None:
@@ -139,6 +147,39 @@ class ApplicationService:
         if self._workflow_sample_store is None:
             return []
         return self._workflow_sample_store.list_recent(limit=limit)
+
+    def _find_superseded_candidates(
+        self,
+        candidate: EvolutionCandidate,
+    ) -> list[EvolutionCandidate]:
+        if self._candidate_store is None:
+            return []
+        candidate_scope = self._candidate_scope(candidate)
+        if candidate_scope is None:
+            return []
+        matches: list[EvolutionCandidate] = []
+        for existing in self._candidate_store.list_recent(limit=None):
+            if existing.candidate_id == candidate.candidate_id:
+                continue
+            if existing.status in self._INACTIVE_CANDIDATE_STATUSES:
+                continue
+            if existing.target != candidate.target:
+                continue
+            if self._candidate_scope(existing) != candidate_scope:
+                continue
+            matches.append(existing)
+        return matches
+
+    @staticmethod
+    def _candidate_scope(candidate: EvolutionCandidate) -> tuple[str, str] | None:
+        metadata = candidate.metadata or {}
+        workflow_name = metadata.get("workflow_name")
+        task_name = metadata.get("task_name")
+        if not isinstance(workflow_name, str) or not workflow_name.strip():
+            return None
+        if not isinstance(task_name, str) or not task_name.strip():
+            return None
+        return workflow_name, task_name
 
     @staticmethod
     def _new_session_id() -> str:

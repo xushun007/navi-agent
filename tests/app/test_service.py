@@ -176,6 +176,74 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].summary, "Review prompt")
 
+    def test_add_candidate_supersedes_older_candidate_in_same_scope(self) -> None:
+        store = FakeCandidateStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=store,
+        )
+        older = EvolutionCandidate(
+            target="prompt",
+            summary="Old prompt candidate",
+            rationale="Need better answer",
+            metadata={
+                "workflow_name": "prototype-baseline",
+                "task_name": "runtime-trace-check",
+            },
+        )
+        newer = EvolutionCandidate(
+            target="prompt",
+            summary="New prompt candidate",
+            rationale="Need even better answer",
+            metadata={
+                "workflow_name": "prototype-baseline",
+                "task_name": "runtime-trace-check",
+            },
+        )
+
+        service.add_candidate(older)
+        service.add_candidate(newer)
+
+        updated_older = service.get_candidate(older.candidate_id)
+        updated_newer = service.get_candidate(newer.candidate_id)
+        self.assertIsNotNone(updated_older)
+        self.assertIsNotNone(updated_newer)
+        self.assertEqual(updated_older.status, "superseded")
+        self.assertEqual(updated_older.review_note, f"superseded by {newer.candidate_id}")
+        self.assertEqual(updated_newer.status, "pending")
+
+    def test_add_candidate_does_not_supersede_different_scope(self) -> None:
+        store = FakeCandidateStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=store,
+        )
+        older = EvolutionCandidate(
+            target="prompt",
+            summary="Old prompt candidate",
+            rationale="Need better answer",
+            metadata={
+                "workflow_name": "prototype-baseline",
+                "task_name": "runtime-trace-check",
+            },
+        )
+        newer = EvolutionCandidate(
+            target="prompt",
+            summary="Different step candidate",
+            rationale="Need better search",
+            metadata={
+                "workflow_name": "prototype-baseline",
+                "task_name": "workspace-search",
+            },
+        )
+
+        service.add_candidate(older)
+        service.add_candidate(newer)
+
+        updated_older = service.get_candidate(older.candidate_id)
+        self.assertIsNotNone(updated_older)
+        self.assertEqual(updated_older.status, "pending")
+
     def test_update_candidate_status_uses_store(self) -> None:
         store = FakeCandidateStore()
         service = ApplicationService(
