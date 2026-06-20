@@ -65,6 +65,9 @@ class ReviewLoopService:
             pending_targets=pending_targets,
             top_regressed_workflows=top_regressed_workflows,
             regressed_count=len(regressed),
+            verified_count=len(verified_candidates),
+            no_improvement_count=len(no_improvement_candidates),
+            regressed_after_apply_count=len(regressed_after_apply_candidates),
         )
 
         return ReviewLoopSummary(
@@ -96,8 +99,18 @@ class ReviewLoopService:
         pending_targets: list[tuple[str, int]],
         top_regressed_workflows: list[tuple[str, int]],
         regressed_count: int,
+        verified_count: int,
+        no_improvement_count: int,
+        regressed_after_apply_count: int,
     ) -> str:
+        if regressed_after_apply_count:
+            workflow = top_regressed_workflows[0][0] if top_regressed_workflows else "recent prompt validations"
+            return f"Inspect regressed_after_apply candidates before applying more prompt changes to {workflow}."
         if regressed_count == 0:
+            if no_improvement_count:
+                return "Review no_improvement candidates and replace stale prompt overlays before expanding the workflow set."
+            if verified_count:
+                return "Promote verified prompt changes into the baseline before expanding the workflow set."
             if pending_targets:
                 target = pending_targets[0][0]
                 return f"Review pending {target} candidates before expanding the workflow set."

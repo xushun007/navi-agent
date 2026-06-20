@@ -140,10 +140,17 @@ class EvolutionReportWriter:
                     "",
                     "## Review loop",
                     f"- candidate count: `{review_summary.candidate_count}`",
+                    f"- pending candidate count: `{review_summary.pending_candidate_count}`",
+                    f"- accepted candidate count: `{review_summary.accepted_candidate_count}`",
+                    f"- rejected candidate count: `{review_summary.rejected_candidate_count}`",
                     f"- workflow sample count: `{review_summary.workflow_sample_count}`",
                     f"- regressed count: `{review_summary.regressed_count}`",
                     f"- improved count: `{review_summary.improved_count}`",
                     f"- unchanged count: `{review_summary.unchanged_count}`",
+                    f"- applied candidate count: `{review_summary.applied_candidate_count}`",
+                    f"- verified candidate count: `{review_summary.verified_candidate_count}`",
+                    f"- no improvement candidate count: `{review_summary.no_improvement_candidate_count}`",
+                    f"- regressed after apply candidate count: `{review_summary.regressed_after_apply_candidate_count}`",
                     f"- recommendation: {review_summary.recommendation}",
                 ]
             )

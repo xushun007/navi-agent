@@ -159,6 +159,71 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.no_improvement_candidate_count, 1)
         self.assertEqual(summary.regressed_after_apply_candidate_count, 1)
 
+    def test_summarize_recommends_investigating_regressed_after_apply_first(self) -> None:
+        summary = ReviewLoopService().summarize(
+            candidates=[
+                EvolutionCandidate(
+                    target="prompt",
+                    summary="bad apply",
+                    rationale="r",
+                    status="regressed_after_apply",
+                ),
+            ],
+            workflow_samples=[
+                WorkflowEvolutionSample(
+                    workflow_name="prototype-baseline",
+                    source_session_id="s1",
+                    replay_session_id="r1",
+                    source_average_score=1.0,
+                    replay_average_score=0.7,
+                    score_delta=-0.3,
+                    status="regressed",
+                    summary="regressed",
+                )
+            ],
+        )
+
+        self.assertEqual(
+            summary.recommendation,
+            "Inspect regressed_after_apply candidates before applying more prompt changes to prototype-baseline.",
+        )
+
+    def test_summarize_recommends_promoting_verified_candidates(self) -> None:
+        summary = ReviewLoopService().summarize(
+            candidates=[
+                EvolutionCandidate(
+                    target="prompt",
+                    summary="good apply",
+                    rationale="r",
+                    status="verified",
+                ),
+            ],
+            workflow_samples=[],
+        )
+
+        self.assertEqual(
+            summary.recommendation,
+            "Promote verified prompt changes into the baseline before expanding the workflow set.",
+        )
+
+    def test_summarize_recommends_replacing_no_improvement_candidates(self) -> None:
+        summary = ReviewLoopService().summarize(
+            candidates=[
+                EvolutionCandidate(
+                    target="prompt",
+                    summary="flat apply",
+                    rationale="r",
+                    status="no_improvement",
+                ),
+            ],
+            workflow_samples=[],
+        )
+
+        self.assertEqual(
+            summary.recommendation,
+            "Review no_improvement candidates and replace stale prompt overlays before expanding the workflow set.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

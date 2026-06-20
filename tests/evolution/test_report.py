@@ -110,6 +110,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
         self.assertIn("# Evolution workflow comparison", report_md)
         self.assertIn("## Candidate", report_md)
         self.assertIn("prototype-baseline", report_md)
+        self.assertIn("verified candidate count", report_md)
 
     def test_report_store_loads_latest_report(self) -> None:
         comparison = SmokeWorkflowComparison(
