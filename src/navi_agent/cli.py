@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--system-prompt")
     parser.add_argument("--banner", action="store_true")
     parser.add_argument("--interactive", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
     parser.add_argument("--smoke")
     parser.add_argument("--workflow")
@@ -105,6 +106,7 @@ def main() -> int:
             session_id=args.session_id,
             system_prompt=args.system_prompt,
             review_note=args.candidate_note,
+            dry_run=args.dry_run,
         )
     if args.apply_candidate_run:
         if not args.candidate_id:
@@ -518,6 +520,7 @@ def _run_curator(
     session_id: str | None,
     system_prompt: str | None,
     review_note: str | None,
+    dry_run: bool,
 ) -> int:
     app = build_application(
         default_system_prompt=system_prompt,
@@ -539,6 +542,10 @@ def _run_curator(
     print(f"curator_target: {candidate.target}")
     print(f"curator_workflow: {metadata.get('workflow_name', 'unknown-workflow')}")
     print(f"curator_step: {metadata.get('task_name', 'unknown-step')}")
+    if dry_run:
+        print("curator_dry_run: yes")
+        print("curator_action: apply-candidate-run")
+        return 0
     return _run_candidate_apply_workflow(
         candidate_id=candidate.candidate_id,
         user_id=user_id,
