@@ -33,6 +33,15 @@ class ReviewLoopSummary:
 
 
 class ReviewLoopService:
+    _RETIRED_CANDIDATE_STATUSES = {
+        "rejected",
+        "verified",
+        "no_improvement",
+        "regressed_after_apply",
+        "superseded",
+        "archived",
+    }
+
     def summarize(
         self,
         *,
@@ -56,7 +65,7 @@ class ReviewLoopService:
         active_candidates = [
             candidate
             for candidate in candidates
-            if candidate.status not in {"superseded", "archived"}
+            if candidate.status not in self._RETIRED_CANDIDATE_STATUSES
         ]
 
         target_counts = Counter(candidate.target for candidate in active_candidates)
