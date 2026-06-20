@@ -9,6 +9,7 @@ from .models import EvolutionCandidate, WorkflowEvolutionSample
 @dataclass(slots=True)
 class ReviewLoopSummary:
     candidate_count: int
+    active_candidate_count: int
     pending_candidate_count: int
     accepted_candidate_count: int
     rejected_candidate_count: int
@@ -16,6 +17,8 @@ class ReviewLoopSummary:
     verified_candidate_count: int
     no_improvement_candidate_count: int
     regressed_after_apply_candidate_count: int
+    superseded_candidate_count: int
+    archived_candidate_count: int
     workflow_sample_count: int
     regressed_count: int
     improved_count: int
@@ -48,15 +51,22 @@ class ReviewLoopService:
         regressed_after_apply_candidates = [
             candidate for candidate in candidates if candidate.status == "regressed_after_apply"
         ]
+        superseded_candidates = [candidate for candidate in candidates if candidate.status == "superseded"]
+        archived_candidates = [candidate for candidate in candidates if candidate.status == "archived"]
+        active_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.status not in {"superseded", "archived"}
+        ]
 
-        target_counts = Counter(candidate.target for candidate in candidates)
+        target_counts = Counter(candidate.target for candidate in active_candidates)
         pending_target_counts = Counter(candidate.target for candidate in pending_candidates)
         workflow_counts = Counter(sample.workflow_name for sample in regressed)
 
         top_candidate_targets = target_counts.most_common(3)
         pending_targets = pending_target_counts.most_common(3)
         top_regressed_workflows = workflow_counts.most_common(3)
-        candidates_by_target = self._group_candidates_by_target(candidates)
+        candidates_by_target = self._group_candidates_by_target(active_candidates)
         pending_queue = self._build_pending_queue(pending_candidates)
         pending_work_items = self._build_pending_work_items(pending_queue)
 
@@ -72,6 +82,7 @@ class ReviewLoopService:
 
         return ReviewLoopSummary(
             candidate_count=len(candidates),
+            active_candidate_count=len(active_candidates),
             pending_candidate_count=len(pending_candidates),
             accepted_candidate_count=len(accepted_candidates),
             rejected_candidate_count=len(rejected_candidates),
@@ -79,6 +90,8 @@ class ReviewLoopService:
             verified_candidate_count=len(verified_candidates),
             no_improvement_candidate_count=len(no_improvement_candidates),
             regressed_after_apply_candidate_count=len(regressed_after_apply_candidates),
+            superseded_candidate_count=len(superseded_candidates),
+            archived_candidate_count=len(archived_candidates),
             workflow_sample_count=len(workflow_samples),
             regressed_count=len(regressed),
             improved_count=len(improved),

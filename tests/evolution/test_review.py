@@ -46,6 +46,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(summary.candidate_count, 3)
+        self.assertEqual(summary.active_candidate_count, 3)
         self.assertEqual(summary.pending_candidate_count, 1)
         self.assertEqual(summary.accepted_candidate_count, 1)
         self.assertEqual(summary.rejected_candidate_count, 1)
@@ -53,6 +54,8 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.verified_candidate_count, 0)
         self.assertEqual(summary.no_improvement_candidate_count, 0)
         self.assertEqual(summary.regressed_after_apply_candidate_count, 0)
+        self.assertEqual(summary.superseded_candidate_count, 0)
+        self.assertEqual(summary.archived_candidate_count, 0)
         self.assertEqual(summary.workflow_sample_count, 3)
         self.assertEqual(summary.regressed_count, 2)
         self.assertEqual(summary.top_candidate_targets[0], ("prompt", 2))
@@ -158,6 +161,24 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.verified_candidate_count, 1)
         self.assertEqual(summary.no_improvement_candidate_count, 1)
         self.assertEqual(summary.regressed_after_apply_candidate_count, 1)
+
+    def test_summarize_excludes_superseded_and_archived_from_active_views(self) -> None:
+        summary = ReviewLoopService().summarize(
+            candidates=[
+                EvolutionCandidate(target="prompt", summary="pending", rationale="r", status="pending"),
+                EvolutionCandidate(target="prompt", summary="old one", rationale="r", status="superseded"),
+                EvolutionCandidate(target="tooling", summary="archived one", rationale="r", status="archived"),
+            ],
+            workflow_samples=[],
+        )
+
+        self.assertEqual(summary.candidate_count, 3)
+        self.assertEqual(summary.active_candidate_count, 1)
+        self.assertEqual(summary.superseded_candidate_count, 1)
+        self.assertEqual(summary.archived_candidate_count, 1)
+        self.assertEqual(summary.pending_targets, [("prompt", 1)])
+        self.assertEqual(len(summary.pending_queue), 1)
+        self.assertEqual(list(summary.candidates_by_target), ["prompt"])
 
     def test_summarize_recommends_investigating_regressed_after_apply_first(self) -> None:
         summary = ReviewLoopService().summarize(

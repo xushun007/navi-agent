@@ -76,6 +76,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
         )
         review_summary = ReviewLoopSummary(
             candidate_count=1,
+            active_candidate_count=1,
             pending_candidate_count=1,
             accepted_candidate_count=0,
             rejected_candidate_count=0,
@@ -83,6 +84,8 @@ class EvolutionReportWriterTests(unittest.TestCase):
             verified_candidate_count=0,
             no_improvement_candidate_count=0,
             regressed_after_apply_candidate_count=0,
+            superseded_candidate_count=0,
+            archived_candidate_count=0,
             workflow_sample_count=2,
             regressed_count=1,
             improved_count=1,

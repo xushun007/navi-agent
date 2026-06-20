@@ -52,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
             "verified",
             "no_improvement",
             "regressed_after_apply",
+            "superseded",
+            "archived",
             "all",
         ],
         default="all",
@@ -60,6 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reject-candidate", action="store_true")
     parser.add_argument("--apply-candidate", action="store_true")
     parser.add_argument("--apply-candidate-run", action="store_true")
+    parser.add_argument("--supersede-candidate", action="store_true")
+    parser.add_argument("--archive-candidate", action="store_true")
     parser.add_argument("--candidate-note")
     parser.add_argument("--list-candidates", action="store_true")
     parser.add_argument("--list-workflow-samples", action="store_true")
@@ -246,6 +250,7 @@ def main() -> int:
         )
         print(f"evolution_reports_dir: {get_evolution_reports_dir()}")
         print(f"candidate_count: {summary.candidate_count}")
+        print(f"active_candidate_count: {summary.active_candidate_count}")
         print(f"pending_candidate_count: {summary.pending_candidate_count}")
         print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
         print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
@@ -253,6 +258,8 @@ def main() -> int:
         print(f"verified_candidate_count: {summary.verified_candidate_count}")
         print(f"no_improvement_candidate_count: {summary.no_improvement_candidate_count}")
         print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
+        print(f"superseded_candidate_count: {summary.superseded_candidate_count}")
+        print(f"archived_candidate_count: {summary.archived_candidate_count}")
         print(f"workflow_sample_count: {summary.workflow_sample_count}")
         print(f"regressed_count: {summary.regressed_count}")
         print(f"improved_count: {summary.improved_count}")
@@ -281,6 +288,7 @@ def main() -> int:
             workflow_samples=app.list_workflow_samples(limit=50),
         )
         print(f"candidate_count: {summary.candidate_count}")
+        print(f"active_candidate_count: {summary.active_candidate_count}")
         print(f"pending_candidate_count: {summary.pending_candidate_count}")
         print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
         print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
@@ -288,6 +296,8 @@ def main() -> int:
         print(f"verified_candidate_count: {summary.verified_candidate_count}")
         print(f"no_improvement_candidate_count: {summary.no_improvement_candidate_count}")
         print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
+        print(f"superseded_candidate_count: {summary.superseded_candidate_count}")
+        print(f"archived_candidate_count: {summary.archived_candidate_count}")
         print(f"workflow_sample_count: {summary.workflow_sample_count}")
         print(f"regressed_count: {summary.regressed_count}")
         print(f"improved_count: {summary.improved_count}")
@@ -482,21 +492,23 @@ def main() -> int:
 
 def _candidate_action_from_args(args) -> str | None:
     if args.apply_candidate_run and (
-        args.accept_candidate or args.reject_candidate or args.apply_candidate
+        args.accept_candidate or args.reject_candidate or args.apply_candidate or args.supersede_candidate or args.archive_candidate
     ):
         raise SystemExit(
-            "--apply-candidate-run cannot be combined with --accept-candidate, --reject-candidate, or --apply-candidate"
+            "--apply-candidate-run cannot be combined with candidate status mutation flags"
         )
     actions = [
         ("accepted", bool(args.accept_candidate)),
         ("rejected", bool(args.reject_candidate)),
         ("applied", bool(args.apply_candidate)),
+        ("superseded", bool(args.supersede_candidate)),
+        ("archived", bool(args.archive_candidate)),
     ]
     selected = [status for status, enabled in actions if enabled]
     if not selected:
         return None
     if len(selected) > 1:
-        raise SystemExit("Only one of --accept-candidate, --reject-candidate, or --apply-candidate may be set")
+        raise SystemExit("Only one candidate status mutation flag may be set")
     return selected[0]
 
 

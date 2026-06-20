@@ -136,6 +136,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.candidate_status, "pending")
         args = parser.parse_args(["--candidate-status", "verified", "--list-candidates"])
         self.assertEqual(args.candidate_status, "verified")
+        args = parser.parse_args(["--candidate-status", "superseded", "--list-candidates"])
+        self.assertEqual(args.candidate_status, "superseded")
         args = parser.parse_args(["--list-workflow-samples"])
         self.assertTrue(args.list_workflow_samples)
         args = parser.parse_args(["--prompt-overlay-status"])
@@ -156,6 +158,10 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.candidate_queue)
         args = parser.parse_args(["--candidate-work-items"])
         self.assertTrue(args.candidate_work_items)
+        args = parser.parse_args(["--candidate-id", "c1", "--supersede-candidate"])
+        self.assertTrue(args.supersede_candidate)
+        args = parser.parse_args(["--candidate-id", "c1", "--archive-candidate"])
+        self.assertTrue(args.archive_candidate)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -517,9 +523,12 @@ class CliTests(unittest.TestCase):
                         exit_code = main()
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("active_candidate_count: 1", stdout.getvalue())
         self.assertIn("verified_candidate_count: 0", stdout.getvalue())
         self.assertIn("no_improvement_candidate_count: 0", stdout.getvalue())
         self.assertIn("regressed_after_apply_candidate_count: 0", stdout.getvalue())
+        self.assertIn("superseded_candidate_count: 0", stdout.getvalue())
+        self.assertIn("archived_candidate_count: 0", stdout.getvalue())
         self.assertIn("latest_report: /tmp/evolution-report", stdout.getvalue())
         self.assertIn("latest_workflow: prototype-baseline", stdout.getvalue())
         self.assertIn("latest_candidate_target: prompt", stdout.getvalue())
@@ -649,6 +658,7 @@ class CliTests(unittest.TestCase):
             (),
             {
                 "candidate_count": 1,
+                "active_candidate_count": 1,
                 "pending_candidate_count": 1,
                 "accepted_candidate_count": 0,
                 "rejected_candidate_count": 0,
@@ -656,6 +666,8 @@ class CliTests(unittest.TestCase):
                 "verified_candidate_count": 0,
                 "no_improvement_candidate_count": 0,
                 "regressed_after_apply_candidate_count": 0,
+                "superseded_candidate_count": 0,
+                "archived_candidate_count": 0,
                 "workflow_sample_count": 1,
                 "regressed_count": 1,
                 "improved_count": 0,
@@ -675,6 +687,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_count: 1", stdout.getvalue())
+        self.assertIn("active_candidate_count: 1", stdout.getvalue())
         self.assertIn("pending_candidate_count: 1", stdout.getvalue())
         self.assertIn("verified_candidate_count: 0", stdout.getvalue())
         self.assertIn("top_candidate_targets:", stdout.getvalue())
