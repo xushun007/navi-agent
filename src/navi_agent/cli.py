@@ -42,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evolution-run")
     parser.add_argument("--evolution-status", action="store_true")
     parser.add_argument("--curator-status", action="store_true")
+    parser.add_argument("--curator-run", action="store_true")
     parser.add_argument("--candidate-id")
     parser.add_argument(
         "--candidate-status",
@@ -98,6 +99,13 @@ def main() -> int:
         for workflow in list_smoke_workflows():
             print(f"{workflow.name}: {workflow.description}")
         return 0
+    if args.curator_run:
+        return _run_curator(
+            user_id=args.user_id,
+            session_id=args.session_id,
+            system_prompt=args.system_prompt,
+            review_note=args.candidate_note,
+        )
     if args.apply_candidate_run:
         if not args.candidate_id:
             parser.error("--candidate-id is required for --apply-candidate-run")
@@ -397,6 +405,7 @@ def main() -> int:
         and not args.evolution_run
         and not args.evolution_status
         and not args.curator_status
+        and not args.curator_run
         and not args.prompt_overlay_status
         and not args.show_prompt_overlay
         and not args.list_prompt_overlay_entries
@@ -477,6 +486,17 @@ def _candidate_action_from_args(args) -> str | None:
         raise SystemExit(
             "--apply-candidate-run cannot be combined with candidate status mutation flags"
         )
+    if args.curator_run and (
+        args.accept_candidate
+        or args.reject_candidate
+        or args.apply_candidate
+        or args.apply_candidate_run
+        or args.supersede_candidate
+        or args.archive_candidate
+    ):
+        raise SystemExit(
+            "--curator-run cannot be combined with candidate status mutation flags or --apply-candidate-run"
+        )
     actions = [
         ("accepted", bool(args.accept_candidate)),
         ("rejected", bool(args.reject_candidate)),
@@ -490,6 +510,42 @@ def _candidate_action_from_args(args) -> str | None:
     if len(selected) > 1:
         raise SystemExit("Only one candidate status mutation flag may be set")
     return selected[0]
+
+
+def _run_curator(
+    *,
+    user_id: str,
+    session_id: str | None,
+    system_prompt: str | None,
+    review_note: str | None,
+) -> int:
+    app = build_application(
+        default_system_prompt=system_prompt,
+        approval_provider=CliApprovalProvider(),
+    )
+    summary = ReviewLoopService().summarize(
+        candidates=app.list_candidates(limit=50),
+        workflow_samples=app.list_workflow_samples(limit=50),
+    )
+    candidate = next(
+        (candidate for candidate in summary.pending_queue if getattr(candidate, "target", None) == "prompt"),
+        None,
+    )
+    if candidate is None:
+        print("no applicable prompt candidate found in curator queue")
+        return 1
+    metadata = getattr(candidate, "metadata", {}) or {}
+    print(f"curator_candidate_id: {candidate.candidate_id}")
+    print(f"curator_target: {candidate.target}")
+    print(f"curator_workflow: {metadata.get('workflow_name', 'unknown-workflow')}")
+    print(f"curator_step: {metadata.get('task_name', 'unknown-step')}")
+    return _run_candidate_apply_workflow(
+        candidate_id=candidate.candidate_id,
+        user_id=user_id,
+        session_id=session_id,
+        system_prompt=system_prompt,
+        review_note=review_note or "curator-run applied top pending prompt candidate",
+    )
 
 
 def _print_curator_status(*, summary, latest_report, overlay_info) -> None:

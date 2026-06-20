@@ -121,6 +121,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.evolution_status)
         args = parser.parse_args(["--curator-status"])
         self.assertTrue(args.curator_status)
+        args = parser.parse_args(["--curator-run"])
+        self.assertTrue(args.curator_run)
         args = parser.parse_args(["--candidate-id", "c1", "--accept-candidate"])
         self.assertEqual(args.candidate_id, "c1")
         self.assertTrue(args.accept_candidate)
@@ -611,6 +613,72 @@ class CliTests(unittest.TestCase):
         self.assertIn("top_regressed_workflows:", stdout.getvalue())
         self.assertIn("top_pending_queue:", stdout.getvalue())
         self.assertIn("latest_candidate_status: verified", stdout.getvalue())
+
+    def test_main_runs_curator_run_with_top_prompt_candidate(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+        summary = type(
+            "ReviewSummary",
+            (),
+            {
+                "pending_queue": [
+                    type(
+                        "Candidate",
+                        (),
+                        {
+                            "candidate_id": "c-tool",
+                            "target": "tooling",
+                            "metadata": {
+                                "workflow_name": "prototype-baseline",
+                                "task_name": "workspace-search",
+                            },
+                        },
+                    )(),
+                    type(
+                        "Candidate",
+                        (),
+                        {
+                            "candidate_id": "c-prompt",
+                            "target": "prompt",
+                            "metadata": {
+                                "workflow_name": "prototype-baseline",
+                                "task_name": "runtime-trace-check",
+                            },
+                        },
+                    )(),
+                ]
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.ReviewLoopService") as review_service_cls:
+                review_service_cls.return_value.summarize.return_value = summary
+                with patch("navi_agent.cli._run_candidate_apply_workflow", return_value=0) as run_apply_mock:
+                    with patch("sys.argv", ["navi-agent", "--curator-run"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("curator_candidate_id: c-prompt", stdout.getvalue())
+        self.assertIn("curator_target: prompt", stdout.getvalue())
+        self.assertIn("curator_workflow: prototype-baseline", stdout.getvalue())
+        run_apply_mock.assert_called_once()
+        self.assertEqual(run_apply_mock.call_args.kwargs["candidate_id"], "c-prompt")
+
+    def test_main_runs_curator_run_without_prompt_candidate(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+        summary = type("ReviewSummary", (), {"pending_queue": []})()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.ReviewLoopService") as review_service_cls:
+                review_service_cls.return_value.summarize.return_value = summary
+                with patch("sys.argv", ["navi-agent", "--curator-run"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("no applicable prompt candidate found in curator queue", stdout.getvalue())
 
     def test_main_lists_candidates(self) -> None:
         fake_app = FakeApp()
