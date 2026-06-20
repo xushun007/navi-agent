@@ -41,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compare-workflow")
     parser.add_argument("--evolution-run")
     parser.add_argument("--evolution-status", action="store_true")
+    parser.add_argument("--curator-status", action="store_true")
     parser.add_argument("--candidate-id")
     parser.add_argument(
         "--candidate-status",
@@ -239,7 +240,7 @@ def main() -> int:
             return 1
         print(f"rolled back prompt overlay to {args.rollback_prompt_overlay}")
         return 0
-    if args.evolution_status:
+    if args.evolution_status or args.curator_status:
         app = build_application(
             default_system_prompt=args.system_prompt,
             approval_provider=CliApprovalProvider(),
@@ -248,35 +249,13 @@ def main() -> int:
             candidates=app.list_candidates(limit=50),
             workflow_samples=app.list_workflow_samples(limit=50),
         )
-        print(f"evolution_reports_dir: {get_evolution_reports_dir()}")
-        print(f"candidate_count: {summary.candidate_count}")
-        print(f"active_candidate_count: {summary.active_candidate_count}")
-        print(f"pending_candidate_count: {summary.pending_candidate_count}")
-        print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
-        print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
-        print(f"applied_candidate_count: {summary.applied_candidate_count}")
-        print(f"verified_candidate_count: {summary.verified_candidate_count}")
-        print(f"no_improvement_candidate_count: {summary.no_improvement_candidate_count}")
-        print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
-        print(f"superseded_candidate_count: {summary.superseded_candidate_count}")
-        print(f"archived_candidate_count: {summary.archived_candidate_count}")
-        print(f"workflow_sample_count: {summary.workflow_sample_count}")
-        print(f"regressed_count: {summary.regressed_count}")
-        print(f"improved_count: {summary.improved_count}")
-        print(f"unchanged_count: {summary.unchanged_count}")
         latest_report = EvolutionReportStore(get_evolution_reports_dir()).get_latest()
-        if latest_report is not None:
-            print(f"latest_report: {latest_report.report_path}")
-            print(f"latest_workflow: {latest_report.workflow_name}")
-            print(f"latest_status: {latest_report.status}")
-            print(f"latest_score_delta: {latest_report.score_delta}")
-            if latest_report.candidate_target:
-                print(f"latest_candidate_target: {latest_report.candidate_target}")
-            if latest_report.candidate_status:
-                print(f"latest_candidate_status: {latest_report.candidate_status}")
         overlay_info = PromptOverlayStore(get_prompt_overlay_path()).describe()
-        print(f"prompt_overlay_candidate_count: {overlay_info['candidate_count']}")
-        print(f"recommendation: {summary.recommendation}")
+        _print_curator_status(
+            summary=summary,
+            latest_report=latest_report,
+            overlay_info=overlay_info,
+        )
         return 0
     if args.review_loop:
         app = build_application(
@@ -417,6 +396,7 @@ def main() -> int:
         and not args.compare_workflow
         and not args.evolution_run
         and not args.evolution_status
+        and not args.curator_status
         and not args.prompt_overlay_status
         and not args.show_prompt_overlay
         and not args.list_prompt_overlay_entries
@@ -510,6 +490,54 @@ def _candidate_action_from_args(args) -> str | None:
     if len(selected) > 1:
         raise SystemExit("Only one candidate status mutation flag may be set")
     return selected[0]
+
+
+def _print_curator_status(*, summary, latest_report, overlay_info) -> None:
+    print(f"evolution_reports_dir: {get_evolution_reports_dir()}")
+    print(f"candidate_count: {summary.candidate_count}")
+    print(f"active_candidate_count: {summary.active_candidate_count}")
+    print(f"pending_candidate_count: {summary.pending_candidate_count}")
+    print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
+    print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
+    print(f"applied_candidate_count: {summary.applied_candidate_count}")
+    print(f"verified_candidate_count: {summary.verified_candidate_count}")
+    print(f"no_improvement_candidate_count: {summary.no_improvement_candidate_count}")
+    print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
+    print(f"superseded_candidate_count: {summary.superseded_candidate_count}")
+    print(f"archived_candidate_count: {summary.archived_candidate_count}")
+    print(f"workflow_sample_count: {summary.workflow_sample_count}")
+    print(f"regressed_count: {summary.regressed_count}")
+    print(f"improved_count: {summary.improved_count}")
+    print(f"unchanged_count: {summary.unchanged_count}")
+    if latest_report is not None:
+        print(f"latest_report: {latest_report.report_path}")
+        print(f"latest_workflow: {latest_report.workflow_name}")
+        print(f"latest_status: {latest_report.status}")
+        print(f"latest_score_delta: {latest_report.score_delta}")
+        if latest_report.candidate_target:
+            print(f"latest_candidate_target: {latest_report.candidate_target}")
+        if latest_report.candidate_status:
+            print(f"latest_candidate_status: {latest_report.candidate_status}")
+    print(f"prompt_overlay_candidate_count: {overlay_info['candidate_count']}")
+    if summary.pending_targets:
+        print("pending_targets:")
+        for target, count in summary.pending_targets:
+            print(f"- {target}: {count}")
+    if summary.top_regressed_workflows:
+        print("top_regressed_workflows:")
+        for workflow, count in summary.top_regressed_workflows:
+            print(f"- {workflow}: {count}")
+    if summary.pending_queue:
+        print("top_pending_queue:")
+        for candidate in summary.pending_queue[:3]:
+            metadata = getattr(candidate, "metadata", {}) or {}
+            workflow_name = metadata.get("workflow_name", "unknown-workflow")
+            task_name = metadata.get("task_name", "unknown-step")
+            print(
+                f"- {candidate.candidate_id} [{candidate.target}] {candidate.summary} "
+                f"(workflow={workflow_name} step={task_name})"
+            )
+    print(f"recommendation: {summary.recommendation}")
 
 
 def _run_candidate_apply_workflow(

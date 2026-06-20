@@ -119,6 +119,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.evolution_run, "prototype-baseline")
         args = parser.parse_args(["--evolution-status"])
         self.assertTrue(args.evolution_status)
+        args = parser.parse_args(["--curator-status"])
+        self.assertTrue(args.curator_status)
         args = parser.parse_args(["--candidate-id", "c1", "--accept-candidate"])
         self.assertEqual(args.candidate_id, "c1")
         self.assertTrue(args.accept_candidate)
@@ -534,6 +536,81 @@ class CliTests(unittest.TestCase):
         self.assertIn("latest_candidate_target: prompt", stdout.getvalue())
         self.assertIn("latest_candidate_status: pending", stdout.getvalue())
         self.assertIn("recommendation:", stdout.getvalue())
+
+    def test_main_runs_curator_status(self) -> None:
+        fake_app = FakeApp()
+        fake_app.list_candidates = lambda limit=50, status=None: []
+        fake_app.list_workflow_samples = lambda limit=50: []
+        stdout = io.StringIO()
+
+        latest_report = type(
+            "Report",
+            (),
+            {
+                "report_path": "/tmp/evolution-report",
+                "workflow_name": "prototype-baseline",
+                "status": "improved",
+                "score_delta": 0.2,
+                "candidate_target": "prompt",
+                "candidate_status": "verified",
+            },
+        )()
+        summary = type(
+            "ReviewSummary",
+            (),
+            {
+                "candidate_count": 2,
+                "active_candidate_count": 1,
+                "pending_candidate_count": 1,
+                "accepted_candidate_count": 0,
+                "rejected_candidate_count": 0,
+                "applied_candidate_count": 0,
+                "verified_candidate_count": 1,
+                "no_improvement_candidate_count": 0,
+                "regressed_after_apply_candidate_count": 0,
+                "superseded_candidate_count": 1,
+                "archived_candidate_count": 0,
+                "workflow_sample_count": 3,
+                "regressed_count": 1,
+                "improved_count": 1,
+                "unchanged_count": 1,
+                "pending_targets": [("prompt", 1)],
+                "top_candidate_targets": [("prompt", 2)],
+                "top_regressed_workflows": [("prototype-baseline", 1)],
+                "pending_queue": [
+                    type(
+                        "Candidate",
+                        (),
+                        {
+                            "candidate_id": "c1",
+                            "target": "prompt",
+                            "summary": "Review prompt",
+                            "metadata": {
+                                "workflow_name": "prototype-baseline",
+                                "task_name": "runtime-trace-check",
+                            },
+                        },
+                    )()
+                ],
+                "recommendation": "Promote verified prompt changes into the baseline before expanding the workflow set.",
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.EvolutionReportStore") as report_store_cls:
+                report_store_cls.return_value.get_latest.return_value = latest_report
+                with patch("navi_agent.cli.ReviewLoopService") as review_service_cls:
+                    review_service_cls.return_value.summarize.return_value = summary
+                    with patch("sys.argv", ["navi-agent", "--curator-status"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("active_candidate_count: 1", stdout.getvalue())
+        self.assertIn("pending_targets:", stdout.getvalue())
+        self.assertIn("top_regressed_workflows:", stdout.getvalue())
+        self.assertIn("top_pending_queue:", stdout.getvalue())
+        self.assertIn("latest_candidate_status: verified", stdout.getvalue())
 
     def test_main_lists_candidates(self) -> None:
         fake_app = FakeApp()
