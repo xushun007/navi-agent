@@ -24,6 +24,11 @@ class AppRequest:
 
 class ApplicationService:
     _INACTIVE_CANDIDATE_STATUSES = {"superseded", "archived"}
+    _VALIDATED_CANDIDATE_STATUSES = {
+        "verified",
+        "no_improvement",
+        "regressed_after_apply",
+    }
 
     def __init__(
         self,
@@ -77,6 +82,12 @@ class ApplicationService:
     def add_candidate(self, candidate: EvolutionCandidate) -> None:
         if self._candidate_store is None:
             return
+        for existing in self._find_archivable_candidates(candidate):
+            self._candidate_store.update_status(
+                existing.candidate_id,
+                "archived",
+                review_note=f"archived when new candidate {candidate.candidate_id} entered scope",
+            )
         for existing in self._find_superseded_candidates(candidate):
             self._candidate_store.update_status(
                 existing.candidate_id,
@@ -99,11 +110,21 @@ class ApplicationService:
     ) -> EvolutionCandidate | None:
         if self._candidate_store is None:
             return None
-        return self._candidate_store.update_status(
+        updated = self._candidate_store.update_status(
             candidate_id,
             status,
             review_note=review_note,
         )
+        if updated is None:
+            return None
+        if status in self._VALIDATED_CANDIDATE_STATUSES:
+            for existing in self._find_archivable_candidates(updated):
+                self._candidate_store.update_status(
+                    existing.candidate_id,
+                    "archived",
+                    review_note=f"archived after {updated.candidate_id} reached {status}",
+                )
+        return updated
 
     def apply_candidate(
         self,
@@ -164,6 +185,32 @@ class ApplicationService:
             if existing.status in self._INACTIVE_CANDIDATE_STATUSES:
                 continue
             if existing.target != candidate.target:
+                continue
+            if existing.status in self._VALIDATED_CANDIDATE_STATUSES:
+                continue
+            if self._candidate_scope(existing) != candidate_scope:
+                continue
+            matches.append(existing)
+        return matches
+
+    def _find_archivable_candidates(
+        self,
+        candidate: EvolutionCandidate,
+    ) -> list[EvolutionCandidate]:
+        if self._candidate_store is None:
+            return []
+        candidate_scope = self._candidate_scope(candidate)
+        if candidate_scope is None:
+            return []
+        matches: list[EvolutionCandidate] = []
+        for existing in self._candidate_store.list_recent(limit=None):
+            if existing.candidate_id == candidate.candidate_id:
+                continue
+            if existing.status in self._INACTIVE_CANDIDATE_STATUSES:
+                continue
+            if existing.target != candidate.target:
+                continue
+            if existing.status not in self._VALIDATED_CANDIDATE_STATUSES:
                 continue
             if self._candidate_scope(existing) != candidate_scope:
                 continue
