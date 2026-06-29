@@ -25,6 +25,28 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - 建立反馈与评估机制
 - 支持策略层的持续优化
 
+## 微信网关
+
+当前已经具备最小微信 webhook 原型，可用于公众号回调接入与文本消息收发。
+
+启动示例：
+
+```bash
+uv run navi-agent --weixin-gateway --weixin-token replace-with-your-weixin-token
+```
+
+如果不传 `--weixin-token`，也可以写入 `config.yaml`：
+
+```yaml
+gateway:
+  weixin:
+    token: replace-with-your-weixin-token
+    host: 127.0.0.1
+    port: 8080
+```
+
+微信服务器回调将由 `GET` 验签和 `POST` XML 消息处理组成，当前先保留文本消息的最小闭环。
+
 ## 一句话定义
 
 Navi Agent = 一个以微信为起点、以持续进化为目标的最小 Agent 内核。
