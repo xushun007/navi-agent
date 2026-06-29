@@ -6,6 +6,7 @@ from uuid import uuid4
 from navi_agent.app import AppRequest
 from navi_agent.banner import render_banner
 from navi_agent.bootstrap import build_application
+from navi_agent.config import WeixinGatewaySettings, load_config
 from navi_agent.doctor import run_doctor
 from navi_agent.evolution import (
     EvolutionReportStore,
@@ -13,6 +14,7 @@ from navi_agent.evolution import (
     PromptOverlayStore,
     ReviewLoopService,
 )
+from navi_agent.gateway.weixin import WeixinGateway, run_weixin_gateway_server
 from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
@@ -37,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
+    parser.add_argument("--weixin-gateway", action="store_true")
+    parser.add_argument("--weixin-token")
+    parser.add_argument("--weixin-host")
+    parser.add_argument("--weixin-port", type=int)
     parser.add_argument("--smoke")
     parser.add_argument("--workflow")
     parser.add_argument("--compare-workflow")
@@ -92,6 +98,8 @@ def main() -> int:
         return 0
     if args.doctor:
         return run_doctor()
+    if args.weixin_gateway:
+        return _run_weixin_gateway(args)
     if args.list_smoke_tasks:
         for task in list_smoke_tasks():
             print(f"{task.name}: {task.description}")
@@ -402,6 +410,7 @@ def main() -> int:
     if (
         not args.interactive
         and not args.smoke
+        and not args.weixin_gateway
         and not args.workflow
         and not args.compare_workflow
         and not args.evolution_run
@@ -478,6 +487,27 @@ def main() -> int:
         )
     )
     print(result.final_response)
+    return 0
+
+
+def _run_weixin_gateway(args) -> int:
+    settings = WeixinGatewaySettings.from_sources(load_config())
+    token = args.weixin_token or settings.token
+    if not token:
+        print("weixin token is required: set --weixin-token or gateway.weixin.token")
+        return 1
+    host = args.weixin_host or settings.host
+    port = args.weixin_port or settings.port
+    app = build_application(
+        default_system_prompt=args.system_prompt,
+        approval_provider=CliApprovalProvider(),
+    )
+    print(f"weixin_gateway_listening: http://{host}:{port}")
+    run_weixin_gateway_server(
+        WeixinGateway(token=token, app=app),
+        host=host,
+        port=port,
+    )
     return 0
 
 

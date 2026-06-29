@@ -68,6 +68,32 @@ class RuntimeSettings:
         return cls.from_sources()
 
 
+@dataclass(slots=True)
+class WeixinGatewaySettings:
+    token: str | None = None
+    host: str = "127.0.0.1"
+    port: int = 8080
+
+    @classmethod
+    def from_sources(cls, config: dict | None = None) -> "WeixinGatewaySettings":
+        config = config or {}
+        gateway_cfg = config.get("gateway") or {}
+        weixin_cfg = gateway_cfg.get("weixin") or {}
+        return cls(
+            token=(
+                os.getenv("NAVI_WEIXIN_TOKEN")
+                or os.getenv("WEIXIN_TOKEN")
+                or _optional_str(weixin_cfg.get("token"))
+            ),
+            host=os.getenv("NAVI_WEIXIN_HOST") or str(weixin_cfg.get("host", "127.0.0.1")),
+            port=int(os.getenv("NAVI_WEIXIN_PORT") or str(weixin_cfg.get("port", "8080"))),
+        )
+
+    @classmethod
+    def from_env(cls) -> "WeixinGatewaySettings":
+        return cls.from_sources()
+
+
 def _optional_str(value: object) -> str | None:
     if value is None:
         return None

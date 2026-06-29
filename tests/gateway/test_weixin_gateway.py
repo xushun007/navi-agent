@@ -1,5 +1,9 @@
 import unittest
 import xml.etree.ElementTree as ET
+from http.server import ThreadingHTTPServer
+from threading import Thread
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from navi_agent.gateway.weixin import (
     WeixinGateway,
@@ -7,6 +11,7 @@ from navi_agent.gateway.weixin import (
     parse_weixin_message,
     render_text_reply,
     verify_weixin_signature,
+    build_weixin_request_handler,
 )
 from navi_agent.gateway.weixin.signature import make_weixin_signature
 from navi_agent.gateway.weixin.xml import WeixinMessageParseError
@@ -119,6 +124,50 @@ class WeixinGatewayTests(unittest.TestCase):
 
         self.assertEqual(root.findtext("Content"), "暂时只支持文本消息。")
 
+    def test_http_get_returns_echo_for_valid_signature(self) -> None:
+        gateway = WeixinGateway(token="token", app=FakeApp())
+
+        with _test_server(gateway) as base_url:
+            signature = make_weixin_signature("token", "123", "nonce")
+            query = urlencode(
+                {
+                    "signature": signature,
+                    "timestamp": "123",
+                    "nonce": "nonce",
+                    "echostr": "echo-value",
+                }
+            )
+            with urlopen(f"{base_url}/?{query}", timeout=5) as response:
+                body = response.read().decode("utf-8")
+
+        self.assertEqual(body, "echo-value")
+
+    def test_http_post_returns_xml_reply(self) -> None:
+        app = FakeApp()
+        gateway = WeixinGateway(token="token", app=app)
+
+        with _test_server(gateway) as base_url:
+            signature = make_weixin_signature("token", "123", "nonce")
+            query = urlencode(
+                {
+                    "signature": signature,
+                    "timestamp": "123",
+                    "nonce": "nonce",
+                }
+            )
+            request = Request(
+                f"{base_url}/?{query}",
+                data=_text_payload().encode("utf-8"),
+                method="POST",
+                headers={"Content-Type": "application/xml"},
+            )
+            with urlopen(request, timeout=5) as response:
+                body = response.read().decode("utf-8")
+
+        root = ET.fromstring(body)
+        self.assertEqual(root.findtext("Content"), "reply text")
+        self.assertEqual(app.calls[0].message, "hello")
+
 
 def _text_payload() -> str:
     return """
@@ -143,6 +192,26 @@ def _image_payload() -> str:
   <MsgId>43</MsgId>
 </xml>
 """
+
+
+class _test_server:
+    def __init__(self, gateway: WeixinGateway) -> None:
+        self.gateway = gateway
+        self.server = None
+        self.thread = None
+
+    def __enter__(self) -> str:
+        handler_cls = build_weixin_request_handler(self.gateway)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        self.thread = Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        host, port = self.server.server_address
+        return f"http://{host}:{port}"
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,12 @@ model:
 runtime:
   max_iterations: 8
 
+gateway:
+  weixin:
+    token: replace-with-your-weixin-token
+    host: 127.0.0.1
+    port: 8080
+
 telemetry:
   langfuse:
     enabled: false

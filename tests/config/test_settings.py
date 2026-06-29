@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.config import ModelSettings, RuntimeSettings, load_config
+from navi_agent.config import ModelSettings, RuntimeSettings, WeixinGatewaySettings, load_config
 
 
 class SettingsTests(unittest.TestCase):
@@ -94,3 +94,47 @@ runtime:
             settings = RuntimeSettings.from_sources(config)
 
         self.assertEqual(settings.max_iterations, 15)
+
+    def test_weixin_gateway_settings_reads_from_config_file_values(self) -> None:
+        config = {
+            "gateway": {
+                "weixin": {
+                    "token": "file-token",
+                    "host": "0.0.0.0",
+                    "port": 9000,
+                }
+            }
+        }
+
+        with patch.dict(os.environ, {}, clear=True):
+            settings = WeixinGatewaySettings.from_sources(config)
+
+        self.assertEqual(settings.token, "file-token")
+        self.assertEqual(settings.host, "0.0.0.0")
+        self.assertEqual(settings.port, 9000)
+
+    def test_weixin_gateway_settings_reads_env_first(self) -> None:
+        config = {
+            "gateway": {
+                "weixin": {
+                    "token": "file-token",
+                    "host": "0.0.0.0",
+                    "port": 9000,
+                }
+            }
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "NAVI_WEIXIN_TOKEN": "env-token",
+                "NAVI_WEIXIN_HOST": "127.0.0.2",
+                "NAVI_WEIXIN_PORT": "9100",
+            },
+            clear=True,
+        ):
+            settings = WeixinGatewaySettings.from_sources(config)
+
+        self.assertEqual(settings.token, "env-token")
+        self.assertEqual(settings.host, "127.0.0.2")
+        self.assertEqual(settings.port, 9100)
