@@ -17,9 +17,7 @@ from navi_agent.evolution import (
 from navi_agent.gateway.weixin import (
     ILinkClient,
     ILinkGateway,
-    WeixinGateway,
     WeixinPairingStore,
-    run_weixin_gateway_server,
 )
 from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
@@ -510,7 +508,6 @@ def _run_gateway(args) -> int:
 
 def _run_weixin_gateway(args) -> int:
     settings = WeixinGatewaySettings.from_sources(load_config())
-    mode = settings.mode
     token = settings.token
     if not token:
         print("weixin token is required: set gateway.weixin.token")
@@ -519,35 +516,25 @@ def _run_weixin_gateway(args) -> int:
         default_system_prompt=args.system_prompt,
         approval_provider=CliApprovalProvider(),
     )
-    if mode == "ilink":
-        account_id = settings.account_id
-        if not account_id:
-            print("weixin account_id is required for ilink mode: set gateway.weixin.account_id")
-            return 1
-        base_url = settings.base_url
-        print(f"weixin_ilink_polling: account_id={account_id} base_url={base_url}")
-        ILinkGateway(
-            app=app,
-            client=ILinkClient(
-                token=token,
-                account_id=account_id,
-                base_url=base_url,
-            ),
+    account_id = settings.account_id
+    if not account_id:
+        print("weixin account_id is required: set gateway.weixin.account_id")
+        return 1
+    base_url = settings.base_url
+    print(f"weixin_ilink_polling: account_id={account_id} base_url={base_url}")
+    ILinkGateway(
+        app=app,
+        client=ILinkClient(
+            token=token,
             account_id=account_id,
-            poll_interval_seconds=settings.poll_interval_seconds,
-            dm_policy=settings.dm_policy,
-            allowed_users=set(settings.allowed_users),
-            pairing_store=WeixinPairingStore(),
-        ).run_forever()
-        return 0
-    host = settings.host
-    port = settings.port
-    print(f"weixin_gateway_listening: http://{host}:{port}")
-    run_weixin_gateway_server(
-        WeixinGateway(token=token, app=app),
-        host=host,
-        port=port,
-    )
+            base_url=base_url,
+        ),
+        account_id=account_id,
+        poll_interval_seconds=settings.poll_interval_seconds,
+        dm_policy=settings.dm_policy,
+        allowed_users=set(settings.allowed_users),
+        pairing_store=WeixinPairingStore(),
+    ).run_forever()
     return 0
 
 

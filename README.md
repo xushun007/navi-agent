@@ -27,18 +27,7 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 
 ## 微信网关
 
-当前已经具备两种最小微信原型：
-
-- `webhook`：公众号回调风格，支持 `GET` 验签和 `POST` XML 文本消息。
-- `ilink`：参考 Hermes 的本地轮询风格，使用 iLink token 拉取消息并发送文本回复。
-
-公众号 webhook 启动示例：
-
-```bash
-uv run navi-agent --gateway weixin
-```
-
-iLink 本地轮询启动示例：
+当前微信网关只保留 iLink 本地轮询风格，参考 Hermes 的接入方式，使用 iLink token 拉取文本消息并发送文本回复。
 
 ```bash
 uv run navi-agent --gateway weixin
@@ -49,15 +38,12 @@ uv run navi-agent --gateway weixin
 ```yaml
 gateway:
   weixin:
-    mode: ilink
     token: replace-with-your-weixin-token
     account_id: replace-with-your-weixin-account-id
     base_url: https://ilinkai.weixin.qq.com
     poll_interval_seconds: 1.0
     dm_policy: pairing
     allowed_users: []
-    host: 127.0.0.1
-    port: 8080
 ```
 
 `dm_policy` 可选值：

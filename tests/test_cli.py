@@ -219,32 +219,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         run_doctor_mock.assert_called_once_with()
 
-    def test_main_runs_weixin_gateway_mode(self) -> None:
-        fake_app = FakeApp()
-        stdout = io.StringIO()
-        config = {
-            "gateway": {
-                "weixin": {
-                    "mode": "webhook",
-                    "token": "token",
-                    "host": "127.0.0.1",
-                    "port": 9000,
-                }
-            }
-        }
-
-        with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application_mock:
-            with patch("navi_agent.cli.load_config", return_value=config):
-                with patch("navi_agent.cli.run_weixin_gateway_server") as server_mock:
-                    with patch("sys.argv", ["navi-agent", "--gateway", "weixin"]):
-                        with redirect_stdout(stdout):
-                            exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("weixin_gateway_listening: http://127.0.0.1:9000", stdout.getvalue())
-        build_application_mock.assert_called_once()
-        server_mock.assert_called_once()
-
     def test_main_requires_weixin_token_for_gateway_mode(self) -> None:
         stdout = io.StringIO()
 
