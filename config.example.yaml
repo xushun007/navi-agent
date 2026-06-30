@@ -13,6 +13,8 @@ gateway:
     account_id: replace-with-your-weixin-account-id
     base_url: https://ilinkai.weixin.qq.com
     poll_interval_seconds: 1.0
+    dm_policy: pairing
+    allowed_users: []
     host: 127.0.0.1
     port: 8080
 

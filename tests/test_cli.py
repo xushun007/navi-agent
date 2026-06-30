@@ -110,6 +110,8 @@ class CliTests(unittest.TestCase):
                 "127.0.0.1",
                 "--weixin-port",
                 "9000",
+                "--weixin-dm-policy",
+                "pairing",
             ]
         )
 
@@ -120,6 +122,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.weixin_base_url, "https://ilink.example")
         self.assertEqual(args.weixin_host, "127.0.0.1")
         self.assertEqual(args.weixin_port, 9000)
+        self.assertEqual(args.weixin_dm_policy, "pairing")
 
     def test_build_parser_parses_smoke_flags(self) -> None:
         parser = build_parser()
@@ -241,6 +244,8 @@ class CliTests(unittest.TestCase):
                     [
                         "navi-agent",
                         "--weixin-gateway",
+                        "--weixin-mode",
+                        "webhook",
                         "--weixin-token",
                         "token",
                         "--weixin-host",
@@ -309,6 +314,41 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("weixin account_id is required", stdout.getvalue())
+
+    def test_main_lists_weixin_pairings(self) -> None:
+        stdout = io.StringIO()
+        fake_store = type(
+            "Store",
+            (),
+            {
+                "list_pending": lambda self: [
+                    type("Request", (), {"code": "123456", "user_id": "user-1", "created_at": "now"})()
+                ],
+                "list_approved": lambda self: ["user-2"],
+            },
+        )()
+
+        with patch("navi_agent.cli.WeixinPairingStore", return_value=fake_store):
+            with patch("sys.argv", ["navi-agent", "--list-weixin-pairings"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("pending_weixin_pairings: 1", stdout.getvalue())
+        self.assertIn("123456: user-1", stdout.getvalue())
+        self.assertIn("approved_weixin_users: 1", stdout.getvalue())
+
+    def test_main_approves_weixin_pairing(self) -> None:
+        stdout = io.StringIO()
+        fake_store = type("Store", (), {"approve": lambda self, code: "user-1"})()
+
+        with patch("navi_agent.cli.WeixinPairingStore", return_value=fake_store):
+            with patch("sys.argv", ["navi-agent", "--approve-weixin-pairing", "123456"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("approved_weixin_user: user-1", stdout.getvalue())
 
     def test_main_prints_banner(self) -> None:
         stdout = io.StringIO()

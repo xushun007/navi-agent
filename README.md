@@ -54,11 +54,27 @@ gateway:
     account_id: replace-with-your-weixin-account-id
     base_url: https://ilinkai.weixin.qq.com
     poll_interval_seconds: 1.0
+    dm_policy: pairing
+    allowed_users: []
     host: 127.0.0.1
     port: 8080
 ```
 
-当前先保留文本消息的最小闭环，登录、媒体、群策略和更完整的账号态管理后续再补。
+`dm_policy` 可选值：
+
+- `open`：所有私聊用户可直接进入 Agent。
+- `pairing`：未知私聊用户先收到 pairing code，批准后才进入 Agent。
+- `allowlist`：只允许 `allowed_users` 中的用户。
+- `disabled`：禁用私聊入口。
+
+pairing 模式下，用户首次私聊会收到批准命令提示。也可以手动查看和批准：
+
+```bash
+uv run navi-agent --list-weixin-pairings
+uv run navi-agent --approve-weixin-pairing 123456
+```
+
+当前先保留文本消息和私聊授权的最小闭环，登录、媒体、群策略和更完整的账号态管理后续再补。
 
 ## 一句话定义
 

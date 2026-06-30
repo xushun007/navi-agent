@@ -14,7 +14,13 @@ from navi_agent.evolution import (
     PromptOverlayStore,
     ReviewLoopService,
 )
-from navi_agent.gateway.weixin import ILinkClient, ILinkGateway, WeixinGateway, run_weixin_gateway_server
+from navi_agent.gateway.weixin import (
+    ILinkClient,
+    ILinkGateway,
+    WeixinGateway,
+    WeixinPairingStore,
+    run_weixin_gateway_server,
+)
 from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
@@ -46,6 +52,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weixin-base-url")
     parser.add_argument("--weixin-host")
     parser.add_argument("--weixin-port", type=int)
+    parser.add_argument("--weixin-dm-policy", choices=["open", "pairing", "allowlist", "disabled"])
+    parser.add_argument("--list-weixin-pairings", action="store_true")
+    parser.add_argument("--approve-weixin-pairing")
     parser.add_argument("--smoke")
     parser.add_argument("--workflow")
     parser.add_argument("--compare-workflow")
@@ -101,6 +110,10 @@ def main() -> int:
         return 0
     if args.doctor:
         return run_doctor()
+    if args.list_weixin_pairings:
+        return _list_weixin_pairings()
+    if args.approve_weixin_pairing:
+        return _approve_weixin_pairing(args.approve_weixin_pairing)
     if args.weixin_gateway:
         return _run_weixin_gateway(args)
     if args.list_smoke_tasks:
@@ -414,6 +427,8 @@ def main() -> int:
         not args.interactive
         and not args.smoke
         and not args.weixin_gateway
+        and not args.list_weixin_pairings
+        and not args.approve_weixin_pairing
         and not args.workflow
         and not args.compare_workflow
         and not args.evolution_run
@@ -520,6 +535,9 @@ def _run_weixin_gateway(args) -> int:
             ),
             account_id=account_id,
             poll_interval_seconds=settings.poll_interval_seconds,
+            dm_policy=args.weixin_dm_policy or settings.dm_policy,
+            allowed_users=set(settings.allowed_users),
+            pairing_store=WeixinPairingStore(),
         ).run_forever()
         return 0
     host = args.weixin_host or settings.host
@@ -530,6 +548,28 @@ def _run_weixin_gateway(args) -> int:
         host=host,
         port=port,
     )
+    return 0
+
+
+def _list_weixin_pairings() -> int:
+    store = WeixinPairingStore()
+    pending = store.list_pending()
+    approved = store.list_approved()
+    print(f"pending_weixin_pairings: {len(pending)}")
+    for request in pending:
+        print(f"- {request.code}: {request.user_id} created_at={request.created_at}")
+    print(f"approved_weixin_users: {len(approved)}")
+    for user_id in approved:
+        print(f"- {user_id}")
+    return 0
+
+
+def _approve_weixin_pairing(code: str) -> int:
+    user_id = WeixinPairingStore().approve(code)
+    if user_id is None:
+        print(f"weixin pairing code not found: {code}")
+        return 1
+    print(f"approved_weixin_user: {user_id}")
     return 0
 
 

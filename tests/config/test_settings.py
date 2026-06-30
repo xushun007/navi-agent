@@ -123,6 +123,8 @@ runtime:
                     "account_id": "account-1",
                     "base_url": "https://ilink.example",
                     "poll_interval_seconds": 2.5,
+                    "dm_policy": "pairing",
+                    "allowed_users": ["user-1", "user-2"],
                 }
             }
         }
@@ -134,6 +136,8 @@ runtime:
         self.assertEqual(settings.account_id, "account-1")
         self.assertEqual(settings.base_url, "https://ilink.example")
         self.assertEqual(settings.poll_interval_seconds, 2.5)
+        self.assertEqual(settings.dm_policy, "pairing")
+        self.assertEqual(settings.allowed_users, ("user-1", "user-2"))
 
     def test_weixin_gateway_settings_reads_env_first(self) -> None:
         config = {
@@ -156,6 +160,8 @@ runtime:
                 "NAVI_WEIXIN_ACCOUNT_ID": "env-account",
                 "NAVI_WEIXIN_BASE_URL": "https://env-ilink.example",
                 "NAVI_WEIXIN_POLL_INTERVAL_SECONDS": "3.5",
+                "NAVI_WEIXIN_DM_POLICY": "allowlist",
+                "NAVI_WEIXIN_ALLOWED_USERS": "user-a,user-b",
             },
             clear=True,
         ):
@@ -168,3 +174,5 @@ runtime:
         self.assertEqual(settings.account_id, "env-account")
         self.assertEqual(settings.base_url, "https://env-ilink.example")
         self.assertEqual(settings.poll_interval_seconds, 3.5)
+        self.assertEqual(settings.dm_policy, "allowlist")
+        self.assertEqual(settings.allowed_users, ("user-a", "user-b"))

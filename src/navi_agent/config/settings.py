@@ -77,6 +77,8 @@ class WeixinGatewaySettings:
     account_id: str | None = None
     base_url: str = "https://ilinkai.weixin.qq.com"
     poll_interval_seconds: float = 1.0
+    dm_policy: str = "open"
+    allowed_users: tuple[str, ...] = ()
 
     @classmethod
     def from_sources(cls, config: dict | None = None) -> "WeixinGatewaySettings":
@@ -106,6 +108,17 @@ class WeixinGatewaySettings:
                 os.getenv("NAVI_WEIXIN_POLL_INTERVAL_SECONDS")
                 or str(weixin_cfg.get("poll_interval_seconds", "1.0"))
             ),
+            dm_policy=(
+                os.getenv("NAVI_WEIXIN_DM_POLICY")
+                or os.getenv("WEIXIN_DM_POLICY")
+                or str(weixin_cfg.get("dm_policy", "open"))
+            ),
+            allowed_users=_split_csv(
+                os.getenv("NAVI_WEIXIN_ALLOWED_USERS")
+                or os.getenv("WEIXIN_ALLOWED_USERS")
+                or weixin_cfg.get("allowed_users")
+                or ""
+            ),
         )
 
     @classmethod
@@ -117,6 +130,12 @@ def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _split_csv(value: object) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return tuple(item.strip() for item in str(value).split(",") if item.strip())
 
 
 @dataclass(slots=True)

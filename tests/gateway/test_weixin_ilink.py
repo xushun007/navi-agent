@@ -1,11 +1,14 @@
 import json
+import tempfile
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 from unittest.mock import patch
 
 from navi_agent.gateway.weixin import ILinkClient, ILinkGateway
 from navi_agent.gateway.weixin.ilink import ILinkMessage
+from navi_agent.gateway.weixin.pairing import WeixinPairingStore
 from navi_agent.runtime import RuntimeResult
 
 
@@ -118,6 +121,69 @@ class WeixinILinkTests(unittest.TestCase):
                 "context_token": "ctx-1",
             },
         )
+
+    def test_gateway_pairing_policy_sends_code_before_approval(self) -> None:
+        app = FakeApp()
+        client = FakeClient()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = WeixinPairingStore(Path(tmpdir) / "pairing.json")
+            gateway = ILinkGateway(
+                app=app,
+                client=client,
+                account_id="account-1",
+                dm_policy="pairing",
+                pairing_store=store,
+            )
+
+            gateway.handle_message(
+                ILinkMessage(
+                    message_id="m1",
+                    from_user_id="user-1",
+                    to_user_id="account-1",
+                    chat_id="user-1",
+                    chat_type="dm",
+                    text="hello",
+                    context_token="ctx-1",
+                )
+            )
+
+            pending = store.list_pending()
+
+        self.assertEqual(app.calls, [])
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].user_id, "user-1")
+        self.assertEqual(client.sent[0]["to_user_id"], "user-1")
+        self.assertIn(pending[0].code, client.sent[0]["text"])
+
+    def test_gateway_pairing_policy_allows_approved_user(self) -> None:
+        app = FakeApp()
+        client = FakeClient()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = WeixinPairingStore(Path(tmpdir) / "pairing.json")
+            code = store.request_code("user-1").code
+            store.approve(code)
+            gateway = ILinkGateway(
+                app=app,
+                client=client,
+                account_id="account-1",
+                dm_policy="pairing",
+                pairing_store=store,
+            )
+
+            gateway.handle_message(
+                ILinkMessage(
+                    message_id="m1",
+                    from_user_id="user-1",
+                    to_user_id="account-1",
+                    chat_id="user-1",
+                    chat_type="dm",
+                    text="hello",
+                    context_token="ctx-1",
+                )
+            )
+
+        self.assertEqual(app.calls[0].message, "hello")
+        self.assertEqual(client.sent[0]["text"], "agent reply")
 
 
 class _ilink_server:
