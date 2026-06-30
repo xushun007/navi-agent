@@ -7,17 +7,20 @@ from threading import Thread
 from unittest.mock import patch
 
 from navi_agent.gateway.weixin import ILinkClient, ILinkGateway
-from navi_agent.gateway.weixin.ilink import ILinkMessage
+from navi_agent.gateway.weixin.ilink import ILinkMessage, ILinkSendResult
 from navi_agent.gateway.weixin.pairing import WeixinPairingStore
 from navi_agent.runtime import RuntimeResult
 
 
 class FakeApp:
-    def __init__(self) -> None:
+    def __init__(self, fail_for: set[str] | None = None) -> None:
         self.calls = []
+        self.fail_for = fail_for or set()
 
     def handle(self, request):
         self.calls.append(request)
+        if request.user_id in self.fail_for:
+            raise RuntimeError("runtime failed")
         return RuntimeResult(
             session_id=request.session_id,
             status="success",
@@ -26,8 +29,9 @@ class FakeApp:
 
 
 class FakeClient:
-    def __init__(self) -> None:
+    def __init__(self, send_success: bool = True) -> None:
         self.sent = []
+        self.send_success = send_success
 
     def get_updates(self, sync_buf=""):
         return (
@@ -53,6 +57,9 @@ class FakeClient:
                 "context_token": context_token,
             }
         )
+        if self.send_success:
+            return ILinkSendResult(success=True, response={"ret": 0})
+        return ILinkSendResult(success=False, response={"ret": -1}, error="send failed")
 
 
 class WeixinILinkTests(unittest.TestCase):
@@ -184,6 +191,67 @@ class WeixinILinkTests(unittest.TestCase):
 
         self.assertEqual(app.calls[0].message, "hello")
         self.assertEqual(client.sent[0]["text"], "agent reply")
+
+    def test_gateway_tick_continues_after_message_failure(self) -> None:
+        app = FakeApp(fail_for={"user-1"})
+
+        class TwoMessageClient(FakeClient):
+            def get_updates(self, sync_buf=""):
+                return (
+                    "next-sync",
+                    [
+                        ILinkMessage(
+                            message_id="m1",
+                            from_user_id="user-1",
+                            to_user_id="account-1",
+                            chat_id="user-1",
+                            chat_type="dm",
+                            text="first",
+                            context_token="ctx-1",
+                        ),
+                        ILinkMessage(
+                            message_id="m2",
+                            from_user_id="user-2",
+                            to_user_id="account-1",
+                            chat_id="user-2",
+                            chat_type="dm",
+                            text="second",
+                            context_token="ctx-2",
+                        ),
+                    ],
+                )
+
+        client = TwoMessageClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+
+        with patch("navi_agent.gateway.weixin.local.save_sync_buf"):
+            with self.assertLogs("navi_agent.gateway.weixin.local", level="ERROR") as logs:
+                gateway.tick("old-sync")
+
+        self.assertEqual([call.user_id for call in app.calls], ["user-1", "user-2"])
+        self.assertEqual(client.sent[0]["to_user_id"], "user-2")
+        self.assertIn("Failed to process Weixin iLink message", "\n".join(logs.output))
+
+    def test_gateway_logs_send_failure_without_raising(self) -> None:
+        app = FakeApp()
+        client = FakeClient(send_success=False)
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+
+        with self.assertLogs("navi_agent.gateway.weixin.local", level="WARNING") as logs:
+            gateway.handle_message(
+                ILinkMessage(
+                    message_id="m1",
+                    from_user_id="user-1",
+                    to_user_id="account-1",
+                    chat_id="user-1",
+                    chat_type="dm",
+                    text="hello",
+                    context_token="ctx-1",
+                )
+            )
+
+        self.assertEqual(app.calls[0].message, "hello")
+        self.assertIn("Weixin reply send failed", "\n".join(logs.output))
 
 
 class _ilink_server:

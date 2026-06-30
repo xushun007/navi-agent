@@ -3,12 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from http.client import HTTPConnection, HTTPSConnection
 import json
+import logging
 from time import time
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
 from navi_agent.paths import get_navi_home
+
+logger = logging.getLogger("navi_agent.gateway.weixin.ilink")
 
 ILINK_BASE_URL = "https://ilinkai.weixin.qq.com"
 CHANNEL_VERSION = "2.2.0"
@@ -68,6 +71,7 @@ class ILinkClient:
         self._timeout_seconds = timeout_seconds
 
     def get_updates(self, sync_buf: str = "") -> tuple[str, list[ILinkMessage]]:
+        logger.debug("Fetching iLink updates: sync_buf_present=%s", bool(sync_buf))
         response = self._post(
             EP_GET_UPDATES,
             {"get_updates_buf": sync_buf},
@@ -81,6 +85,12 @@ class ILinkClient:
             for message in [_parse_message(raw, self._account_id)]
             if message is not None
         ]
+        logger.info(
+            "Fetched iLink updates: raw_count=%s text_count=%s sync_buf_changed=%s",
+            len(response.get("msgs") or []),
+            len(messages),
+            bool(next_sync_buf and next_sync_buf != sync_buf),
+        )
         return next_sync_buf, messages
 
     def send_text(
@@ -110,11 +120,21 @@ class ILinkClient:
         ret = response.get("ret", 0)
         errcode = response.get("errcode", 0)
         success = ret in (0, None) and errcode in (0, None)
-        return ILinkSendResult(
+        result = ILinkSendResult(
             success=success,
             response=response,
             error=None if success else str(response.get("errmsg") or response),
         )
+        if result.success:
+            logger.info("Sent iLink text reply: to_user_id=%s", to_user_id)
+        else:
+            logger.warning(
+                "Failed to send iLink text reply: to_user_id=%s error=%s response=%s",
+                to_user_id,
+                result.error,
+                response,
+            )
+        return result
 
     def _post(
         self,
@@ -138,6 +158,7 @@ class ILinkClient:
         )
         path_prefix = parsed.path.rstrip("/")
         path = f"{path_prefix}/{endpoint}" if path_prefix else f"/{endpoint}"
+        logger.debug("Posting iLink request: endpoint=%s base_url=%s", endpoint, self._base_url)
         try:
             connection.request(
                 "POST",
