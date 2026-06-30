@@ -123,7 +123,7 @@ class ILinkGateway:
                 to_user_id=message.from_user_id,
                 text=(
                     "Pairing required. "
-                    f"Approve this user with: navi-agent --approve-weixin-pairing {request.code}"
+                    f"Approve this user with: navi-agent --approve-gateway-pairing {request.code}"
                 ),
                 context_token=message.context_token,
             )

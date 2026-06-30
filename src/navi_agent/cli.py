@@ -45,16 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
-    parser.add_argument("--weixin-gateway", action="store_true")
-    parser.add_argument("--weixin-mode", choices=["webhook", "ilink"])
-    parser.add_argument("--weixin-token")
-    parser.add_argument("--weixin-account-id")
-    parser.add_argument("--weixin-base-url")
-    parser.add_argument("--weixin-host")
-    parser.add_argument("--weixin-port", type=int)
-    parser.add_argument("--weixin-dm-policy", choices=["open", "pairing", "allowlist", "disabled"])
-    parser.add_argument("--list-weixin-pairings", action="store_true")
-    parser.add_argument("--approve-weixin-pairing")
+    parser.add_argument("--gateway", choices=["weixin"])
+    parser.add_argument("--gateway-pairings", choices=["weixin"])
+    parser.add_argument("--approve-gateway-pairing")
     parser.add_argument("--smoke")
     parser.add_argument("--workflow")
     parser.add_argument("--compare-workflow")
@@ -110,12 +103,12 @@ def main() -> int:
         return 0
     if args.doctor:
         return run_doctor()
-    if args.list_weixin_pairings:
-        return _list_weixin_pairings()
-    if args.approve_weixin_pairing:
-        return _approve_weixin_pairing(args.approve_weixin_pairing)
-    if args.weixin_gateway:
-        return _run_weixin_gateway(args)
+    if args.gateway_pairings:
+        return _list_gateway_pairings(args.gateway_pairings)
+    if args.approve_gateway_pairing:
+        return _approve_gateway_pairing(args.approve_gateway_pairing)
+    if args.gateway:
+        return _run_gateway(args)
     if args.list_smoke_tasks:
         for task in list_smoke_tasks():
             print(f"{task.name}: {task.description}")
@@ -426,9 +419,9 @@ def main() -> int:
     if (
         not args.interactive
         and not args.smoke
-        and not args.weixin_gateway
-        and not args.list_weixin_pairings
-        and not args.approve_weixin_pairing
+        and not args.gateway
+        and not args.gateway_pairings
+        and not args.approve_gateway_pairing
         and not args.workflow
         and not args.compare_workflow
         and not args.evolution_run
@@ -508,23 +501,30 @@ def main() -> int:
     return 0
 
 
+def _run_gateway(args) -> int:
+    if args.gateway == "weixin":
+        return _run_weixin_gateway(args)
+    print(f"unsupported gateway: {args.gateway}")
+    return 1
+
+
 def _run_weixin_gateway(args) -> int:
     settings = WeixinGatewaySettings.from_sources(load_config())
-    mode = args.weixin_mode or settings.mode
-    token = args.weixin_token or settings.token
+    mode = settings.mode
+    token = settings.token
     if not token:
-        print("weixin token is required: set --weixin-token or gateway.weixin.token")
+        print("weixin token is required: set gateway.weixin.token")
         return 1
     app = build_application(
         default_system_prompt=args.system_prompt,
         approval_provider=CliApprovalProvider(),
     )
     if mode == "ilink":
-        account_id = args.weixin_account_id or settings.account_id
+        account_id = settings.account_id
         if not account_id:
-            print("weixin account_id is required for ilink mode: set --weixin-account-id or gateway.weixin.account_id")
+            print("weixin account_id is required for ilink mode: set gateway.weixin.account_id")
             return 1
-        base_url = args.weixin_base_url or settings.base_url
+        base_url = settings.base_url
         print(f"weixin_ilink_polling: account_id={account_id} base_url={base_url}")
         ILinkGateway(
             app=app,
@@ -535,13 +535,13 @@ def _run_weixin_gateway(args) -> int:
             ),
             account_id=account_id,
             poll_interval_seconds=settings.poll_interval_seconds,
-            dm_policy=args.weixin_dm_policy or settings.dm_policy,
+            dm_policy=settings.dm_policy,
             allowed_users=set(settings.allowed_users),
             pairing_store=WeixinPairingStore(),
         ).run_forever()
         return 0
-    host = args.weixin_host or settings.host
-    port = args.weixin_port or settings.port
+    host = settings.host
+    port = settings.port
     print(f"weixin_gateway_listening: http://{host}:{port}")
     run_weixin_gateway_server(
         WeixinGateway(token=token, app=app),
@@ -549,6 +549,13 @@ def _run_weixin_gateway(args) -> int:
         port=port,
     )
     return 0
+
+
+def _list_gateway_pairings(gateway_name: str) -> int:
+    if gateway_name == "weixin":
+        return _list_weixin_pairings()
+    print(f"unsupported gateway: {gateway_name}")
+    return 1
 
 
 def _list_weixin_pairings() -> int:
@@ -562,6 +569,10 @@ def _list_weixin_pairings() -> int:
     for user_id in approved:
         print(f"- {user_id}")
     return 0
+
+
+def _approve_gateway_pairing(code: str) -> int:
+    return _approve_weixin_pairing(code)
 
 
 def _approve_weixin_pairing(code: str) -> int:

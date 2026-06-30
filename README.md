@@ -35,16 +35,16 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 公众号 webhook 启动示例：
 
 ```bash
-uv run navi-agent --weixin-gateway --weixin-mode webhook --weixin-token replace-with-your-weixin-token
+uv run navi-agent --gateway weixin
 ```
 
 iLink 本地轮询启动示例：
 
 ```bash
-uv run navi-agent --weixin-gateway --weixin-mode ilink --weixin-token replace-with-your-weixin-token --weixin-account-id replace-with-your-account-id
+uv run navi-agent --gateway weixin
 ```
 
-如果不传 `--weixin-token`，也可以写入 `config.yaml`：
+微信网关只从 `config.yaml` 或环境变量读取配置，推荐写入 `config.yaml`：
 
 ```yaml
 gateway:
@@ -70,8 +70,8 @@ gateway:
 pairing 模式下，用户首次私聊会收到批准命令提示。也可以手动查看和批准：
 
 ```bash
-uv run navi-agent --list-weixin-pairings
-uv run navi-agent --approve-weixin-pairing 123456
+uv run navi-agent --gateway-pairings weixin
+uv run navi-agent --approve-gateway-pairing 123456
 ```
 
 当前先保留文本消息和私聊授权的最小闭环，登录、媒体、群策略和更完整的账号态管理后续再补。

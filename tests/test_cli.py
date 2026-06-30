@@ -92,37 +92,23 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.doctor)
         self.assertIsNone(args.message)
 
-    def test_build_parser_parses_weixin_gateway_flags(self) -> None:
+    def test_build_parser_parses_gateway_flags(self) -> None:
         parser = build_parser()
 
         args = parser.parse_args(
             [
-                "--weixin-gateway",
-                "--weixin-mode",
-                "webhook",
-                "--weixin-token",
-                "token",
-                "--weixin-account-id",
-                "account-1",
-                "--weixin-base-url",
-                "https://ilink.example",
-                "--weixin-host",
-                "127.0.0.1",
-                "--weixin-port",
-                "9000",
-                "--weixin-dm-policy",
-                "pairing",
+                "--gateway",
+                "weixin",
+                "--gateway-pairings",
+                "weixin",
+                "--approve-gateway-pairing",
+                "123456",
             ]
         )
 
-        self.assertTrue(args.weixin_gateway)
-        self.assertEqual(args.weixin_mode, "webhook")
-        self.assertEqual(args.weixin_token, "token")
-        self.assertEqual(args.weixin_account_id, "account-1")
-        self.assertEqual(args.weixin_base_url, "https://ilink.example")
-        self.assertEqual(args.weixin_host, "127.0.0.1")
-        self.assertEqual(args.weixin_port, 9000)
-        self.assertEqual(args.weixin_dm_policy, "pairing")
+        self.assertEqual(args.gateway, "weixin")
+        self.assertEqual(args.gateway_pairings, "weixin")
+        self.assertEqual(args.approve_gateway_pairing, "123456")
 
     def test_build_parser_parses_smoke_flags(self) -> None:
         parser = build_parser()
@@ -236,26 +222,23 @@ class CliTests(unittest.TestCase):
     def test_main_runs_weixin_gateway_mode(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
+        config = {
+            "gateway": {
+                "weixin": {
+                    "mode": "webhook",
+                    "token": "token",
+                    "host": "127.0.0.1",
+                    "port": 9000,
+                }
+            }
+        }
 
         with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application_mock:
-            with patch("navi_agent.cli.run_weixin_gateway_server") as server_mock:
-                with patch(
-                    "sys.argv",
-                    [
-                        "navi-agent",
-                        "--weixin-gateway",
-                        "--weixin-mode",
-                        "webhook",
-                        "--weixin-token",
-                        "token",
-                        "--weixin-host",
-                        "127.0.0.1",
-                        "--weixin-port",
-                        "9000",
-                    ],
-                ):
-                    with redirect_stdout(stdout):
-                        exit_code = main()
+            with patch("navi_agent.cli.load_config", return_value=config):
+                with patch("navi_agent.cli.run_weixin_gateway_server") as server_mock:
+                    with patch("sys.argv", ["navi-agent", "--gateway", "weixin"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("weixin_gateway_listening: http://127.0.0.1:9000", stdout.getvalue())
@@ -266,7 +249,7 @@ class CliTests(unittest.TestCase):
         stdout = io.StringIO()
 
         with patch("navi_agent.cli.load_config", return_value={}):
-            with patch("sys.argv", ["navi-agent", "--weixin-gateway"]):
+            with patch("sys.argv", ["navi-agent", "--gateway", "weixin"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
 
@@ -276,26 +259,23 @@ class CliTests(unittest.TestCase):
     def test_main_runs_weixin_ilink_mode(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
+        config = {
+            "gateway": {
+                "weixin": {
+                    "mode": "ilink",
+                    "token": "token",
+                    "account_id": "account-1",
+                    "base_url": "http://127.0.0.1:9001",
+                }
+            }
+        }
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.ILinkGateway") as gateway_cls:
-                with patch(
-                    "sys.argv",
-                    [
-                        "navi-agent",
-                        "--weixin-gateway",
-                        "--weixin-mode",
-                        "ilink",
-                        "--weixin-token",
-                        "token",
-                        "--weixin-account-id",
-                        "account-1",
-                        "--weixin-base-url",
-                        "http://127.0.0.1:9001",
-                    ],
-                ):
-                    with redirect_stdout(stdout):
-                        exit_code = main()
+            with patch("navi_agent.cli.load_config", return_value=config):
+                with patch("navi_agent.cli.ILinkGateway") as gateway_cls:
+                    with patch("sys.argv", ["navi-agent", "--gateway", "weixin"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("weixin_ilink_polling: account_id=account-1", stdout.getvalue())
@@ -304,10 +284,13 @@ class CliTests(unittest.TestCase):
     def test_main_requires_account_id_for_weixin_ilink_mode(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.load_config", return_value={}):
+        with patch(
+            "navi_agent.cli.load_config",
+            return_value={"gateway": {"weixin": {"mode": "ilink", "token": "token"}}},
+        ):
             with patch(
                 "sys.argv",
-                ["navi-agent", "--weixin-gateway", "--weixin-mode", "ilink", "--weixin-token", "token"],
+                ["navi-agent", "--gateway", "weixin"],
             ):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -329,7 +312,7 @@ class CliTests(unittest.TestCase):
         )()
 
         with patch("navi_agent.cli.WeixinPairingStore", return_value=fake_store):
-            with patch("sys.argv", ["navi-agent", "--list-weixin-pairings"]):
+            with patch("sys.argv", ["navi-agent", "--gateway-pairings", "weixin"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
 
@@ -343,7 +326,7 @@ class CliTests(unittest.TestCase):
         fake_store = type("Store", (), {"approve": lambda self, code: "user-1"})()
 
         with patch("navi_agent.cli.WeixinPairingStore", return_value=fake_store):
-            with patch("sys.argv", ["navi-agent", "--approve-weixin-pairing", "123456"]):
+            with patch("sys.argv", ["navi-agent", "--approve-gateway-pairing", "123456"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
 
