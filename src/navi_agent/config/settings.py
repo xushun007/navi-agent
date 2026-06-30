@@ -73,6 +73,10 @@ class WeixinGatewaySettings:
     token: str | None = None
     host: str = "127.0.0.1"
     port: int = 8080
+    mode: str = "webhook"
+    account_id: str | None = None
+    base_url: str = "https://ilinkai.weixin.qq.com"
+    poll_interval_seconds: float = 1.0
 
     @classmethod
     def from_sources(cls, config: dict | None = None) -> "WeixinGatewaySettings":
@@ -87,6 +91,21 @@ class WeixinGatewaySettings:
             ),
             host=os.getenv("NAVI_WEIXIN_HOST") or str(weixin_cfg.get("host", "127.0.0.1")),
             port=int(os.getenv("NAVI_WEIXIN_PORT") or str(weixin_cfg.get("port", "8080"))),
+            mode=os.getenv("NAVI_WEIXIN_MODE") or str(weixin_cfg.get("mode", "webhook")),
+            account_id=(
+                os.getenv("NAVI_WEIXIN_ACCOUNT_ID")
+                or os.getenv("WEIXIN_ACCOUNT_ID")
+                or _optional_str(weixin_cfg.get("account_id"))
+            ),
+            base_url=(
+                os.getenv("NAVI_WEIXIN_BASE_URL")
+                or os.getenv("WEIXIN_BASE_URL")
+                or str(weixin_cfg.get("base_url", "https://ilinkai.weixin.qq.com"))
+            ),
+            poll_interval_seconds=float(
+                os.getenv("NAVI_WEIXIN_POLL_INTERVAL_SECONDS")
+                or str(weixin_cfg.get("poll_interval_seconds", "1.0"))
+            ),
         )
 
     @classmethod

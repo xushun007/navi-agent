@@ -112,6 +112,28 @@ runtime:
         self.assertEqual(settings.token, "file-token")
         self.assertEqual(settings.host, "0.0.0.0")
         self.assertEqual(settings.port, 9000)
+        self.assertEqual(settings.mode, "webhook")
+
+    def test_weixin_gateway_settings_reads_ilink_values(self) -> None:
+        config = {
+            "gateway": {
+                "weixin": {
+                    "mode": "ilink",
+                    "token": "file-token",
+                    "account_id": "account-1",
+                    "base_url": "https://ilink.example",
+                    "poll_interval_seconds": 2.5,
+                }
+            }
+        }
+
+        with patch.dict(os.environ, {}, clear=True):
+            settings = WeixinGatewaySettings.from_sources(config)
+
+        self.assertEqual(settings.mode, "ilink")
+        self.assertEqual(settings.account_id, "account-1")
+        self.assertEqual(settings.base_url, "https://ilink.example")
+        self.assertEqual(settings.poll_interval_seconds, 2.5)
 
     def test_weixin_gateway_settings_reads_env_first(self) -> None:
         config = {
@@ -130,6 +152,10 @@ runtime:
                 "NAVI_WEIXIN_TOKEN": "env-token",
                 "NAVI_WEIXIN_HOST": "127.0.0.2",
                 "NAVI_WEIXIN_PORT": "9100",
+                "NAVI_WEIXIN_MODE": "ilink",
+                "NAVI_WEIXIN_ACCOUNT_ID": "env-account",
+                "NAVI_WEIXIN_BASE_URL": "https://env-ilink.example",
+                "NAVI_WEIXIN_POLL_INTERVAL_SECONDS": "3.5",
             },
             clear=True,
         ):
@@ -138,3 +164,7 @@ runtime:
         self.assertEqual(settings.token, "env-token")
         self.assertEqual(settings.host, "127.0.0.2")
         self.assertEqual(settings.port, 9100)
+        self.assertEqual(settings.mode, "ilink")
+        self.assertEqual(settings.account_id, "env-account")
+        self.assertEqual(settings.base_url, "https://env-ilink.example")
+        self.assertEqual(settings.poll_interval_seconds, 3.5)

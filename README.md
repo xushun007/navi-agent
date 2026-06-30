@@ -27,12 +27,21 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 
 ## 微信网关
 
-当前已经具备最小微信 webhook 原型，可用于公众号回调接入与文本消息收发。
+当前已经具备两种最小微信原型：
 
-启动示例：
+- `webhook`：公众号回调风格，支持 `GET` 验签和 `POST` XML 文本消息。
+- `ilink`：参考 Hermes 的本地轮询风格，使用 iLink token 拉取消息并发送文本回复。
+
+公众号 webhook 启动示例：
 
 ```bash
-uv run navi-agent --weixin-gateway --weixin-token replace-with-your-weixin-token
+uv run navi-agent --weixin-gateway --weixin-mode webhook --weixin-token replace-with-your-weixin-token
+```
+
+iLink 本地轮询启动示例：
+
+```bash
+uv run navi-agent --weixin-gateway --weixin-mode ilink --weixin-token replace-with-your-weixin-token --weixin-account-id replace-with-your-account-id
 ```
 
 如果不传 `--weixin-token`，也可以写入 `config.yaml`：
@@ -40,12 +49,16 @@ uv run navi-agent --weixin-gateway --weixin-token replace-with-your-weixin-token
 ```yaml
 gateway:
   weixin:
+    mode: ilink
     token: replace-with-your-weixin-token
+    account_id: replace-with-your-weixin-account-id
+    base_url: https://ilinkai.weixin.qq.com
+    poll_interval_seconds: 1.0
     host: 127.0.0.1
     port: 8080
 ```
 
-微信服务器回调将由 `GET` 验签和 `POST` XML 消息处理组成，当前先保留文本消息的最小闭环。
+当前先保留文本消息的最小闭环，登录、媒体、群策略和更完整的账号态管理后续再补。
 
 ## 一句话定义
 

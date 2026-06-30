@@ -98,8 +98,14 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--weixin-gateway",
+                "--weixin-mode",
+                "webhook",
                 "--weixin-token",
                 "token",
+                "--weixin-account-id",
+                "account-1",
+                "--weixin-base-url",
+                "https://ilink.example",
                 "--weixin-host",
                 "127.0.0.1",
                 "--weixin-port",
@@ -108,7 +114,10 @@ class CliTests(unittest.TestCase):
         )
 
         self.assertTrue(args.weixin_gateway)
+        self.assertEqual(args.weixin_mode, "webhook")
         self.assertEqual(args.weixin_token, "token")
+        self.assertEqual(args.weixin_account_id, "account-1")
+        self.assertEqual(args.weixin_base_url, "https://ilink.example")
         self.assertEqual(args.weixin_host, "127.0.0.1")
         self.assertEqual(args.weixin_port, 9000)
 
@@ -258,6 +267,48 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("weixin token is required", stdout.getvalue())
+
+    def test_main_runs_weixin_ilink_mode(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.ILinkGateway") as gateway_cls:
+                with patch(
+                    "sys.argv",
+                    [
+                        "navi-agent",
+                        "--weixin-gateway",
+                        "--weixin-mode",
+                        "ilink",
+                        "--weixin-token",
+                        "token",
+                        "--weixin-account-id",
+                        "account-1",
+                        "--weixin-base-url",
+                        "http://127.0.0.1:9001",
+                    ],
+                ):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("weixin_ilink_polling: account_id=account-1", stdout.getvalue())
+        gateway_cls.return_value.run_forever.assert_called_once_with()
+
+    def test_main_requires_account_id_for_weixin_ilink_mode(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.load_config", return_value={}):
+            with patch(
+                "sys.argv",
+                ["navi-agent", "--weixin-gateway", "--weixin-mode", "ilink", "--weixin-token", "token"],
+            ):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("weixin account_id is required", stdout.getvalue())
 
     def test_main_prints_banner(self) -> None:
         stdout = io.StringIO()
