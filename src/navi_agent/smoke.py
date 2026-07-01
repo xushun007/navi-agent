@@ -148,6 +148,7 @@ def run_smoke_task(
             session_id=session_id or f"smoke-{task.name}-{uuid4().hex[:8]}",
             message=task.prompt,
             system_prompt=system_prompt,
+            auto_propose_eval_case=False,
         )
     )
 

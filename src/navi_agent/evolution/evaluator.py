@@ -77,6 +77,29 @@ class SimpleEvaluator:
             },
         )
 
+    def build_eval_case_candidate(self, trace: RuntimeTrace) -> EvolutionCandidate | None:
+        evaluation = self.evaluate(trace)
+        if evaluation.score >= 1.0:
+            return None
+
+        metadata = evaluation.metadata
+        summary = self._build_eval_case_summary(trace, evaluation)
+        return EvolutionCandidate(
+            target="eval_case",
+            summary=summary,
+            rationale=evaluation.summary,
+            metadata={
+                "session_id": trace.session_id,
+                "user_id": trace.user_id,
+                "trace_id": trace.trace_id,
+                "status": trace.status,
+                "score": evaluation.score,
+                "signals": list(metadata.get("signals", [])),
+                "duration_ms": trace.duration_ms,
+                "tool_names": list(trace.tool_names),
+            },
+        )
+
     def store_candidate(
         self,
         candidate_store: CandidateStore,
@@ -104,6 +127,27 @@ class SimpleEvaluator:
         if trace.status != "success":
             return f"Run ended with status {trace.status}"
         return "Run completed with inefficiencies that should be reviewed"
+
+    @staticmethod
+    def _build_eval_case_summary(trace: RuntimeTrace, evaluation: EvaluationResult) -> str:
+        if trace.status != "success":
+            return f"Review failed session for eval case inclusion ({trace.status})"
+        signals = evaluation.metadata.get("signals", [])
+        if not isinstance(signals, list) or not signals:
+            return "Review underperforming session for eval case inclusion"
+        if "empty_response" in signals:
+            return "Review empty-response session for eval case inclusion"
+        if any(str(signal).startswith("tool_errors:") for signal in signals):
+            return "Review tool-error session for eval case inclusion"
+        if any(str(signal).startswith("duplicate_tools:") for signal in signals):
+            return "Review repetitive-tool session for eval case inclusion"
+        if any(str(signal).startswith("duration_ms:") for signal in signals):
+            return "Review slow session for eval case inclusion"
+        if any(str(signal).startswith("approvals:") for signal in signals):
+            return "Review approval-gated session for eval case inclusion"
+        if any(str(signal).startswith("iterations:") for signal in signals):
+            return "Review long-running session for eval case inclusion"
+        return "Review underperforming session for eval case inclusion"
 
     @staticmethod
     def _duplicate_tool_count(trace: RuntimeTrace) -> int:

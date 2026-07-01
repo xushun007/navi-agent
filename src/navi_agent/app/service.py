@@ -6,6 +6,7 @@ from uuid import uuid4
 from navi_agent.evolution import (
     CandidateStore,
     EvolutionCandidate,
+    SimpleEvaluator,
     PromptOverlayStore,
     EvalCase,
     EvalCaseStore,
@@ -20,6 +21,7 @@ class AppRequest:
     message: str
     session_id: str | None = None
     system_prompt: str | None = None
+    auto_propose_eval_case: bool = True
 
 
 class ApplicationService:
@@ -43,6 +45,7 @@ class ApplicationService:
         self._candidate_store = candidate_store
         self._eval_case_store = eval_case_store
         self._prompt_overlay_store = prompt_overlay_store
+        self._evaluator = SimpleEvaluator()
 
     def handle(self, request: AppRequest) -> RuntimeResult:
         session_id = request.session_id or self._new_session_id()
@@ -50,12 +53,18 @@ class ApplicationService:
         if system_prompt is None:
             system_prompt = self._default_system_prompt
 
-        return self._runtime.run_conversation(
+        result = self._runtime.run_conversation(
             session_id=session_id,
             user_id=request.user_id,
             user_message=request.message,
             system_prompt=system_prompt,
         )
+        if request.auto_propose_eval_case:
+            self._maybe_add_eval_case_candidate(
+                session_id=result.session_id,
+                user_id=request.user_id,
+            )
+        return result
 
     def get_latest_trace(
         self,
@@ -168,6 +177,17 @@ class ApplicationService:
         if self._eval_case_store is None:
             return []
         return self._eval_case_store.list_recent(limit=limit)
+
+    def _maybe_add_eval_case_candidate(self, *, session_id: str, user_id: str) -> None:
+        if self._candidate_store is None:
+            return
+        trace = self._runtime.get_latest_trace(session_id=session_id, user_id=user_id)
+        if trace is None:
+            return
+        candidate = self._evaluator.build_eval_case_candidate(trace)
+        if candidate is None:
+            return
+        self.add_candidate(candidate)
 
     def _find_superseded_candidates(
         self,

@@ -124,6 +124,25 @@ class SimpleEvaluatorTests(unittest.TestCase):
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.target, "tooling")
 
+    def test_build_eval_case_candidate_uses_session_signals(self) -> None:
+        evaluator = SimpleEvaluator()
+        trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+            final_response="",
+            status="failed",
+            error_count=1,
+        )
+
+        candidate = evaluator.build_eval_case_candidate(trace)
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.target, "eval_case")
+        self.assertEqual(candidate.metadata["trace_id"], trace.trace_id)
+        self.assertEqual(candidate.metadata["session_id"], "s1")
+        self.assertIn("Review failed session", candidate.summary)
+
 
 if __name__ == "__main__":
     unittest.main()

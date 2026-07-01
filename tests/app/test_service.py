@@ -159,6 +159,31 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(len(traces), 1)
         self.assertEqual(traces[0].trace_id, "trace-1")
 
+    def test_handle_auto_adds_eval_case_candidate_from_trace(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+            final_response="",
+            status="failed",
+            trace_id="trace-1",
+            error_count=1,
+        )
+        candidate_store = FakeCandidateStore()
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=candidate_store,
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+
+        self.assertEqual(len(candidate_store.items), 1)
+        candidate = candidate_store.items[0]
+        self.assertEqual(candidate.target, "eval_case")
+        self.assertEqual(candidate.metadata["trace_id"], "trace-1")
+        self.assertEqual(candidate.metadata["session_id"], "s1")
+
     def test_add_and_list_candidates_use_store(self) -> None:
         service = ApplicationService(
             runtime=FakeRuntime(),
