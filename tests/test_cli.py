@@ -189,6 +189,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.supersede_candidate)
         args = parser.parse_args(["--candidate-id", "c1", "--archive-candidate"])
         self.assertTrue(args.archive_candidate)
+        args = parser.parse_args(["--review-candidate"])
+        self.assertTrue(args.review_candidate)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -1089,6 +1091,43 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_status: applied", stdout.getvalue())
         self.assertEqual(candidate.status, "applied")
+
+    def test_main_reviews_latest_pending_candidate_interactively(self) -> None:
+        fake_app = FakeApp()
+        candidate = type(
+            "Candidate",
+            (),
+            {
+                "candidate_id": "c1",
+                "status": "pending",
+                "target": "eval_case",
+                "summary": "Review failed session",
+                "rationale": "failed session",
+                "metadata": {
+                    "session_id": "s1",
+                    "trace_id": "t1",
+                    "user_id": "u1",
+                    "status": "failed",
+                    "signals": ["failed", "empty_response"],
+                },
+                "review_note": None,
+            },
+        )()
+        fake_app.saved_candidates.append(candidate)
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("builtins.input", return_value="y"):
+                with patch("sys.argv", ["navi-agent", "--review-candidate"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("candidate review:", stdout.getvalue())
+        self.assertIn("candidate_id: c1", stdout.getvalue())
+        self.assertIn("candidate_status: accepted", stdout.getvalue())
+        self.assertEqual(candidate.status, "accepted")
+        self.assertEqual(candidate.review_note, "interactive review accepted")
 
     def test_main_lists_eval_cases(self) -> None:
         fake_app = FakeApp()

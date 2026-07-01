@@ -89,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-triage", action="store_true")
     parser.add_argument("--candidate-queue", action="store_true")
     parser.add_argument("--candidate-work-items", action="store_true")
+    parser.add_argument("--review-candidate", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
@@ -108,6 +109,8 @@ def main() -> int:
         return _approve_gateway_pairing(args.approve_gateway_pairing)
     if args.gateway:
         return _run_gateway(args)
+    if args.review_candidate:
+        return _review_candidate(system_prompt=args.system_prompt)
     if args.list_smoke_tasks:
         for task in list_smoke_tasks():
             print(f"{task.name}: {task.description}")
@@ -606,6 +609,67 @@ def _candidate_action_from_args(args) -> str | None:
     if len(selected) > 1:
         raise SystemExit("Only one candidate status mutation flag may be set")
     return selected[0]
+
+
+def _review_candidate(
+    *,
+    system_prompt: str | None,
+) -> int:
+    app = build_application(
+        default_system_prompt=system_prompt,
+        approval_provider=CliApprovalProvider(),
+    )
+    pending_candidates = app.list_candidates(limit=50, status="pending")
+    if not pending_candidates:
+        print("no pending candidate found")
+        return 1
+    candidate = pending_candidates[0]
+    metadata = getattr(candidate, "metadata", {}) or {}
+    print("candidate review:")
+    print(f"candidate_id: {candidate.candidate_id}")
+    print(f"candidate_target: {candidate.target}")
+    print(f"candidate_summary: {candidate.summary}")
+    if getattr(candidate, "rationale", ""):
+        print(f"candidate_rationale: {candidate.rationale}")
+    if metadata.get("session_id"):
+        print(f"candidate_session_id: {metadata['session_id']}")
+    if metadata.get("trace_id"):
+        print(f"candidate_trace_id: {metadata['trace_id']}")
+    if metadata.get("user_id"):
+        print(f"candidate_user_id: {metadata['user_id']}")
+    if metadata.get("status"):
+        print(f"candidate_status_hint: {metadata['status']}")
+    if metadata.get("signals"):
+        print(f"candidate_signals: {','.join(metadata['signals'])}")
+    while True:
+        try:
+            answer = input("accept candidate? [y/N]: ").strip().lower()
+        except EOFError:
+            print("candidate review cancelled")
+            return 1
+        if answer in {"y", "yes"}:
+            updated = app.update_candidate_status(
+                candidate.candidate_id,
+                "accepted",
+                review_note="interactive review accepted",
+            )
+            if updated is None:
+                print(f"candidate not found: {candidate.candidate_id}")
+                return 1
+            print(f"candidate_status: {updated.status}")
+            return 0
+        if answer in {"", "n", "no"}:
+            updated = app.update_candidate_status(
+                candidate.candidate_id,
+                "rejected",
+                review_note="interactive review rejected",
+            )
+            if updated is None:
+                print(f"candidate not found: {candidate.candidate_id}")
+                return 1
+            print(f"candidate_status: {updated.status}")
+            return 0
+        print("please answer y or n")
 
 
 def _run_curator(
