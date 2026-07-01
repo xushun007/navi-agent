@@ -189,8 +189,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.supersede_candidate)
         args = parser.parse_args(["--candidate-id", "c1", "--archive-candidate"])
         self.assertTrue(args.archive_candidate)
-        args = parser.parse_args(["--review-candidate"])
-        self.assertTrue(args.review_candidate)
+        args = parser.parse_args(["--review-eval-case"])
+        self.assertTrue(args.review_eval_case)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -1118,7 +1118,7 @@ class CliTests(unittest.TestCase):
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
             with patch("builtins.input", return_value="y"):
-                with patch("sys.argv", ["navi-agent", "--review-candidate"]):
+                with patch("sys.argv", ["navi-agent", "--review-eval-case"]):
                     with redirect_stdout(stdout):
                         exit_code = main()
 
@@ -1148,9 +1148,9 @@ class CliTests(unittest.TestCase):
         stdout = io.StringIO()
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("sys.argv", ["navi-agent", "--review-candidate"]):
-                with redirect_stdout(stdout):
-                    exit_code = main()
+                with patch("sys.argv", ["navi-agent", "--review-eval-case"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
 
         self.assertEqual(exit_code, 1)
         self.assertIn("no pending eval_case candidate found", stdout.getvalue())

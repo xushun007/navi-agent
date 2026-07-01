@@ -89,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-triage", action="store_true")
     parser.add_argument("--candidate-queue", action="store_true")
     parser.add_argument("--candidate-work-items", action="store_true")
-    parser.add_argument("--review-candidate", action="store_true")
+    parser.add_argument("--review-eval-case", action="store_true")
     parser.add_argument("--list-smoke-tasks", action="store_true")
     parser.add_argument("--list-smoke-workflows", action="store_true")
     return parser
@@ -109,8 +109,8 @@ def main() -> int:
         return _approve_gateway_pairing(args.approve_gateway_pairing)
     if args.gateway:
         return _run_gateway(args)
-    if args.review_candidate:
-        return _review_candidate(system_prompt=args.system_prompt)
+    if args.review_eval_case:
+        return _review_eval_case(system_prompt=args.system_prompt)
     if args.list_smoke_tasks:
         for task in list_smoke_tasks():
             print(f"{task.name}: {task.description}")
@@ -611,7 +611,7 @@ def _candidate_action_from_args(args) -> str | None:
     return selected[0]
 
 
-def _review_candidate(
+def _review_eval_case(
     *,
     system_prompt: str | None,
 ) -> int:
