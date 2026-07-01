@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
-from .models import EvolutionCandidate, WorkflowEvolutionSample
+from .models import EvolutionCandidate, EvalCase
 
 
 @dataclass(slots=True)
@@ -19,7 +19,7 @@ class ReviewLoopSummary:
     regressed_after_apply_candidate_count: int
     superseded_candidate_count: int
     archived_candidate_count: int
-    workflow_sample_count: int
+    eval_case_count: int
     regressed_count: int
     improved_count: int
     unchanged_count: int
@@ -46,11 +46,11 @@ class ReviewLoopService:
         self,
         *,
         candidates: list[EvolutionCandidate],
-        workflow_samples: list[WorkflowEvolutionSample],
+        eval_cases: list[EvalCase],
     ) -> ReviewLoopSummary:
-        regressed = [sample for sample in workflow_samples if sample.status == "regressed"]
-        improved = [sample for sample in workflow_samples if sample.status == "improved"]
-        unchanged = [sample for sample in workflow_samples if sample.status == "unchanged"]
+        regressed = [eval_case for eval_case in eval_cases if eval_case.status == "regressed"]
+        improved = [eval_case for eval_case in eval_cases if eval_case.status == "improved"]
+        unchanged = [eval_case for eval_case in eval_cases if eval_case.status == "unchanged"]
         pending_candidates = [candidate for candidate in candidates if candidate.status == "pending"]
         accepted_candidates = [candidate for candidate in candidates if candidate.status == "accepted"]
         rejected_candidates = [candidate for candidate in candidates if candidate.status == "rejected"]
@@ -70,7 +70,7 @@ class ReviewLoopService:
 
         target_counts = Counter(candidate.target for candidate in active_candidates)
         pending_target_counts = Counter(candidate.target for candidate in pending_candidates)
-        workflow_counts = Counter(sample.workflow_name for sample in regressed)
+        workflow_counts = Counter(eval_case.workflow_name for eval_case in regressed)
 
         top_candidate_targets = target_counts.most_common(3)
         pending_targets = pending_target_counts.most_common(3)
@@ -101,7 +101,7 @@ class ReviewLoopService:
             regressed_after_apply_candidate_count=len(regressed_after_apply_candidates),
             superseded_candidate_count=len(superseded_candidates),
             archived_candidate_count=len(archived_candidates),
-            workflow_sample_count=len(workflow_samples),
+            eval_case_count=len(eval_cases),
             regressed_count=len(regressed),
             improved_count=len(improved),
             unchanged_count=len(unchanged),

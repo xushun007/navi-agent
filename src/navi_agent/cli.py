@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--archive-candidate", action="store_true")
     parser.add_argument("--candidate-note")
     parser.add_argument("--list-candidates", action="store_true")
-    parser.add_argument("--list-workflow-samples", action="store_true")
+    parser.add_argument("--list-eval-cases", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -179,15 +179,15 @@ def main() -> int:
                 f"{candidate.target}: {candidate.summary}"
             )
         return 0
-    if args.list_workflow_samples:
+    if args.list_eval_cases:
         app = build_application(
             default_system_prompt=args.system_prompt,
             approval_provider=CliApprovalProvider(),
         )
-        for sample in app.list_workflow_samples(limit=10):
+        for eval_case in app.list_eval_cases(limit=10):
             print(
-                f"{sample.workflow_name}: {sample.status} "
-                f"(source={sample.source_average_score}, replay={sample.replay_average_score}, delta={sample.score_delta})"
+                f"{eval_case.workflow_name}: {eval_case.status} "
+                f"(source={eval_case.source_average_score}, replay={eval_case.replay_average_score}, delta={eval_case.score_delta})"
             )
         return 0
     if args.prompt_overlay_status:
@@ -272,7 +272,7 @@ def main() -> int:
         )
         summary = ReviewLoopService().summarize(
             candidates=app.list_candidates(limit=50),
-            workflow_samples=app.list_workflow_samples(limit=50),
+            eval_cases=app.list_eval_cases(limit=50),
         )
         latest_report = EvolutionReportStore(get_evolution_reports_dir()).get_latest()
         overlay_info = PromptOverlayStore(get_prompt_overlay_path()).describe()
@@ -289,7 +289,7 @@ def main() -> int:
         )
         summary = ReviewLoopService().summarize(
             candidates=app.list_candidates(limit=50),
-            workflow_samples=app.list_workflow_samples(limit=50),
+            eval_cases=app.list_eval_cases(limit=50),
         )
         print(f"candidate_count: {summary.candidate_count}")
         print(f"active_candidate_count: {summary.active_candidate_count}")
@@ -302,7 +302,7 @@ def main() -> int:
         print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
         print(f"superseded_candidate_count: {summary.superseded_candidate_count}")
         print(f"archived_candidate_count: {summary.archived_candidate_count}")
-        print(f"workflow_sample_count: {summary.workflow_sample_count}")
+        print(f"eval_case_count: {summary.eval_case_count}")
         print(f"regressed_count: {summary.regressed_count}")
         print(f"improved_count: {summary.improved_count}")
         print(f"unchanged_count: {summary.unchanged_count}")
@@ -323,7 +323,7 @@ def main() -> int:
         )
         summary = ReviewLoopService().summarize(
             candidates=app.list_candidates(limit=50),
-            workflow_samples=app.list_workflow_samples(limit=50),
+            eval_cases=app.list_eval_cases(limit=50),
         )
         print(f"candidate_count: {summary.candidate_count}")
         print(f"pending_candidate_count: {summary.pending_candidate_count}")
@@ -348,7 +348,7 @@ def main() -> int:
         )
         summary = ReviewLoopService().summarize(
             candidates=app.list_candidates(limit=50),
-            workflow_samples=app.list_workflow_samples(limit=50),
+            eval_cases=app.list_eval_cases(limit=50),
         )
         print(f"pending_candidate_count: {summary.pending_candidate_count}")
         if not summary.pending_queue:
@@ -377,7 +377,7 @@ def main() -> int:
         )
         summary = ReviewLoopService().summarize(
             candidates=app.list_candidates(limit=50),
-            workflow_samples=app.list_workflow_samples(limit=50),
+            eval_cases=app.list_eval_cases(limit=50),
         )
         print(f"pending_candidate_count: {summary.pending_candidate_count}")
         if not summary.pending_work_items:
@@ -618,7 +618,7 @@ def _run_curator(
     )
     summary = ReviewLoopService().summarize(
         candidates=app.list_candidates(limit=50),
-        workflow_samples=app.list_workflow_samples(limit=50),
+        eval_cases=app.list_eval_cases(limit=50),
     )
     candidate, selection_reason = _select_curator_candidate(summary.pending_queue)
     if candidate is None:
@@ -702,7 +702,7 @@ def _print_curator_status(*, summary, latest_report, overlay_info) -> None:
     print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
     print(f"superseded_candidate_count: {summary.superseded_candidate_count}")
     print(f"archived_candidate_count: {summary.archived_candidate_count}")
-    print(f"workflow_sample_count: {summary.workflow_sample_count}")
+    print(f"eval_case_count: {summary.eval_case_count}")
     print(f"regressed_count: {summary.regressed_count}")
     print(f"improved_count: {summary.improved_count}")
     print(f"unchanged_count: {summary.unchanged_count}")
@@ -790,7 +790,7 @@ def _run_candidate_apply_workflow(
         source=source_result,
         replay=replay_result,
     )
-    outcome_status = _candidate_outcome_status(comparison.sample.status)
+    outcome_status = _candidate_outcome_status(comparison.eval_case.status)
     updated = rerun_app.update_candidate_status(
         candidate_id,
         outcome_status,
@@ -799,7 +799,7 @@ def _run_candidate_apply_workflow(
     print(f"candidate_id: {applied.candidate_id}")
     print(f"candidate_status: {updated.status if updated is not None else applied.status}")
     print(f"workflow: {workflow_name}")
-    print(f"candidate_outcome: {comparison.sample.status}")
+    print(f"candidate_outcome: {comparison.eval_case.status}")
     print(f"candidate_report_path: {report_dir}")
     _print_evolution_comparison(comparison=comparison, report_dir=report_dir)
     return 0
@@ -841,12 +841,12 @@ def _finalize_evolution_comparison(
     replay,
 ):
     comparison = compare_smoke_workflow_results(source, replay)
-    app.add_workflow_sample(comparison.sample)
+    app.add_eval_case(comparison.eval_case)
     if comparison.candidate is not None:
         app.add_candidate(comparison.candidate)
     review_summary = ReviewLoopService().summarize(
         candidates=app.list_candidates(limit=50),
-        workflow_samples=app.list_workflow_samples(limit=50),
+        eval_cases=app.list_eval_cases(limit=50),
     )
     report_dir = EvolutionReportWriter(get_evolution_reports_dir()).write_workflow_comparison_report(
         comparison=comparison,
@@ -859,7 +859,7 @@ def _print_evolution_comparison(*, comparison, report_dir) -> None:
     print(f"workflow: {comparison.workflow_name}")
     print(f"source_session_id: {comparison.source_session_id}")
     print(f"replay_session_id: {comparison.replay_session_id}")
-    print(f"workflow_status: {comparison.sample.status}")
+    print(f"workflow_status: {comparison.eval_case.status}")
     print(f"source_average_score: {comparison.source_average_score}")
     print(f"replay_average_score: {comparison.replay_average_score}")
     print(f"score_delta: {comparison.score_delta}")
@@ -876,12 +876,12 @@ def _print_evolution_comparison(*, comparison, report_dir) -> None:
         print(f"step_score_delta: {step.score_delta}")
 
 
-def _candidate_outcome_status(sample_status: str) -> str:
-    if sample_status == "improved":
+def _candidate_outcome_status(eval_case_status: str) -> str:
+    if eval_case_status == "improved":
         return "verified"
-    if sample_status == "unchanged":
+    if eval_case_status == "unchanged":
         return "no_improvement"
-    if sample_status == "regressed":
+    if eval_case_status == "regressed":
         return "regressed_after_apply"
     return "applied"
 

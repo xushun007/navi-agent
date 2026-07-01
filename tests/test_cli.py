@@ -11,7 +11,7 @@ class FakeApp:
     def __init__(self) -> None:
         self.calls = []
         self.saved_candidates = []
-        self.saved_samples = []
+        self.saved_eval_cases = []
         self.applied_candidate = None
 
     def handle(self, request):
@@ -25,14 +25,14 @@ class FakeApp:
     def add_candidate(self, candidate) -> None:
         self.saved_candidates.append(candidate)
 
-    def add_workflow_sample(self, sample) -> None:
-        self.saved_samples.append(sample)
+    def add_eval_case(self, eval_case) -> None:
+        self.saved_eval_cases.append(eval_case)
 
     def list_candidates(self, limit=10, status=None):
         return list(reversed(self.saved_candidates[-limit:]))
 
-    def list_workflow_samples(self, limit=10):
-        return list(reversed(self.saved_samples[-limit:]))
+    def list_eval_cases(self, limit=10):
+        return list(reversed(self.saved_eval_cases[-limit:]))
 
     def get_candidate(self, candidate_id):
         for candidate in self.saved_candidates:
@@ -163,8 +163,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.candidate_status, "verified")
         args = parser.parse_args(["--candidate-status", "superseded", "--list-candidates"])
         self.assertEqual(args.candidate_status, "superseded")
-        args = parser.parse_args(["--list-workflow-samples"])
-        self.assertTrue(args.list_workflow_samples)
+        args = parser.parse_args(["--list-eval-cases"])
+        self.assertTrue(args.list_eval_cases)
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -369,9 +369,9 @@ class CliTests(unittest.TestCase):
         fake_app.list_candidates = lambda limit=50: [
             type("Candidate", (), {"candidate_id": "c1", "status": "pending", "target": "prompt", "summary": "Review prompt"})()
         ]
-        fake_app.list_workflow_samples = lambda limit=50: [
+        fake_app.list_eval_cases = lambda limit=50: [
             type(
-                "Sample",
+                "EvalCase",
                 (),
                 {
                     "workflow_name": "prototype-baseline",
@@ -450,8 +450,8 @@ class CliTests(unittest.TestCase):
                 "source_average_score": 1.0,
                 "replay_average_score": 0.9,
                 "score_delta": -0.1,
-                "sample": type(
-                    "Sample",
+                "eval_case": type(
+                    "EvalCase",
                     (),
                     {
                         "workflow_name": "prototype-baseline",
@@ -503,7 +503,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("report_path: /tmp/report", stdout.getvalue())
         self.assertIn("candidate_target: prompt", stdout.getvalue())
         self.assertIn("replay_trace_id: trace-2", stdout.getvalue())
-        self.assertEqual(len(fake_app.saved_samples), 1)
+        self.assertEqual(len(fake_app.saved_eval_cases), 1)
         self.assertEqual(len(fake_app.saved_candidates), 1)
         run_smoke_workflow_mock.assert_called_once()
         replay_mock.assert_called_once()
@@ -528,7 +528,7 @@ class CliTests(unittest.TestCase):
         )()
         first_app.saved_candidates.append(candidate)
         rerun_app.saved_candidates = first_app.saved_candidates
-        rerun_app.saved_samples = first_app.saved_samples
+        rerun_app.saved_eval_cases = first_app.saved_eval_cases
 
         source_workflow_result = type(
             "WorkflowResult",
@@ -556,8 +556,8 @@ class CliTests(unittest.TestCase):
                 "source_average_score": 1.0,
                 "replay_average_score": 1.05,
                 "score_delta": 0.05,
-                "sample": type(
-                    "Sample",
+                "eval_case": type(
+                    "EvalCase",
                     (),
                     {
                         "workflow_name": "prototype-baseline",
@@ -600,9 +600,9 @@ class CliTests(unittest.TestCase):
         fake_app.list_candidates = lambda limit=50, status=None: [
             type("Candidate", (), {"candidate_id": "c1", "status": "pending", "target": "prompt", "summary": "Review prompt"})()
         ]
-        fake_app.list_workflow_samples = lambda limit=50: [
+        fake_app.list_eval_cases = lambda limit=50: [
             type(
-                "Sample",
+                "EvalCase",
                 (),
                 {
                     "workflow_name": "prototype-baseline",
@@ -651,7 +651,7 @@ class CliTests(unittest.TestCase):
     def test_main_runs_curator_status(self) -> None:
         fake_app = FakeApp()
         fake_app.list_candidates = lambda limit=50, status=None: []
-        fake_app.list_workflow_samples = lambda limit=50: []
+        fake_app.list_eval_cases = lambda limit=50: []
         stdout = io.StringIO()
 
         latest_report = type(
@@ -681,7 +681,7 @@ class CliTests(unittest.TestCase):
                 "regressed_after_apply_candidate_count": 0,
                 "superseded_candidate_count": 1,
                 "archived_candidate_count": 0,
-                "workflow_sample_count": 3,
+                "eval_case_count": 3,
                 "regressed_count": 1,
                 "improved_count": 1,
                 "unchanged_count": 1,
@@ -973,11 +973,11 @@ class CliTests(unittest.TestCase):
         self.assertIn("candidate_status: applied", stdout.getvalue())
         self.assertEqual(candidate.status, "applied")
 
-    def test_main_lists_workflow_samples(self) -> None:
+    def test_main_lists_eval_cases(self) -> None:
         fake_app = FakeApp()
-        fake_app.list_workflow_samples = lambda limit=10: [
+        fake_app.list_eval_cases = lambda limit=10: [
             type(
-                "Sample",
+                "EvalCase",
                 (),
                 {
                     "workflow_name": "prototype-baseline",
@@ -991,7 +991,7 @@ class CliTests(unittest.TestCase):
         stdout = io.StringIO()
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("sys.argv", ["navi-agent", "--list-workflow-samples"]):
+            with patch("sys.argv", ["navi-agent", "--list-eval-cases"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
 
@@ -1003,9 +1003,9 @@ class CliTests(unittest.TestCase):
         fake_app.list_candidates = lambda limit=50, status=None: [
             type("Candidate", (), {"candidate_id": "c1", "status": "pending", "target": "prompt", "summary": "Review prompt"})()
         ]
-        fake_app.list_workflow_samples = lambda limit=50: [
+        fake_app.list_eval_cases = lambda limit=50: [
             type(
-                "Sample",
+                "EvalCase",
                 (),
                 {
                     "workflow_name": "prototype-baseline",
@@ -1032,7 +1032,7 @@ class CliTests(unittest.TestCase):
                 "regressed_after_apply_candidate_count": 0,
                 "superseded_candidate_count": 0,
                 "archived_candidate_count": 0,
-                "workflow_sample_count": 1,
+                "eval_case_count": 1,
                 "regressed_count": 1,
                 "improved_count": 0,
                 "unchanged_count": 0,

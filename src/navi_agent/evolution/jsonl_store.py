@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TypeVar
 
-from .models import EvolutionCandidate, WorkflowEvolutionSample
+from .models import EvolutionCandidate, EvalCase
 
 T = TypeVar("T")
 
@@ -73,16 +73,16 @@ class JsonlCandidateStore:
         return [json.loads(line) for line in reversed(lines)]
 
 
-class JsonlWorkflowSampleStore:
+class JsonlEvalCaseStore:
     def __init__(self, path: Path) -> None:
         self._path = path
 
-    def add(self, sample: WorkflowEvolutionSample) -> None:
-        self._append(asdict(sample))
+    def add(self, eval_case: EvalCase) -> None:
+        self._append(asdict(eval_case))
 
-    def list_recent(self, limit: int | None = None) -> list[WorkflowEvolutionSample]:
+    def list_recent(self, limit: int | None = None) -> list[EvalCase]:
         records = self._read_records(limit=limit)
-        return [WorkflowEvolutionSample(**record) for record in records]
+        return [EvalCase(**record) for record in records]
 
     def _append(self, payload: dict) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

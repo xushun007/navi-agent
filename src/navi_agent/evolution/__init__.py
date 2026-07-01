@@ -1,11 +1,11 @@
 from .evaluator import SimpleEvaluator
-from .jsonl_store import JsonlCandidateStore, JsonlWorkflowSampleStore
-from .memory import InMemoryCandidateStore, InMemoryWorkflowSampleStore
-from .models import EvaluationResult, EvolutionCandidate, WorkflowEvolutionSample
+from .jsonl_store import JsonlCandidateStore, JsonlEvalCaseStore
+from .memory import InMemoryCandidateStore, InMemoryEvalCaseStore
+from .models import EvaluationResult, EvolutionCandidate, EvalCase
 from .prompt_overlay import PromptOverlayEntry, PromptOverlayStore
 from .report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
 from .review import ReviewLoopService, ReviewLoopSummary
-from .store import CandidateStore, WorkflowSampleStore
+from .store import CandidateStore, EvalCaseStore
 
 __all__ = [
     "CandidateStore",
@@ -15,14 +15,14 @@ __all__ = [
     "EvolutionCandidate",
     "EvolutionReportWriter",
     "InMemoryCandidateStore",
-    "InMemoryWorkflowSampleStore",
+    "InMemoryEvalCaseStore",
     "JsonlCandidateStore",
-    "JsonlWorkflowSampleStore",
+    "JsonlEvalCaseStore",
     "PromptOverlayStore",
     "PromptOverlayEntry",
     "ReviewLoopService",
     "ReviewLoopSummary",
     "SimpleEvaluator",
-    "WorkflowEvolutionSample",
-    "WorkflowSampleStore",
+    "EvalCase",
+    "EvalCaseStore",
 ]

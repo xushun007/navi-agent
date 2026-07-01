@@ -77,7 +77,7 @@ class EvolutionReportWriter:
             "source_average_score": comparison.source_average_score,
             "replay_average_score": comparison.replay_average_score,
             "score_delta": comparison.score_delta,
-            "workflow_sample": asdict(comparison.sample),
+            "eval_case": asdict(comparison.eval_case),
             "candidate": asdict(comparison.candidate) if comparison.candidate is not None else None,
             "step_comparisons": [
                 {
@@ -106,7 +106,7 @@ class EvolutionReportWriter:
             f"- workflow: `{comparison.workflow_name}`",
             f"- source session: `{comparison.source_session_id}`",
             f"- replay session: `{comparison.replay_session_id}`",
-            f"- status: `{comparison.sample.status}`",
+            f"- status: `{comparison.eval_case.status}`",
             f"- source average score: `{comparison.source_average_score}`",
             f"- replay average score: `{comparison.replay_average_score}`",
             f"- score delta: `{comparison.score_delta}`",
@@ -143,7 +143,7 @@ class EvolutionReportWriter:
                     f"- pending candidate count: `{review_summary.pending_candidate_count}`",
                     f"- accepted candidate count: `{review_summary.accepted_candidate_count}`",
                     f"- rejected candidate count: `{review_summary.rejected_candidate_count}`",
-                    f"- workflow sample count: `{review_summary.workflow_sample_count}`",
+                    f"- eval case count: `{review_summary.eval_case_count}`",
                     f"- regressed count: `{review_summary.regressed_count}`",
                     f"- improved count: `{review_summary.improved_count}`",
                     f"- unchanged count: `{review_summary.unchanged_count}`",
@@ -187,11 +187,11 @@ class EvolutionReportStore:
             payload = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        sample = payload.get("workflow_sample") or {}
+        eval_case = payload.get("eval_case") or {}
         candidate = payload.get("candidate") or {}
         return EvolutionReportRecord(
             workflow_name=str(payload.get("workflow_name", "")),
-            status=str(sample.get("status", "")),
+            status=str(eval_case.get("status", "")),
             score_delta=float(payload.get("score_delta", 0.0)),
             report_path=run_dir,
             candidate_target=candidate.get("target") if isinstance(candidate, dict) else None,

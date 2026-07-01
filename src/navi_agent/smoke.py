@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from navi_agent.app import AppRequest, ApplicationService
-from navi_agent.evolution import EvaluationResult, EvolutionCandidate, SimpleEvaluator, WorkflowEvolutionSample
+from navi_agent.evolution import EvaluationResult, EvolutionCandidate, SimpleEvaluator, EvalCase
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -70,7 +70,7 @@ class SmokeWorkflowComparison:
     source_average_score: float
     replay_average_score: float
     score_delta: float
-    sample: WorkflowEvolutionSample
+    eval_case: EvalCase
     candidate: EvolutionCandidate | None
 
 
@@ -260,7 +260,7 @@ def compare_smoke_workflow_results(
     )
 
     score_delta = round(replay_average_score - source_average_score, 3)
-    sample = _build_workflow_sample(
+    eval_case = _build_eval_case(
         workflow_name=source.workflow.name,
         source_session_id=source.session_id,
         replay_session_id=replay.session_id,
@@ -271,7 +271,7 @@ def compare_smoke_workflow_results(
     )
     candidate = _build_candidate_from_comparison(
         step_comparisons=step_comparisons,
-        sample=sample,
+        eval_case=eval_case,
         evaluator=evaluator,
     )
 
@@ -283,7 +283,7 @@ def compare_smoke_workflow_results(
         source_average_score=source_average_score,
         replay_average_score=replay_average_score,
         score_delta=score_delta,
-        sample=sample,
+        eval_case=eval_case,
         candidate=candidate,
     )
 
@@ -295,7 +295,7 @@ def _average_score(scores) -> float:
     return round(sum(values) / len(values), 3)
 
 
-def _build_workflow_sample(
+def _build_eval_case(
     *,
     workflow_name: str,
     source_session_id: str,
@@ -304,7 +304,7 @@ def _build_workflow_sample(
     replay_average_score: float,
     score_delta: float,
     step_comparisons: list[SmokeStepComparison],
-) -> WorkflowEvolutionSample:
+) -> EvalCase:
     if score_delta > 0.01:
         status = "improved"
         summary = "Workflow replay improved over the source run"
@@ -315,7 +315,7 @@ def _build_workflow_sample(
         status = "unchanged"
         summary = "Workflow replay produced roughly the same score as the source run"
 
-    return WorkflowEvolutionSample(
+    return EvalCase(
         workflow_name=workflow_name,
         source_session_id=source_session_id,
         replay_session_id=replay_session_id,
@@ -342,7 +342,7 @@ def _build_workflow_sample(
 def _build_candidate_from_comparison(
     *,
     step_comparisons: list[SmokeStepComparison],
-    sample: WorkflowEvolutionSample,
+    eval_case: EvalCase,
     evaluator: SimpleEvaluator,
 ) -> EvolutionCandidate | None:
     worst_step = min(
@@ -363,11 +363,11 @@ def _build_candidate_from_comparison(
 
     candidate.metadata.update(
         {
-            "workflow_name": sample.workflow_name,
-            "workflow_status": sample.status,
-            "workflow_score_delta": sample.score_delta,
-            "source_session_id": sample.source_session_id,
-            "replay_session_id": sample.replay_session_id,
+            "workflow_name": eval_case.workflow_name,
+            "workflow_status": eval_case.status,
+            "workflow_score_delta": eval_case.score_delta,
+            "source_session_id": eval_case.source_session_id,
+            "replay_session_id": eval_case.replay_session_id,
             "task_name": worst_step.task_name,
             "source_trace_id": worst_step.source_step.trace_id,
             "replay_trace_id": worst_step.replay_step.trace_id,
@@ -375,9 +375,9 @@ def _build_candidate_from_comparison(
         }
     )
 
-    if sample.status == "regressed":
+    if eval_case.status == "regressed":
         candidate.summary = f"Review workflow regression in {worst_step.task_name} ({candidate.target})"
-    elif sample.status == "unchanged":
+    elif eval_case.status == "unchanged":
         candidate.summary = f"Review stagnant workflow step {worst_step.task_name} ({candidate.target})"
 
     return candidate

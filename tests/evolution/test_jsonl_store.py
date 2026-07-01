@@ -5,8 +5,8 @@ from pathlib import Path
 from navi_agent.evolution import (
     EvolutionCandidate,
     JsonlCandidateStore,
-    JsonlWorkflowSampleStore,
-    WorkflowEvolutionSample,
+    JsonlEvalCaseStore,
+    EvalCase,
 )
 
 
@@ -54,11 +54,11 @@ class JsonlStoreTests(unittest.TestCase):
         self.assertIsNotNone(latest)
         self.assertEqual(latest.status, "accepted")
 
-    def test_workflow_sample_store_persists_and_lists_recent(self) -> None:
+    def test_eval_case_store_persists_and_lists_recent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            store = JsonlWorkflowSampleStore(Path(tmpdir) / "samples.jsonl")
+            store = JsonlEvalCaseStore(Path(tmpdir) / "eval-cases.jsonl")
             store.add(
-                WorkflowEvolutionSample(
+                EvalCase(
                     workflow_name="wf",
                     source_session_id="s1",
                     replay_session_id="s2",

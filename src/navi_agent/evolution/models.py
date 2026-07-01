@@ -26,7 +26,7 @@ class EvolutionCandidate:
 
 
 @dataclass(slots=True)
-class WorkflowEvolutionSample:
+class EvalCase:
     workflow_name: str
     source_session_id: str
     replay_session_id: str

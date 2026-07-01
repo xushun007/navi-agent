@@ -1,6 +1,6 @@
 import unittest
 
-from navi_agent.evolution import WorkflowEvolutionSample
+from navi_agent.evolution import EvalCase
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 from navi_agent.smoke import (
@@ -152,8 +152,8 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(comparison.replay_session_id, "wf-2")
         self.assertEqual(len(comparison.step_comparisons), 2)
         self.assertEqual(comparison.score_delta, 0.0)
-        self.assertIsInstance(comparison.sample, WorkflowEvolutionSample)
-        self.assertEqual(comparison.sample.status, "unchanged")
+        self.assertIsInstance(comparison.eval_case, EvalCase)
+        self.assertEqual(comparison.eval_case.status, "unchanged")
         self.assertIsNone(comparison.candidate)
 
     def test_compare_smoke_workflow_results_builds_candidate_for_regression(self) -> None:
@@ -175,7 +175,7 @@ class SmokeTests(unittest.TestCase):
 
         comparison = compare_smoke_workflow_results(source, replay)
 
-        self.assertEqual(comparison.sample.status, "regressed")
+        self.assertEqual(comparison.eval_case.status, "regressed")
         self.assertIsNotNone(comparison.candidate)
         self.assertEqual(comparison.candidate.target, "prompt")
         self.assertEqual(comparison.candidate.metadata["workflow_name"], "product-orientation")

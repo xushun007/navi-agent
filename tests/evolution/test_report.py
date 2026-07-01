@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from navi_agent.evolution import EvolutionReportStore, EvolutionReportWriter, ReviewLoopSummary
-from navi_agent.evolution.models import EvaluationResult, EvolutionCandidate, WorkflowEvolutionSample
+from navi_agent.evolution.models import EvaluationResult, EvolutionCandidate, EvalCase
 from navi_agent.runtime import RuntimeResult
 from navi_agent.smoke import (
     SmokeStepComparison,
@@ -58,7 +58,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
             source_average_score=1.0,
             replay_average_score=0.8,
             score_delta=-0.2,
-            sample=WorkflowEvolutionSample(
+            eval_case=EvalCase(
                 workflow_name="prototype-baseline",
                 source_session_id="wf-1",
                 replay_session_id="wf-2",
@@ -86,7 +86,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
             regressed_after_apply_candidate_count=0,
             superseded_candidate_count=0,
             archived_candidate_count=0,
-            workflow_sample_count=2,
+            eval_case_count=2,
             regressed_count=1,
             improved_count=1,
             unchanged_count=0,
@@ -124,7 +124,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
             source_average_score=1.0,
             replay_average_score=0.8,
             score_delta=-0.2,
-            sample=WorkflowEvolutionSample(
+            eval_case=EvalCase(
                 workflow_name="prototype-baseline",
                 source_session_id="wf-1",
                 replay_session_id="wf-2",

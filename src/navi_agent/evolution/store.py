@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .models import EvolutionCandidate, WorkflowEvolutionSample
+from .models import EvolutionCandidate, EvalCase
 
 
 class CandidateStore(Protocol):
@@ -18,6 +18,6 @@ class CandidateStore(Protocol):
     ) -> EvolutionCandidate | None: ...
 
 
-class WorkflowSampleStore(Protocol):
-    def add(self, sample: WorkflowEvolutionSample) -> None: ...
-    def list_recent(self, limit: int | None = None) -> list[WorkflowEvolutionSample]: ...
+class EvalCaseStore(Protocol):
+    def add(self, eval_case: EvalCase) -> None: ...
+    def list_recent(self, limit: int | None = None) -> list[EvalCase]: ...

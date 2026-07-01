@@ -7,8 +7,8 @@ from navi_agent.evolution import (
     CandidateStore,
     EvolutionCandidate,
     PromptOverlayStore,
-    WorkflowEvolutionSample,
-    WorkflowSampleStore,
+    EvalCase,
+    EvalCaseStore,
 )
 from navi_agent.runtime import AgentRuntime, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
@@ -35,13 +35,13 @@ class ApplicationService:
         runtime: AgentRuntime,
         default_system_prompt: str | None = None,
         candidate_store: CandidateStore | None = None,
-        workflow_sample_store: WorkflowSampleStore | None = None,
+        eval_case_store: EvalCaseStore | None = None,
         prompt_overlay_store: PromptOverlayStore | None = None,
     ) -> None:
         self._runtime = runtime
         self._default_system_prompt = default_system_prompt
         self._candidate_store = candidate_store
-        self._workflow_sample_store = workflow_sample_store
+        self._eval_case_store = eval_case_store
         self._prompt_overlay_store = prompt_overlay_store
 
     def handle(self, request: AppRequest) -> RuntimeResult:
@@ -159,15 +159,15 @@ class ApplicationService:
             return items
         return [candidate for candidate in items if candidate.status == status]
 
-    def add_workflow_sample(self, sample: WorkflowEvolutionSample) -> None:
-        if self._workflow_sample_store is None:
+    def add_eval_case(self, eval_case: EvalCase) -> None:
+        if self._eval_case_store is None:
             return
-        self._workflow_sample_store.add(sample)
+        self._eval_case_store.add(eval_case)
 
-    def list_workflow_samples(self, limit: int | None = None) -> list[WorkflowEvolutionSample]:
-        if self._workflow_sample_store is None:
+    def list_eval_cases(self, limit: int | None = None) -> list[EvalCase]:
+        if self._eval_case_store is None:
             return []
-        return self._workflow_sample_store.list_recent(limit=limit)
+        return self._eval_case_store.list_recent(limit=limit)
 
     def _find_superseded_candidates(
         self,

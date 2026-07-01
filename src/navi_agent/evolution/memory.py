@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import EvolutionCandidate, WorkflowEvolutionSample
+from .models import EvolutionCandidate, EvalCase
 
 
 class InMemoryCandidateStore:
@@ -37,15 +37,15 @@ class InMemoryCandidateStore:
         return candidate
 
 
-class InMemoryWorkflowSampleStore:
+class InMemoryEvalCaseStore:
     def __init__(self) -> None:
-        self.samples: list[WorkflowEvolutionSample] = []
+        self.eval_cases: list[EvalCase] = []
 
-    def add(self, sample: WorkflowEvolutionSample) -> None:
-        self.samples.append(sample)
+    def add(self, eval_case: EvalCase) -> None:
+        self.eval_cases.append(eval_case)
 
-    def list_recent(self, limit: int | None = None) -> list[WorkflowEvolutionSample]:
-        items = list(reversed(self.samples))
+    def list_recent(self, limit: int | None = None) -> list[EvalCase]:
+        items = list(reversed(self.eval_cases))
         if limit is None:
             return items
         return items[:limit]

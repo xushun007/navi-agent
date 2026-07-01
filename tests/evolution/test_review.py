@@ -1,6 +1,6 @@
 import unittest
 
-from navi_agent.evolution import EvolutionCandidate, ReviewLoopService, WorkflowEvolutionSample
+from navi_agent.evolution import EvolutionCandidate, ReviewLoopService, EvalCase
 
 
 class ReviewLoopServiceTests(unittest.TestCase):
@@ -11,8 +11,8 @@ class ReviewLoopServiceTests(unittest.TestCase):
                 EvolutionCandidate(target="prompt", summary="b", rationale="r", status="accepted"),
                 EvolutionCandidate(target="tooling", summary="c", rationale="r", status="rejected"),
             ],
-            workflow_samples=[
-                WorkflowEvolutionSample(
+            eval_cases=[
+                EvalCase(
                     workflow_name="prototype-baseline",
                     source_session_id="s1",
                     replay_session_id="r1",
@@ -22,7 +22,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     status="regressed",
                     summary="regressed",
                 ),
-                WorkflowEvolutionSample(
+                EvalCase(
                     workflow_name="prototype-baseline",
                     source_session_id="s2",
                     replay_session_id="r2",
@@ -32,7 +32,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     status="regressed",
                     summary="regressed",
                 ),
-                WorkflowEvolutionSample(
+                EvalCase(
                     workflow_name="product-orientation",
                     source_session_id="s3",
                     replay_session_id="r3",
@@ -56,7 +56,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.regressed_after_apply_candidate_count, 0)
         self.assertEqual(summary.superseded_candidate_count, 0)
         self.assertEqual(summary.archived_candidate_count, 0)
-        self.assertEqual(summary.workflow_sample_count, 3)
+        self.assertEqual(summary.eval_case_count, 3)
         self.assertEqual(summary.regressed_count, 2)
         self.assertEqual(summary.top_candidate_targets[0], ("prompt", 2))
         self.assertEqual(summary.pending_targets[0], ("prompt", 1))
@@ -67,8 +67,8 @@ class ReviewLoopServiceTests(unittest.TestCase):
     def test_summarize_handles_no_regressions(self) -> None:
         summary = ReviewLoopService().summarize(
             candidates=[],
-            workflow_samples=[
-                WorkflowEvolutionSample(
+            eval_cases=[
+                EvalCase(
                     workflow_name="product-orientation",
                     source_session_id="s1",
                     replay_session_id="r1",
@@ -92,7 +92,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
             candidates=[
                 EvolutionCandidate(target="tool_policy", summary="a", rationale="r"),
             ],
-            workflow_samples=[],
+            eval_cases=[],
         )
 
         self.assertEqual(summary.pending_targets[0], ("tool_policy", 1))
@@ -137,7 +137,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     },
                 ),
             ],
-            workflow_samples=[],
+            eval_cases=[],
         )
 
         self.assertEqual(len(summary.pending_queue), 3)
@@ -155,7 +155,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                 EvolutionCandidate(target="prompt", summary="n", rationale="r", status="no_improvement"),
                 EvolutionCandidate(target="prompt", summary="g", rationale="r", status="regressed_after_apply"),
             ],
-            workflow_samples=[],
+            eval_cases=[],
         )
 
         self.assertEqual(summary.verified_candidate_count, 1)
@@ -169,7 +169,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                 EvolutionCandidate(target="prompt", summary="pending", rationale="r", status="pending"),
                 EvolutionCandidate(target="tooling", summary="reject me", rationale="r", status="rejected"),
             ],
-            workflow_samples=[],
+            eval_cases=[],
         )
 
         self.assertEqual(summary.candidate_count, 2)
@@ -185,7 +185,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                 EvolutionCandidate(target="prompt", summary="old one", rationale="r", status="superseded"),
                 EvolutionCandidate(target="tooling", summary="archived one", rationale="r", status="archived"),
             ],
-            workflow_samples=[],
+            eval_cases=[],
         )
 
         self.assertEqual(summary.candidate_count, 3)
@@ -206,8 +206,8 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     status="regressed_after_apply",
                 ),
             ],
-            workflow_samples=[
-                WorkflowEvolutionSample(
+            eval_cases=[
+                EvalCase(
                     workflow_name="prototype-baseline",
                     source_session_id="s1",
                     replay_session_id="r1",
@@ -235,7 +235,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     status="verified",
                 ),
             ],
-            workflow_samples=[],
+            eval_cases=[],
         )
 
         self.assertEqual(
@@ -253,7 +253,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     status="no_improvement",
                 ),
             ],
-            workflow_samples=[],
+            eval_cases=[],
         )
 
         self.assertEqual(

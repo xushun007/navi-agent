@@ -47,5 +47,5 @@ def get_candidate_store_path() -> Path:
     return get_evolution_dir() / "candidates.jsonl"
 
 
-def get_workflow_sample_store_path() -> Path:
-    return get_evolution_dir() / "workflow-samples.jsonl"
+def get_eval_case_store_path() -> Path:
+    return get_evolution_dir() / "eval-cases.jsonl"

@@ -1,7 +1,7 @@
 import unittest
 
 from navi_agent.app import AppRequest, ApplicationService
-from navi_agent.evolution import EvolutionCandidate, WorkflowEvolutionSample
+from navi_agent.evolution import EvolutionCandidate, EvalCase
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -62,12 +62,12 @@ class FakeCandidateStore:
         return candidate
 
 
-class FakeWorkflowSampleStore:
+class FakeEvalCaseStore:
     def __init__(self) -> None:
         self.items = []
 
-    def add(self, sample) -> None:
-        self.items.append(sample)
+    def add(self, eval_case) -> None:
+        self.items.append(eval_case)
 
     def list_recent(self, limit=None):
         items = list(reversed(self.items))
@@ -385,12 +385,12 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertIsNone(updated)
         self.assertIsNone(overlay_store.text)
 
-    def test_add_and_list_workflow_samples_use_store(self) -> None:
+    def test_add_and_list_eval_cases_use_store(self) -> None:
         service = ApplicationService(
             runtime=FakeRuntime(),
-            workflow_sample_store=FakeWorkflowSampleStore(),
+            eval_case_store=FakeEvalCaseStore(),
         )
-        sample = WorkflowEvolutionSample(
+        eval_case = EvalCase(
             workflow_name="prototype-baseline",
             source_session_id="wf-1",
             replay_session_id="wf-2",
@@ -401,9 +401,9 @@ class ApplicationServiceTests(unittest.TestCase):
             summary="Workflow replay regressed compared with the source run",
         )
 
-        service.add_workflow_sample(sample)
+        service.add_eval_case(eval_case)
 
-        items = service.list_workflow_samples(limit=10)
+        items = service.list_eval_cases(limit=10)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].workflow_name, "prototype-baseline")
 

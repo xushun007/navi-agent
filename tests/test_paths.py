@@ -14,7 +14,7 @@ from navi_agent.paths import (
     get_prompt_overlay_path,
     get_prompt_overlay_snapshots_dir,
     get_state_db_path,
-    get_workflow_sample_store_path,
+    get_eval_case_store_path,
 )
 
 
@@ -38,8 +38,8 @@ class PathsTests(unittest.TestCase):
             self.assertEqual(get_prompt_overlay_snapshots_dir(), Path("/tmp/navi-home/evolution/prompt-overlay-snapshots"))
             self.assertEqual(get_candidate_store_path(), Path("/tmp/navi-home/evolution/candidates.jsonl"))
             self.assertEqual(
-                get_workflow_sample_store_path(),
-                Path("/tmp/navi-home/evolution/workflow-samples.jsonl"),
+                get_eval_case_store_path(),
+                Path("/tmp/navi-home/evolution/eval-cases.jsonl"),
             )
 
     def test_get_navi_home_defaults_under_workspace_when_env_missing(self) -> None:
