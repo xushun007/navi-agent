@@ -619,13 +619,17 @@ def _review_candidate(
         default_system_prompt=system_prompt,
         approval_provider=CliApprovalProvider(),
     )
-    pending_candidates = app.list_candidates(limit=50, status="pending")
+    pending_candidates = [
+        candidate
+        for candidate in app.list_candidates(limit=50, status="pending")
+        if getattr(candidate, "target", None) == "eval_case"
+    ]
     if not pending_candidates:
-        print("no pending candidate found")
+        print("no pending eval_case candidate found")
         return 1
     candidate = pending_candidates[0]
     metadata = getattr(candidate, "metadata", {}) or {}
-    print("candidate review:")
+    print("eval_case review:")
     print(f"candidate_id: {candidate.candidate_id}")
     print(f"candidate_target: {candidate.target}")
     print(f"candidate_summary: {candidate.summary}")

@@ -1123,11 +1123,38 @@ class CliTests(unittest.TestCase):
                         exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("candidate review:", stdout.getvalue())
+        self.assertIn("eval_case review:", stdout.getvalue())
         self.assertIn("candidate_id: c1", stdout.getvalue())
         self.assertIn("candidate_status: accepted", stdout.getvalue())
         self.assertEqual(candidate.status, "accepted")
         self.assertEqual(candidate.review_note, "interactive review accepted")
+
+    def test_main_review_candidate_skips_non_eval_case(self) -> None:
+        fake_app = FakeApp()
+        candidate = type(
+            "Candidate",
+            (),
+            {
+                "candidate_id": "c1",
+                "status": "pending",
+                "target": "prompt",
+                "summary": "Review prompt",
+                "rationale": "prompt issue",
+                "metadata": {},
+                "review_note": None,
+            },
+        )()
+        fake_app.saved_candidates.append(candidate)
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("sys.argv", ["navi-agent", "--review-candidate"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("no pending eval_case candidate found", stdout.getvalue())
+        self.assertEqual(candidate.status, "pending")
 
     def test_main_lists_eval_cases(self) -> None:
         fake_app = FakeApp()

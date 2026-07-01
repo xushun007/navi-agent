@@ -26,7 +26,7 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - 支持策略层的持续优化
 - `--compare-workflow` / `--evolution-run` / `--curator-run` / `--apply-candidate-run` 可加 `--confirm-eval-case`，先人工确认再把结果入库为 `EvalCase`
 - 真实 `console` / 微信会话若命中失败、空回复、重复工具、超时或审批阻塞，会自动生成 `target=eval_case` 的候选，使用 `--list-candidates` 和 `--accept-candidate` / `--reject-candidate` 复核
-- 也可以直接用 `--review-candidate` 交互确认最新的待处理候选，默认确认/拒绝两步走
+- 也可以直接用 `--review-candidate` 交互确认最新的待处理 `eval_case` 候选，默认确认/拒绝两步走
 
 ## 微信网关
 
