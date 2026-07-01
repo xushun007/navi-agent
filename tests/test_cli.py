@@ -135,6 +135,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.compare_workflow, "prototype-baseline")
         args = parser.parse_args(["--evolution-run", "prototype-baseline"])
         self.assertEqual(args.evolution_run, "prototype-baseline")
+        args = parser.parse_args(["--confirm-eval-case"])
+        self.assertTrue(args.confirm_eval_case)
         args = parser.parse_args(["--evolution-status"])
         self.assertTrue(args.evolution_status)
         args = parser.parse_args(["--curator-status"])
@@ -508,6 +510,121 @@ class CliTests(unittest.TestCase):
         run_smoke_workflow_mock.assert_called_once()
         replay_mock.assert_called_once()
         compare_mock.assert_called_once()
+
+    def test_main_runs_compare_workflow_with_confirmation(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        workflow_result = type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "session_id": "wf-1",
+            },
+        )()
+        comparison = type(
+            "WorkflowComparison",
+            (),
+            {
+                "workflow_name": "prototype-baseline",
+                "source_session_id": "wf-1",
+                "replay_session_id": "wf-1:replay:abcd1234",
+                "source_average_score": 1.0,
+                "replay_average_score": 0.9,
+                "score_delta": -0.1,
+                "eval_case": type(
+                    "EvalCase",
+                    (),
+                    {
+                        "workflow_name": "prototype-baseline",
+                        "status": "regressed",
+                        "source_average_score": 1.0,
+                        "replay_average_score": 0.9,
+                        "score_delta": -0.1,
+                    },
+                )(),
+                "candidate": None,
+                "step_comparisons": [],
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result):
+                with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result):
+                    with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison):
+                        with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
+                            report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
+                            with patch("builtins.input", return_value="y") as input_mock:
+                                with patch(
+                                    "sys.argv",
+                                    ["navi-agent", "--compare-workflow", "prototype-baseline", "--confirm-eval-case"],
+                                ):
+                                    with redirect_stdout(stdout):
+                                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("eval case candidate:", stdout.getvalue())
+        self.assertIn("eval_case_saved: yes", stdout.getvalue())
+        self.assertEqual(len(fake_app.saved_eval_cases), 1)
+        input_mock.assert_called_once()
+
+    def test_main_skips_eval_case_when_confirmation_rejected(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        workflow_result = type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "session_id": "wf-1",
+            },
+        )()
+        comparison = type(
+            "WorkflowComparison",
+            (),
+            {
+                "workflow_name": "prototype-baseline",
+                "source_session_id": "wf-1",
+                "replay_session_id": "wf-1:replay:abcd1234",
+                "source_average_score": 1.0,
+                "replay_average_score": 0.9,
+                "score_delta": -0.1,
+                "eval_case": type(
+                    "EvalCase",
+                    (),
+                    {
+                        "workflow_name": "prototype-baseline",
+                        "status": "regressed",
+                        "source_average_score": 1.0,
+                        "replay_average_score": 0.9,
+                        "score_delta": -0.1,
+                    },
+                )(),
+                "candidate": None,
+                "step_comparisons": [],
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result):
+                with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result):
+                    with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison):
+                        with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
+                            report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
+                            with patch("builtins.input", return_value="n"):
+                                with patch(
+                                    "sys.argv",
+                                    ["navi-agent", "--compare-workflow", "prototype-baseline", "--confirm-eval-case"],
+                                ):
+                                    with redirect_stdout(stdout):
+                                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("eval case candidate:", stdout.getvalue())
+        self.assertIn("eval_case_saved: no", stdout.getvalue())
+        self.assertEqual(len(fake_app.saved_eval_cases), 0)
 
     def test_main_runs_apply_candidate_workflow(self) -> None:
         first_app = FakeApp()

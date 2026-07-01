@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workflow")
     parser.add_argument("--compare-workflow")
     parser.add_argument("--evolution-run")
+    parser.add_argument("--confirm-eval-case", action="store_true")
     parser.add_argument("--evolution-status", action="store_true")
     parser.add_argument("--curator-status", action="store_true")
     parser.add_argument("--curator-run", action="store_true")
@@ -122,6 +123,7 @@ def main() -> int:
             system_prompt=args.system_prompt,
             review_note=args.candidate_note,
             dry_run=args.dry_run,
+            confirm_eval_case=args.confirm_eval_case,
         )
     if args.apply_candidate_run:
         if not args.candidate_id:
@@ -132,6 +134,7 @@ def main() -> int:
             session_id=args.session_id,
             system_prompt=args.system_prompt,
             review_note=args.candidate_note,
+            confirm_eval_case=args.confirm_eval_case,
         )
     candidate_action = _candidate_action_from_args(args)
     if candidate_action is not None:
@@ -478,6 +481,7 @@ def main() -> int:
             user_id=args.user_id,
             session_id=args.session_id,
             system_prompt=args.system_prompt,
+            confirm_eval_case=args.confirm_eval_case,
         )
     if args.interactive:
         return _run_interactive(
@@ -611,6 +615,7 @@ def _run_curator(
     system_prompt: str | None,
     review_note: str | None,
     dry_run: bool,
+    confirm_eval_case: bool,
 ) -> int:
     app = build_application(
         default_system_prompt=system_prompt,
@@ -640,6 +645,7 @@ def _run_curator(
         session_id=session_id,
         system_prompt=system_prompt,
         review_note=review_note or "curator-run applied top pending prompt candidate",
+        confirm_eval_case=confirm_eval_case,
     )
 
 
@@ -744,6 +750,7 @@ def _run_candidate_apply_workflow(
     session_id: str | None,
     system_prompt: str | None,
     review_note: str | None,
+    confirm_eval_case: bool,
 ) -> int:
     source_app = build_application(
         default_system_prompt=system_prompt,
@@ -785,10 +792,11 @@ def _run_candidate_apply_workflow(
         session_id=(session_id or source_result.session_id) + f":candidate:{candidate_id[:8]}",
         system_prompt=system_prompt,
     )
-    comparison, report_dir = _finalize_evolution_comparison(
+    comparison, report_dir, eval_case_saved = _finalize_evolution_comparison(
         app=rerun_app,
         source=source_result,
         replay=replay_result,
+        confirm_eval_case=confirm_eval_case,
     )
     outcome_status = _candidate_outcome_status(comparison.eval_case.status)
     updated = rerun_app.update_candidate_status(
@@ -801,7 +809,11 @@ def _run_candidate_apply_workflow(
     print(f"workflow: {workflow_name}")
     print(f"candidate_outcome: {comparison.eval_case.status}")
     print(f"candidate_report_path: {report_dir}")
-    _print_evolution_comparison(comparison=comparison, report_dir=report_dir)
+    _print_evolution_comparison(
+        comparison=comparison,
+        report_dir=report_dir,
+        eval_case_saved=eval_case_saved,
+    )
     return 0
 
 
@@ -812,6 +824,7 @@ def _run_evolution_workflow(
     user_id: str,
     session_id: str | None,
     system_prompt: str | None,
+    confirm_eval_case: bool,
 ) -> int:
     source = run_smoke_workflow(
         app=app,
@@ -825,12 +838,17 @@ def _run_evolution_workflow(
         workflow_result=source,
         system_prompt=system_prompt,
     )
-    comparison, report_dir = _finalize_evolution_comparison(
+    comparison, report_dir, eval_case_saved = _finalize_evolution_comparison(
         app=app,
         source=source,
         replay=replay,
+        confirm_eval_case=confirm_eval_case,
     )
-    _print_evolution_comparison(comparison=comparison, report_dir=report_dir)
+    _print_evolution_comparison(
+        comparison=comparison,
+        report_dir=report_dir,
+        eval_case_saved=eval_case_saved,
+    )
     return 0
 
 
@@ -839,9 +857,14 @@ def _finalize_evolution_comparison(
     app,
     source,
     replay,
+    confirm_eval_case: bool,
 ):
     comparison = compare_smoke_workflow_results(source, replay)
-    app.add_eval_case(comparison.eval_case)
+    save_eval_case = True
+    if confirm_eval_case:
+        save_eval_case = _confirm_eval_case(comparison)
+    if save_eval_case:
+        app.add_eval_case(comparison.eval_case)
     if comparison.candidate is not None:
         app.add_candidate(comparison.candidate)
     review_summary = ReviewLoopService().summarize(
@@ -852,10 +875,29 @@ def _finalize_evolution_comparison(
         comparison=comparison,
         review_summary=review_summary,
     )
-    return comparison, report_dir
+    return comparison, report_dir, save_eval_case
 
 
-def _print_evolution_comparison(*, comparison, report_dir) -> None:
+def _confirm_eval_case(comparison) -> bool:
+    print("eval case candidate:")
+    print(f"workflow: {comparison.workflow_name}")
+    print(f"status: {comparison.eval_case.status}")
+    print(f"source_average_score: {comparison.source_average_score}")
+    print(f"replay_average_score: {comparison.replay_average_score}")
+    print(f"score_delta: {comparison.score_delta}")
+    while True:
+        try:
+            answer = input("save eval case? [y/N]: ").strip().lower()
+        except EOFError:
+            return False
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"", "n", "no"}:
+            return False
+        print("please answer y or n")
+
+
+def _print_evolution_comparison(*, comparison, report_dir, eval_case_saved: bool) -> None:
     print(f"workflow: {comparison.workflow_name}")
     print(f"source_session_id: {comparison.source_session_id}")
     print(f"replay_session_id: {comparison.replay_session_id}")
@@ -863,6 +905,7 @@ def _print_evolution_comparison(*, comparison, report_dir) -> None:
     print(f"source_average_score: {comparison.source_average_score}")
     print(f"replay_average_score: {comparison.replay_average_score}")
     print(f"score_delta: {comparison.score_delta}")
+    print(f"eval_case_saved: {'yes' if eval_case_saved else 'no'}")
     print(f"report_path: {report_dir}")
     if comparison.candidate is not None:
         print(f"candidate_target: {comparison.candidate.target}")

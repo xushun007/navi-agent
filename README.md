@@ -24,6 +24,7 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - 建立最小运行时闭环
 - 建立反馈与评估机制
 - 支持策略层的持续优化
+- `--compare-workflow` / `--evolution-run` / `--curator-run` / `--apply-candidate-run` 可加 `--confirm-eval-case`，先人工确认再把结果入库为 `EvalCase`
 
 ## 微信网关
 
