@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from uuid import uuid4
 
 from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.evolution import EvaluationResult, EvolutionCandidate, SimpleEvaluator, EvalCase
+from navi_agent.evolution import ReviewLoopService
+from navi_agent.evolution import EvolutionReportWriter
+from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -72,6 +76,13 @@ class HealthcheckWorkflowComparison:
     score_delta: float
     eval_case: EvalCase
     candidate: EvolutionCandidate | None
+
+
+@dataclass(frozen=True, slots=True)
+class HealthcheckComparisonReport:
+    comparison: HealthcheckWorkflowComparison
+    report_dir: Path
+    eval_case_saved: bool
 
 
 HEALTHCHECK_TASKS: dict[str, HealthcheckTask] = {
@@ -287,6 +298,82 @@ def compare_healthcheck_workflow_results(
         eval_case=eval_case,
         candidate=candidate,
     )
+
+
+class HealthcheckWorkflowService:
+    def __init__(
+        self,
+        *,
+        app: ApplicationService,
+        report_root: Path | None = None,
+        evaluator: SimpleEvaluator | None = None,
+    ) -> None:
+        self._app = app
+        self._report_root = report_root or get_evolution_reports_dir()
+        self._evaluator = evaluator or SimpleEvaluator()
+
+    def run_comparison_workflow(
+        self,
+        *,
+        workflow_name: str,
+        user_id: str,
+        session_id: str | None = None,
+        system_prompt: str | None = None,
+        confirm_eval_case: bool = False,
+        confirm_eval_case_callback=None,
+    ) -> HealthcheckComparisonReport:
+        source = run_healthcheck_workflow(
+            app=self._app,
+            workflow_name=workflow_name,
+            user_id=user_id,
+            session_id=session_id,
+            system_prompt=system_prompt,
+        )
+        replay = replay_healthcheck_workflow(
+            app=self._app,
+            workflow_result=source,
+            system_prompt=system_prompt,
+        )
+        return self.finalize_comparison(
+            source=source,
+            replay=replay,
+            confirm_eval_case=confirm_eval_case,
+            confirm_eval_case_callback=confirm_eval_case_callback,
+        )
+
+    def finalize_comparison(
+        self,
+        *,
+        source: HealthcheckWorkflowResult,
+        replay: HealthcheckWorkflowResult,
+        confirm_eval_case: bool = False,
+        confirm_eval_case_callback=None,
+    ) -> HealthcheckComparisonReport:
+        comparison = compare_healthcheck_workflow_results(
+            source,
+            replay,
+            evaluator=self._evaluator,
+        )
+        save_eval_case = True
+        if confirm_eval_case and confirm_eval_case_callback is not None:
+            save_eval_case = bool(confirm_eval_case_callback(comparison))
+        if save_eval_case:
+            self._app.add_eval_case(comparison.eval_case)
+        if comparison.candidate is not None:
+            self._app.add_candidate(comparison.candidate)
+        review_summary = ReviewLoopService().summarize(
+            candidates=self._app.list_candidates(limit=50),
+            eval_cases=self._app.list_eval_cases(limit=50),
+        )
+        report_dir = EvolutionReportWriter(self._report_root).write_workflow_comparison_report(
+            comparison=comparison,
+            review_summary=review_summary,
+        )
+        return HealthcheckComparisonReport(
+            comparison=comparison,
+            report_dir=report_dir,
+            eval_case_saved=save_eval_case,
+        )
 
 
 def _average_score(scores) -> float:

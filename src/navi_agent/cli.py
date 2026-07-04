@@ -17,8 +17,8 @@ from navi_agent.evolution import (
     IfevalEvaluator,
     IfevalRunStore,
     IfevalRunWriter,
-    EvolutionReportStore,
     EvolutionReportWriter,
+    EvolutionReportStore,
     IfevalWorkflowService,
     PromptOverlayStore,
     ReviewLoopService,
@@ -41,6 +41,7 @@ from navi_agent.runtime import ConversationState
 from navi_agent.runtime import SQLiteSessionStore
 from navi_agent.healthcheck import (
     compare_healthcheck_workflow_results,
+    HealthcheckWorkflowService,
     list_healthcheck_tasks,
     list_healthcheck_workflows,
     replay_healthcheck_workflow,

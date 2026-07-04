@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from navi_agent.evolution import EvalCase
 from navi_agent.runtime import RuntimeResult
@@ -12,6 +14,7 @@ from navi_agent.healthcheck import (
     replay_healthcheck_workflow,
     run_healthcheck_task,
     run_healthcheck_workflow,
+    HealthcheckWorkflowService,
 )
 
 
@@ -19,6 +22,8 @@ class FakeApp:
     def __init__(self) -> None:
         self.calls = []
         self.trace_counter = 0
+        self.saved_eval_cases = []
+        self.saved_candidates = []
 
     def handle(self, request):
         self.calls.append(request)
@@ -38,6 +43,18 @@ class FakeApp:
             status="success",
             trace_id=f"trace-{self.trace_counter}",
         )
+
+    def add_eval_case(self, eval_case) -> None:
+        self.saved_eval_cases.append(eval_case)
+
+    def add_candidate(self, candidate) -> None:
+        self.saved_candidates.append(candidate)
+
+    def list_candidates(self, limit=50, status=None):
+        return list(reversed(self.saved_candidates[-limit:]))
+
+    def list_eval_cases(self, limit=50):
+        return list(reversed(self.saved_eval_cases[-limit:]))
 
 
 class HealthcheckTests(unittest.TestCase):
@@ -179,6 +196,36 @@ class HealthcheckTests(unittest.TestCase):
         self.assertIsNotNone(comparison.candidate)
         self.assertEqual(comparison.candidate.target, "prompt")
         self.assertEqual(comparison.candidate.metadata["workflow_name"], "product-orientation")
+
+    def test_healthcheck_workflow_service_finalizes_comparison_and_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = FakeApp()
+            source = run_healthcheck_workflow(
+                app=app,
+                workflow_name="product-orientation",
+                user_id="u1",
+                session_id="wf-1",
+                system_prompt="system",
+            )
+            replay = run_healthcheck_workflow(
+                app=app,
+                workflow_name="product-orientation",
+                user_id="u1",
+                session_id="wf-2",
+                system_prompt="system",
+            )
+            service = HealthcheckWorkflowService(
+                app=app,
+                report_root=Path(tmpdir) / "reports",
+            )
+
+            result = service.finalize_comparison(source=source, replay=replay)
+            report_exists = result.report_dir.exists()
+
+        self.assertTrue(result.eval_case_saved)
+        self.assertTrue(report_exists)
+        self.assertEqual(len(app.saved_eval_cases), 1)
+        self.assertEqual(result.comparison.workflow_name, "product-orientation")
 
 
 if __name__ == "__main__":
