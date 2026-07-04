@@ -10,21 +10,21 @@ from navi_agent.telemetry import RuntimeTrace
 
 
 @dataclass(frozen=True, slots=True)
-class SmokeTask:
+class HealthcheckTask:
     name: str
     description: str
     prompt: str
 
 
 @dataclass(frozen=True, slots=True)
-class SmokeWorkflow:
+class HealthcheckWorkflow:
     name: str
     description: str
     steps: list[str]
 
 
 @dataclass(frozen=True, slots=True)
-class SmokeStepResult:
+class HealthcheckStepResult:
     task_name: str
     runtime_result: RuntimeResult
     trace: RuntimeTrace | None = None
@@ -43,30 +43,30 @@ class SmokeStepResult:
 
 
 @dataclass(frozen=True, slots=True)
-class SmokeWorkflowResult:
-    workflow: SmokeWorkflow
+class HealthcheckWorkflowResult:
+    workflow: HealthcheckWorkflow
     session_id: str
     user_id: str
     system_prompt: str | None
-    steps: list[SmokeStepResult]
+    steps: list[HealthcheckStepResult]
 
 
 @dataclass(frozen=True, slots=True)
-class SmokeStepComparison:
+class HealthcheckStepComparison:
     task_name: str
-    source_step: SmokeStepResult
-    replay_step: SmokeStepResult
+    source_step: HealthcheckStepResult
+    replay_step: HealthcheckStepResult
     source_evaluation: EvaluationResult | None
     replay_evaluation: EvaluationResult | None
     score_delta: float
 
 
 @dataclass(frozen=True, slots=True)
-class SmokeWorkflowComparison:
+class HealthcheckWorkflowComparison:
     workflow_name: str
     source_session_id: str
     replay_session_id: str
-    step_comparisons: list[SmokeStepComparison]
+    step_comparisons: list[HealthcheckStepComparison]
     source_average_score: float
     replay_average_score: float
     score_delta: float
@@ -74,40 +74,40 @@ class SmokeWorkflowComparison:
     candidate: EvolutionCandidate | None
 
 
-SMOKE_TASKS: dict[str, SmokeTask] = {
-    "readme-summary": SmokeTask(
+HEALTHCHECK_TASKS: dict[str, HealthcheckTask] = {
+    "readme-summary": HealthcheckTask(
         name="readme-summary",
         description="Read the project README and summarize the current product goal.",
         prompt="阅读 README.md，简要总结这个项目的目标、当前范围和后续方向。",
     ),
-    "runtime-trace-check": SmokeTask(
+    "runtime-trace-check": HealthcheckTask(
         name="runtime-trace-check",
         description="Inspect runtime and telemetry code, then summarize the trace flow.",
         prompt="检查 src/navi_agent/runtime 和 src/navi_agent/telemetry，说明一次运行的 trace 是如何被记录和导出的。",
     ),
-    "config-check": SmokeTask(
+    "config-check": HealthcheckTask(
         name="config-check",
         description="Inspect config.example.yaml and explain the minimum required configuration.",
         prompt="读取 config.example.yaml，说明运行这个 agent 最少需要配置哪些字段。",
     ),
-    "workspace-search": SmokeTask(
+    "workspace-search": HealthcheckTask(
         name="workspace-search",
         description="Use file search tools to locate the main CLI and runtime entrypoints.",
         prompt="定位这个项目的 CLI 入口、应用入口和 runtime 入口，并简要说明它们的关系。",
     ),
 }
 
-SMOKE_WORKFLOWS: dict[str, SmokeWorkflow] = {
-    "agent-healthcheck": SmokeWorkflow(
+HEALTHCHECK_WORKFLOWS: dict[str, HealthcheckWorkflow] = {
+    "agent-healthcheck": HealthcheckWorkflow(
         name="agent-healthcheck",
-        description="Run the config, entrypoint, and trace-flow smoke checks.",
+        description="Run the config, entrypoint, and trace-flow health checks.",
         steps=[
             "config-check",
             "workspace-search",
             "runtime-trace-check",
         ],
     ),
-    "product-orientation": SmokeWorkflow(
+    "product-orientation": HealthcheckWorkflow(
         name="product-orientation",
         description="Verify README understanding and project entrypoint discovery.",
         steps=[
@@ -118,22 +118,22 @@ SMOKE_WORKFLOWS: dict[str, SmokeWorkflow] = {
 }
 
 
-def list_smoke_tasks() -> list[SmokeTask]:
-    return [SMOKE_TASKS[name] for name in sorted(SMOKE_TASKS)]
+def list_healthcheck_tasks() -> list[HealthcheckTask]:
+    return [HEALTHCHECK_TASKS[name] for name in sorted(HEALTHCHECK_TASKS)]
 
 
-def list_smoke_workflows() -> list[SmokeWorkflow]:
-    return [SMOKE_WORKFLOWS[name] for name in sorted(SMOKE_WORKFLOWS)]
+def list_healthcheck_workflows() -> list[HealthcheckWorkflow]:
+    return [HEALTHCHECK_WORKFLOWS[name] for name in sorted(HEALTHCHECK_WORKFLOWS)]
 
 
-def get_smoke_task(name: str) -> SmokeTask:
+def get_healthcheck_task(name: str) -> HealthcheckTask:
     try:
-        return SMOKE_TASKS[name]
+        return HEALTHCHECK_TASKS[name]
     except KeyError as exc:
-        raise ValueError(f"Unknown smoke task: {name}") from exc
+        raise ValueError(f"Unknown healthcheck task: {name}") from exc
 
 
-def run_smoke_task(
+def run_healthcheck_task(
     *,
     app: ApplicationService,
     task_name: str,
@@ -141,11 +141,11 @@ def run_smoke_task(
     session_id: str | None = None,
     system_prompt: str | None = None,
 ):
-    task = get_smoke_task(task_name)
+    task = get_healthcheck_task(task_name)
     return app.handle(
         AppRequest(
             user_id=user_id,
-            session_id=session_id or f"smoke-{task.name}-{uuid4().hex[:8]}",
+            session_id=session_id or f"healthcheck-{task.name}-{uuid4().hex[:8]}",
             message=task.prompt,
             system_prompt=system_prompt,
             auto_propose_eval_case=False,
@@ -153,27 +153,27 @@ def run_smoke_task(
     )
 
 
-def get_smoke_workflow(name: str) -> SmokeWorkflow:
+def get_healthcheck_workflow(name: str) -> HealthcheckWorkflow:
     try:
-        return SMOKE_WORKFLOWS[name]
+        return HEALTHCHECK_WORKFLOWS[name]
     except KeyError as exc:
-        raise ValueError(f"Unknown smoke workflow: {name}") from exc
+        raise ValueError(f"Unknown healthcheck workflow: {name}") from exc
 
 
-def run_smoke_workflow(
+def run_healthcheck_workflow(
     *,
     app: ApplicationService,
     workflow_name: str,
     user_id: str,
     session_id: str | None = None,
     system_prompt: str | None = None,
-) -> SmokeWorkflowResult:
-    workflow = get_smoke_workflow(workflow_name)
+) -> HealthcheckWorkflowResult:
+    workflow = get_healthcheck_workflow(workflow_name)
     workflow_session_id = session_id or f"workflow-{workflow.name}-{uuid4().hex[:8]}"
-    steps: list[SmokeStepResult] = []
+    steps: list[HealthcheckStepResult] = []
 
     for task_name in workflow.steps:
-        result = run_smoke_task(
+        result = run_healthcheck_task(
             app=app,
             task_name=task_name,
             user_id=user_id,
@@ -185,14 +185,14 @@ def run_smoke_workflow(
             user_id=user_id,
         )
         steps.append(
-            SmokeStepResult(
+            HealthcheckStepResult(
                 task_name=task_name,
                 runtime_result=result,
                 trace=latest_trace,
             )
         )
 
-    return SmokeWorkflowResult(
+    return HealthcheckWorkflowResult(
         workflow=workflow,
         session_id=workflow_session_id,
         user_id=user_id,
@@ -201,16 +201,16 @@ def run_smoke_workflow(
     )
 
 
-def replay_smoke_workflow(
+def replay_healthcheck_workflow(
     *,
     app: ApplicationService,
-    workflow_result: SmokeWorkflowResult,
+    workflow_result: HealthcheckWorkflowResult,
     user_id: str | None = None,
     session_id: str | None = None,
     system_prompt: str | None = None,
-) -> SmokeWorkflowResult:
+) -> HealthcheckWorkflowResult:
     replay_session_id = session_id or f"{workflow_result.session_id}:replay:{uuid4().hex[:8]}"
-    return run_smoke_workflow(
+    return run_healthcheck_workflow(
         app=app,
         workflow_name=workflow_result.workflow.name,
         user_id=user_id or workflow_result.user_id,
@@ -219,19 +219,19 @@ def replay_smoke_workflow(
     )
 
 
-def compare_smoke_workflow_results(
-    source: SmokeWorkflowResult,
-    replay: SmokeWorkflowResult,
+def compare_healthcheck_workflow_results(
+    source: HealthcheckWorkflowResult,
+    replay: HealthcheckWorkflowResult,
     *,
     evaluator: SimpleEvaluator | None = None,
-) -> SmokeWorkflowComparison:
+) -> HealthcheckWorkflowComparison:
     if source.workflow.name != replay.workflow.name:
         raise ValueError("Cannot compare workflow results from different workflows")
     if len(source.steps) != len(replay.steps):
         raise ValueError("Cannot compare workflow results with different step counts")
 
     evaluator = evaluator or SimpleEvaluator()
-    step_comparisons: list[SmokeStepComparison] = []
+    step_comparisons: list[HealthcheckStepComparison] = []
 
     for source_step, replay_step in zip(source.steps, replay.steps, strict=True):
         source_evaluation = evaluator.evaluate(source_step.trace) if source_step.trace is not None else None
@@ -239,7 +239,7 @@ def compare_smoke_workflow_results(
         source_score = source_evaluation.score if source_evaluation is not None else 0.0
         replay_score = replay_evaluation.score if replay_evaluation is not None else 0.0
         step_comparisons.append(
-            SmokeStepComparison(
+            HealthcheckStepComparison(
                 task_name=source_step.task_name,
                 source_step=source_step,
                 replay_step=replay_step,
@@ -276,7 +276,7 @@ def compare_smoke_workflow_results(
         evaluator=evaluator,
     )
 
-    return SmokeWorkflowComparison(
+    return HealthcheckWorkflowComparison(
         workflow_name=source.workflow.name,
         source_session_id=source.session_id,
         replay_session_id=replay.session_id,
@@ -304,7 +304,7 @@ def _build_eval_case(
     source_average_score: float,
     replay_average_score: float,
     score_delta: float,
-    step_comparisons: list[SmokeStepComparison],
+    step_comparisons: list[HealthcheckStepComparison],
 ) -> EvalCase:
     if score_delta > 0.01:
         status = "improved"
@@ -342,7 +342,7 @@ def _build_eval_case(
 
 def _build_candidate_from_comparison(
     *,
-    step_comparisons: list[SmokeStepComparison],
+    step_comparisons: list[HealthcheckStepComparison],
     eval_case: EvalCase,
     evaluator: SimpleEvaluator,
 ) -> EvolutionCandidate | None:
@@ -377,8 +377,8 @@ def _build_candidate_from_comparison(
     )
 
     if eval_case.status == "regressed":
-        candidate.summary = f"Review workflow regression in {worst_step.task_name} ({candidate.target})"
+        candidate.summary = f"Review healthcheck regression in {worst_step.task_name} ({candidate.target})"
     elif eval_case.status == "unchanged":
-        candidate.summary = f"Review stagnant workflow step {worst_step.task_name} ({candidate.target})"
+        candidate.summary = f"Review stagnant healthcheck step {worst_step.task_name} ({candidate.target})"
 
     return candidate

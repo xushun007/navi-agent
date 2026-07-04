@@ -28,13 +28,13 @@ from navi_agent.paths import get_eval_seed_path
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
 from navi_agent.runtime import CliApprovalProvider
-from navi_agent.smoke import (
-    compare_smoke_workflow_results,
-    list_smoke_tasks,
-    list_smoke_workflows,
-    replay_smoke_workflow,
-    run_smoke_task,
-    run_smoke_workflow,
+from navi_agent.healthcheck import (
+    compare_healthcheck_workflow_results,
+    list_healthcheck_tasks,
+    list_healthcheck_workflows,
+    replay_healthcheck_workflow,
+    run_healthcheck_task,
+    run_healthcheck_workflow,
 )
 
 
@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gateway", choices=["weixin"])
     parser.add_argument("--gateway-pairings", choices=["weixin"])
     parser.add_argument("--approve-gateway-pairing")
-    parser.add_argument("--smoke")
+    parser.add_argument("--healthcheck")
     parser.add_argument("--workflow")
     parser.add_argument("--compare-workflow")
     parser.add_argument("--evolution-run")
@@ -98,8 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-queue", action="store_true")
     parser.add_argument("--candidate-work-items", action="store_true")
     parser.add_argument("--review-eval-case", action="store_true")
-    parser.add_argument("--list-smoke-tasks", action="store_true")
-    parser.add_argument("--list-smoke-workflows", action="store_true")
+    parser.add_argument("--list-healthcheck-tasks", action="store_true")
+    parser.add_argument("--list-healthcheck-workflows", action="store_true")
     return parser
 
 
@@ -119,12 +119,12 @@ def main() -> int:
         return _run_gateway(args)
     if args.review_eval_case:
         return _review_eval_case(system_prompt=args.system_prompt)
-    if args.list_smoke_tasks:
-        for task in list_smoke_tasks():
+    if args.list_healthcheck_tasks:
+        for task in list_healthcheck_tasks():
             print(f"{task.name}: {task.description}")
         return 0
-    if args.list_smoke_workflows:
-        for workflow in list_smoke_workflows():
+    if args.list_healthcheck_workflows:
+        for workflow in list_healthcheck_workflows():
             print(f"{workflow.name}: {workflow.description}")
         return 0
     if args.curator_run:
@@ -436,7 +436,7 @@ def main() -> int:
         return 0
     if (
         not args.interactive
-        and not args.smoke
+        and not args.healthcheck
         and not args.gateway
         and not args.gateway_pairings
         and not args.approve_gateway_pairing
@@ -467,10 +467,10 @@ def main() -> int:
         default_system_prompt=args.system_prompt,
         approval_provider=CliApprovalProvider(),
     )
-    if args.smoke:
-        result = run_smoke_task(
+    if args.healthcheck:
+        result = run_healthcheck_task(
             app=app,
-            task_name=args.smoke,
+            task_name=args.healthcheck,
             user_id=args.user_id,
             session_id=args.session_id,
             system_prompt=args.system_prompt,
@@ -478,7 +478,7 @@ def main() -> int:
         print(result.final_response)
         return 0
     if args.workflow:
-        workflow_result = run_smoke_workflow(
+        workflow_result = run_healthcheck_workflow(
             app=app,
             workflow_name=args.workflow,
             user_id=args.user_id,
@@ -896,7 +896,7 @@ def _run_candidate_apply_workflow(
     if not workflow_name:
         print(f"candidate has no workflow context: {candidate_id}")
         return 1
-    source_result = run_smoke_workflow(
+    source_result = run_healthcheck_workflow(
         app=source_app,
         workflow_name=workflow_name,
         user_id=user_id,
@@ -914,7 +914,7 @@ def _run_candidate_apply_workflow(
         default_system_prompt=system_prompt,
         approval_provider=CliApprovalProvider(),
     )
-    replay_result = run_smoke_workflow(
+    replay_result = run_healthcheck_workflow(
         app=rerun_app,
         workflow_name=workflow_name,
         user_id=user_id,
@@ -955,14 +955,14 @@ def _run_evolution_workflow(
     system_prompt: str | None,
     confirm_eval_case: bool,
 ) -> int:
-    source = run_smoke_workflow(
+    source = run_healthcheck_workflow(
         app=app,
         workflow_name=workflow_name,
         user_id=user_id,
         session_id=session_id,
         system_prompt=system_prompt,
     )
-    replay = replay_smoke_workflow(
+    replay = replay_healthcheck_workflow(
         app=app,
         workflow_result=source,
         system_prompt=system_prompt,
@@ -988,7 +988,7 @@ def _finalize_evolution_comparison(
     replay,
     confirm_eval_case: bool,
 ):
-    comparison = compare_smoke_workflow_results(source, replay)
+    comparison = compare_healthcheck_workflow_results(source, replay)
     save_eval_case = True
     if confirm_eval_case:
         save_eval_case = _confirm_eval_case(comparison)

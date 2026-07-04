@@ -8,25 +8,25 @@ from tempfile import TemporaryDirectory
 from navi_agent.evolution import EvolutionReportStore, EvolutionReportWriter, ReviewLoopSummary
 from navi_agent.evolution.models import EvaluationResult, EvolutionCandidate, EvalCase
 from navi_agent.runtime import RuntimeResult
-from navi_agent.smoke import (
-    SmokeStepComparison,
-    SmokeStepResult,
-    SmokeWorkflow,
-    SmokeWorkflowComparison,
+from navi_agent.healthcheck import (
+    HealthcheckStepComparison,
+    HealthcheckStepResult,
+    HealthcheckWorkflow,
+    HealthcheckWorkflowComparison,
 )
 from navi_agent.telemetry import RuntimeTrace
 
 
 class EvolutionReportWriterTests(unittest.TestCase):
     def test_write_workflow_comparison_report_creates_json_and_markdown(self) -> None:
-        comparison = SmokeWorkflowComparison(
+        comparison = HealthcheckWorkflowComparison(
             workflow_name="agent-healthcheck",
             source_session_id="wf-1",
             replay_session_id="wf-2",
             step_comparisons=[
-                SmokeStepComparison(
+                HealthcheckStepComparison(
                     task_name="config-check",
-                    source_step=SmokeStepResult(
+                    source_step=HealthcheckStepResult(
                         task_name="config-check",
                         runtime_result=RuntimeResult(session_id="wf-1", status="success", final_response="source"),
                         trace=RuntimeTrace(
@@ -38,7 +38,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
                             trace_id="trace-1",
                         ),
                     ),
-                    replay_step=SmokeStepResult(
+                    replay_step=HealthcheckStepResult(
                         task_name="config-check",
                         runtime_result=RuntimeResult(session_id="wf-2", status="success", final_response="replay"),
                         trace=RuntimeTrace(
@@ -70,7 +70,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
             ),
             candidate=EvolutionCandidate(
                 target="prompt",
-                summary="Review workflow regression in config-check (prompt)",
+                summary="Review healthcheck regression in config-check (prompt)",
                 rationale="empty response observed",
             ),
         )
@@ -116,7 +116,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
         self.assertIn("verified candidate count", report_md)
 
     def test_report_store_loads_latest_report(self) -> None:
-        comparison = SmokeWorkflowComparison(
+        comparison = HealthcheckWorkflowComparison(
             workflow_name="agent-healthcheck",
             source_session_id="wf-1",
             replay_session_id="wf-2",

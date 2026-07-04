@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from .review import ReviewLoopSummary
 
 if TYPE_CHECKING:
-    from navi_agent.smoke import SmokeWorkflowComparison
+    from navi_agent.healthcheck import HealthcheckWorkflowComparison
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +32,7 @@ class EvolutionReportWriter:
     def write_workflow_comparison_report(
         self,
         *,
-        comparison: SmokeWorkflowComparison,
+        comparison: HealthcheckWorkflowComparison,
         review_summary: ReviewLoopSummary | None = None,
     ) -> Path:
         run_dir = self._new_run_dir()
@@ -67,7 +67,7 @@ class EvolutionReportWriter:
     @staticmethod
     def _build_payload(
         *,
-        comparison: SmokeWorkflowComparison,
+        comparison: HealthcheckWorkflowComparison,
         review_summary: ReviewLoopSummary | None,
     ) -> dict:
         return {
@@ -96,7 +96,7 @@ class EvolutionReportWriter:
     @staticmethod
     def _build_markdown(
         *,
-        comparison: SmokeWorkflowComparison,
+        comparison: HealthcheckWorkflowComparison,
         review_summary: ReviewLoopSummary | None,
     ) -> str:
         lines = [

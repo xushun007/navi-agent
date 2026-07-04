@@ -110,13 +110,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.gateway_pairings, "weixin")
         self.assertEqual(args.approve_gateway_pairing, "123456")
 
-    def test_build_parser_parses_smoke_flags(self) -> None:
+    def test_build_parser_parses_healthcheck_flags(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["--smoke", "config-check"])
+        args = parser.parse_args(["--healthcheck", "config-check"])
 
-        self.assertEqual(args.smoke, "config-check")
-        self.assertFalse(args.list_smoke_tasks)
+        self.assertEqual(args.healthcheck, "config-check")
+        self.assertFalse(args.list_healthcheck_tasks)
         self.assertIsNone(args.workflow)
 
     def test_build_parser_parses_workflow_flags(self) -> None:
@@ -125,7 +125,7 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["--workflow", "agent-healthcheck"])
 
         self.assertEqual(args.workflow, "agent-healthcheck")
-        self.assertFalse(args.list_smoke_workflows)
+        self.assertFalse(args.list_healthcheck_workflows)
 
     def test_build_parser_parses_compare_workflow_flag(self) -> None:
         parser = build_parser()
@@ -328,52 +328,52 @@ class CliTests(unittest.TestCase):
         self.assertIn("powered by xushun", stdout.getvalue())
         self.assertIn("███╗   ██╗", stdout.getvalue())
 
-    def test_main_lists_smoke_tasks(self) -> None:
+    def test_main_lists_healthcheck_tasks(self) -> None:
         stdout = io.StringIO()
 
         with patch(
-            "navi_agent.cli.list_smoke_tasks",
+            "navi_agent.cli.list_healthcheck_tasks",
             return_value=[type("Task", (), {"name": "config-check", "description": "desc"})()],
         ):
-            with patch("sys.argv", ["navi-agent", "--list-smoke-tasks"]):
+            with patch("sys.argv", ["navi-agent", "--list-healthcheck-tasks"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "config-check: desc")
 
-    def test_main_lists_smoke_workflows(self) -> None:
+    def test_main_lists_healthcheck_workflows(self) -> None:
         stdout = io.StringIO()
 
         with patch(
-            "navi_agent.cli.list_smoke_workflows",
+            "navi_agent.cli.list_healthcheck_workflows",
             return_value=[type("Workflow", (), {"name": "agent-healthcheck", "description": "desc"})()],
         ):
-            with patch("sys.argv", ["navi-agent", "--list-smoke-workflows"]):
+            with patch("sys.argv", ["navi-agent", "--list-healthcheck-workflows"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "agent-healthcheck: desc")
 
-    def test_main_runs_smoke_task(self) -> None:
+    def test_main_runs_healthcheck_task(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
             with patch(
-                "navi_agent.cli.run_smoke_task",
+                "navi_agent.cli.run_healthcheck_task",
                 return_value=RuntimeResult(session_id="s1", status="success", final_response="done"),
-            ) as run_smoke_task_mock:
-                with patch("sys.argv", ["navi-agent", "--smoke", "config-check"]):
+            ) as run_healthcheck_task_mock:
+                with patch("sys.argv", ["navi-agent", "--healthcheck", "config-check"]):
                     with redirect_stdout(stdout):
                         exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "done")
-        run_smoke_task_mock.assert_called_once()
+        run_healthcheck_task_mock.assert_called_once()
 
-    def test_main_runs_smoke_workflow(self) -> None:
+    def test_main_runs_healthcheck_workflow(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
         fake_app.list_candidates = lambda limit=50: [
@@ -424,9 +424,9 @@ class CliTests(unittest.TestCase):
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
             with patch(
-                "navi_agent.cli.run_smoke_workflow",
+                "navi_agent.cli.run_healthcheck_workflow",
                 return_value=workflow_result,
-            ) as run_smoke_workflow_mock:
+            ) as run_healthcheck_workflow_mock:
                 with patch("sys.argv", ["navi-agent", "--workflow", "agent-healthcheck"]):
                     with redirect_stdout(stdout):
                         exit_code = main()
@@ -436,7 +436,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("[1] config-check", stdout.getvalue())
         self.assertIn("trace_id: trace-1", stdout.getvalue())
         self.assertIn("second", stdout.getvalue())
-        run_smoke_workflow_mock.assert_called_once()
+        run_healthcheck_workflow_mock.assert_called_once()
 
     def test_main_runs_compare_workflow(self) -> None:
         fake_app = FakeApp()
@@ -497,9 +497,9 @@ class CliTests(unittest.TestCase):
         )()
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result) as run_smoke_workflow_mock:
-                with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result) as replay_mock:
-                    with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison) as compare_mock:
+            with patch("navi_agent.cli.run_healthcheck_workflow", return_value=workflow_result) as run_healthcheck_workflow_mock:
+                with patch("navi_agent.cli.replay_healthcheck_workflow", return_value=workflow_result) as replay_mock:
+                    with patch("navi_agent.cli.compare_healthcheck_workflow_results", return_value=comparison) as compare_mock:
                         with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
                             with patch("sys.argv", ["navi-agent", "--compare-workflow", "agent-healthcheck"]):
                                 with redirect_stdout(stdout):
@@ -515,7 +515,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("replay_trace_id: trace-2", stdout.getvalue())
         self.assertEqual(len(fake_app.saved_eval_cases), 1)
         self.assertEqual(len(fake_app.saved_candidates), 1)
-        run_smoke_workflow_mock.assert_called_once()
+        run_healthcheck_workflow_mock.assert_called_once()
         replay_mock.assert_called_once()
         compare_mock.assert_called_once()
 
@@ -558,9 +558,9 @@ class CliTests(unittest.TestCase):
         )()
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result):
-                with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result):
-                    with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison):
+            with patch("navi_agent.cli.run_healthcheck_workflow", return_value=workflow_result):
+                with patch("navi_agent.cli.replay_healthcheck_workflow", return_value=workflow_result):
+                    with patch("navi_agent.cli.compare_healthcheck_workflow_results", return_value=comparison):
                         with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
                             report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
                             with patch("builtins.input", return_value="y") as input_mock:
@@ -616,9 +616,9 @@ class CliTests(unittest.TestCase):
         )()
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.run_smoke_workflow", return_value=workflow_result):
-                with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result):
-                    with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison):
+            with patch("navi_agent.cli.run_healthcheck_workflow", return_value=workflow_result):
+                with patch("navi_agent.cli.replay_healthcheck_workflow", return_value=workflow_result):
+                    with patch("navi_agent.cli.compare_healthcheck_workflow_results", return_value=comparison):
                         with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
                             report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
                             with patch("builtins.input", return_value="n"):
@@ -699,11 +699,11 @@ class CliTests(unittest.TestCase):
 
         with patch("navi_agent.cli.build_application", side_effect=[first_app, rerun_app]):
             with patch(
-                "navi_agent.cli.run_smoke_workflow",
+                "navi_agent.cli.run_healthcheck_workflow",
                 side_effect=[source_workflow_result, replay_workflow_result],
-            ) as run_smoke_workflow_mock:
-                with patch("navi_agent.cli.replay_smoke_workflow"):
-                    with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison):
+            ) as run_healthcheck_workflow_mock:
+                with patch("navi_agent.cli.replay_healthcheck_workflow"):
+                    with patch("navi_agent.cli.compare_healthcheck_workflow_results", return_value=comparison):
                         with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
                             with patch("sys.argv", ["navi-agent", "--candidate-id", "c1", "--apply-candidate-run"]):
                                 with redirect_stdout(stdout):
@@ -718,7 +718,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("workflow: agent-healthcheck", stdout.getvalue())
         self.assertIn("candidate_outcome: improved", stdout.getvalue())
         self.assertIn("candidate_report_path: /tmp/report", stdout.getvalue())
-        self.assertEqual(run_smoke_workflow_mock.call_count, 2)
+        self.assertEqual(run_healthcheck_workflow_mock.call_count, 2)
 
     def test_main_runs_evolution_status(self) -> None:
         fake_app = FakeApp()
@@ -1394,7 +1394,7 @@ class CliTests(unittest.TestCase):
                         {
                             "candidate_id": "c1",
                             "target": "prompt",
-                            "summary": "Review workflow regression in runtime-trace-check (prompt)",
+                            "summary": "Review healthcheck regression in runtime-trace-check (prompt)",
                             "metadata": {
                                 "workflow_name": "agent-healthcheck",
                                 "workflow_status": "regressed",
@@ -1409,7 +1409,7 @@ class CliTests(unittest.TestCase):
                         {
                             "candidate_id": "c2",
                             "target": "tooling",
-                            "summary": "Review stagnant workflow step workspace-search (tooling)",
+                            "summary": "Review stagnant healthcheck step workspace-search (tooling)",
                             "metadata": {
                                 "workflow_name": "product-orientation",
                                 "workflow_status": "unchanged",
@@ -1433,7 +1433,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("pending_candidate_count: 2", stdout.getvalue())
         self.assertIn("candidate_queue:", stdout.getvalue())
-        self.assertIn("- c1 [prompt] Review workflow regression in runtime-trace-check (prompt)", stdout.getvalue())
+        self.assertIn("- c1 [prompt] Review healthcheck regression in runtime-trace-check (prompt)", stdout.getvalue())
         self.assertIn("workflow=agent-healthcheck status=regressed workflow_score_delta=-0.3 step=runtime-trace-check", stdout.getvalue())
 
     def test_main_runs_candidate_work_items(self) -> None:
@@ -1448,7 +1448,7 @@ class CliTests(unittest.TestCase):
                     {
                         "candidate_id": "c1",
                         "target": "prompt",
-                        "summary": "Review workflow regression in runtime-trace-check (prompt)",
+                        "summary": "Review healthcheck regression in runtime-trace-check (prompt)",
                         "rationale": "Run completed without a final answer",
                         "workflow_name": "agent-healthcheck",
                         "workflow_status": "regressed",
@@ -1475,7 +1475,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_work_items:", stdout.getvalue())
-        self.assertIn("- c1 [prompt] Review workflow regression in runtime-trace-check (prompt)", stdout.getvalue())
+        self.assertIn("- c1 [prompt] Review healthcheck regression in runtime-trace-check (prompt)", stdout.getvalue())
         self.assertIn("workflow=agent-healthcheck status=regressed workflow_score_delta=-0.3", stdout.getvalue())
         self.assertIn("step=runtime-trace-check step_score_delta=-0.2", stdout.getvalue())
         self.assertIn("source_trace_id=trace-1 replay_trace_id=trace-2", stdout.getvalue())

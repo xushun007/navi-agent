@@ -3,15 +3,15 @@ import unittest
 from navi_agent.evolution import EvalCase
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
-from navi_agent.smoke import (
-    compare_smoke_workflow_results,
-    get_smoke_task,
-    get_smoke_workflow,
-    list_smoke_tasks,
-    list_smoke_workflows,
-    replay_smoke_workflow,
-    run_smoke_task,
-    run_smoke_workflow,
+from navi_agent.healthcheck import (
+    compare_healthcheck_workflow_results,
+    get_healthcheck_task,
+    get_healthcheck_workflow,
+    list_healthcheck_tasks,
+    list_healthcheck_workflows,
+    replay_healthcheck_workflow,
+    run_healthcheck_task,
+    run_healthcheck_workflow,
 )
 
 
@@ -40,43 +40,43 @@ class FakeApp:
         )
 
 
-class SmokeTests(unittest.TestCase):
-    def test_list_smoke_tasks_returns_sorted_tasks(self) -> None:
-        tasks = list_smoke_tasks()
+class HealthcheckTests(unittest.TestCase):
+    def test_list_healthcheck_tasks_returns_sorted_tasks(self) -> None:
+        tasks = list_healthcheck_tasks()
 
         self.assertGreaterEqual(len(tasks), 4)
         self.assertEqual([task.name for task in tasks], sorted(task.name for task in tasks))
 
-    def test_get_smoke_task_returns_task(self) -> None:
-        task = get_smoke_task("config-check")
+    def test_get_healthcheck_task_returns_task(self) -> None:
+        task = get_healthcheck_task("config-check")
 
         self.assertEqual(task.name, "config-check")
         self.assertIn("config.example.yaml", task.prompt)
 
-    def test_get_smoke_task_raises_for_unknown_task(self) -> None:
+    def test_get_healthcheck_task_raises_for_unknown_task(self) -> None:
         with self.assertRaises(ValueError):
-            get_smoke_task("missing")
+            get_healthcheck_task("missing")
 
-    def test_list_smoke_workflows_returns_sorted_workflows(self) -> None:
-        workflows = list_smoke_workflows()
+    def test_list_healthcheck_workflows_returns_sorted_workflows(self) -> None:
+        workflows = list_healthcheck_workflows()
 
         self.assertGreaterEqual(len(workflows), 2)
         self.assertEqual([workflow.name for workflow in workflows], sorted(workflow.name for workflow in workflows))
 
-    def test_get_smoke_workflow_returns_workflow(self) -> None:
-        workflow = get_smoke_workflow("agent-healthcheck")
+    def test_get_healthcheck_workflow_returns_workflow(self) -> None:
+        workflow = get_healthcheck_workflow("agent-healthcheck")
 
         self.assertEqual(workflow.name, "agent-healthcheck")
         self.assertEqual(workflow.steps[0], "config-check")
 
-    def test_get_smoke_workflow_raises_for_unknown_workflow(self) -> None:
+    def test_get_healthcheck_workflow_raises_for_unknown_workflow(self) -> None:
         with self.assertRaises(ValueError):
-            get_smoke_workflow("missing")
+            get_healthcheck_workflow("missing")
 
-    def test_run_smoke_task_uses_preset_prompt(self) -> None:
+    def test_run_healthcheck_task_uses_preset_prompt(self) -> None:
         app = FakeApp()
 
-        result = run_smoke_task(
+        result = run_healthcheck_task(
             app=app,
             task_name="readme-summary",
             user_id="u1",
@@ -89,10 +89,10 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(app.calls[0].user_id, "u1")
         self.assertIn("README.md", app.calls[0].message)
 
-    def test_run_smoke_workflow_reuses_single_session_across_steps(self) -> None:
+    def test_run_healthcheck_workflow_reuses_single_session_across_steps(self) -> None:
         app = FakeApp()
 
-        workflow_result = run_smoke_workflow(
+        workflow_result = run_healthcheck_workflow(
             app=app,
             workflow_name="product-orientation",
             user_id="u1",
@@ -109,9 +109,9 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual([step.trace_id for step in workflow_result.steps], ["trace-1", "trace-2"])
         self.assertEqual([step.trace_status for step in workflow_result.steps], ["success", "success"])
 
-    def test_replay_smoke_workflow_uses_new_session_id(self) -> None:
+    def test_replay_healthcheck_workflow_uses_new_session_id(self) -> None:
         app = FakeApp()
-        source = run_smoke_workflow(
+        source = run_healthcheck_workflow(
             app=app,
             workflow_name="product-orientation",
             user_id="u1",
@@ -119,7 +119,7 @@ class SmokeTests(unittest.TestCase):
             system_prompt="system",
         )
 
-        replay = replay_smoke_workflow(
+        replay = replay_healthcheck_workflow(
             app=app,
             workflow_result=source,
         )
@@ -129,15 +129,15 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(replay.workflow.name, source.workflow.name)
         self.assertEqual(replay.user_id, "u1")
 
-    def test_compare_smoke_workflow_results_computes_score_delta(self) -> None:
-        source = run_smoke_workflow(
+    def test_compare_healthcheck_workflow_results_computes_score_delta(self) -> None:
+        source = run_healthcheck_workflow(
             app=FakeApp(),
             workflow_name="product-orientation",
             user_id="u1",
             session_id="wf-1",
             system_prompt="system",
         )
-        replay = run_smoke_workflow(
+        replay = run_healthcheck_workflow(
             app=FakeApp(),
             workflow_name="product-orientation",
             user_id="u1",
@@ -145,7 +145,7 @@ class SmokeTests(unittest.TestCase):
             system_prompt="system",
         )
 
-        comparison = compare_smoke_workflow_results(source, replay)
+        comparison = compare_healthcheck_workflow_results(source, replay)
 
         self.assertEqual(comparison.workflow_name, "product-orientation")
         self.assertEqual(comparison.source_session_id, "wf-1")
@@ -156,15 +156,15 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(comparison.eval_case.status, "unchanged")
         self.assertIsNone(comparison.candidate)
 
-    def test_compare_smoke_workflow_results_builds_candidate_for_regression(self) -> None:
-        source = run_smoke_workflow(
+    def test_compare_healthcheck_workflow_results_builds_candidate_for_regression(self) -> None:
+        source = run_healthcheck_workflow(
             app=FakeApp(),
             workflow_name="product-orientation",
             user_id="u1",
             session_id="wf-1",
             system_prompt="system",
         )
-        replay = run_smoke_workflow(
+        replay = run_healthcheck_workflow(
             app=FakeApp(),
             workflow_name="product-orientation",
             user_id="u1",
@@ -173,7 +173,7 @@ class SmokeTests(unittest.TestCase):
         )
         replay.steps[0].trace.final_response = ""
 
-        comparison = compare_smoke_workflow_results(source, replay)
+        comparison = compare_healthcheck_workflow_results(source, replay)
 
         self.assertEqual(comparison.eval_case.status, "regressed")
         self.assertIsNotNone(comparison.candidate)
