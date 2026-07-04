@@ -36,11 +36,13 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - `--ifeval-import-session <session_id> --ifeval-import-key <key> --ifeval-import-instruction-id <id> ...` 可以从真实会话导入一个 IFEval 草稿样本，后续再人工筛选进 `data/eval/`
 - `--review-ifeval-draft` 会把最新草稿交给你确认，确认后自动写入 `data/eval/ifeval_seed.jsonl` 并从草稿里移除
 - `--ifeval-workflow` 会按“审阅草稿 -> 跑 IFEval -> 打印最新状态”的顺序，一次性完成最小离线闭环
+- 统一入口推荐用 `--workflow-kind <healthcheck|ifeval> --workflow-phase <run|compare|report|review>`，阶段名保持一致，后续新增 workflow 也按这套语义扩展
 
 ```bash
 uv run navi-agent --ifeval-import-session ifeval-002 --ifeval-import-key 1001 --ifeval-import-instruction-id punctuation:no_comma --ifeval-import-kwargs '{}'
 uv run navi-agent --review-ifeval-draft
 uv run navi-agent --ifeval-workflow
+uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-name agent-healthcheck
 ```
 
 ## 微信网关

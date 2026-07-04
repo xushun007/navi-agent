@@ -108,6 +108,10 @@ class CliTests(unittest.TestCase):
 
         self.assertTrue(args.doctor)
         self.assertIsNone(args.message)
+        args = parser.parse_args(["--workflow-kind", "healthcheck", "--workflow-phase", "run", "--workflow-name", "agent-healthcheck"])
+        self.assertEqual(args.workflow_kind, "healthcheck")
+        self.assertEqual(args.workflow_phase, "run")
+        self.assertEqual(args.workflow_name, "agent-healthcheck")
 
     def test_build_parser_parses_gateway_flags(self) -> None:
         parser = build_parser()
@@ -633,6 +637,87 @@ class CliTests(unittest.TestCase):
         self.assertIn("trace_id: trace-1", stdout.getvalue())
         self.assertIn("second", stdout.getvalue())
         run_healthcheck_workflow_mock.assert_called_once()
+
+    def test_main_runs_unified_healthcheck_run_workflow(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+        workflow_result = type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
+                "session_id": "wf-1",
+                "steps": [
+                    type(
+                        "StepResult",
+                        (),
+                        {
+                            "task_name": "config-check",
+                            "trace_id": "trace-1",
+                            "runtime_result": RuntimeResult(session_id="wf-1", status="success", final_response="done"),
+                        },
+                    )()
+                ],
+            },
+        )()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.run_healthcheck_workflow", return_value=workflow_result) as run_mock:
+                with patch(
+                    "sys.argv",
+                    ["navi-agent", "--workflow-kind", "healthcheck", "--workflow-phase", "run", "--workflow-name", "agent-healthcheck"],
+                ):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("workflow: agent-healthcheck", stdout.getvalue())
+        self.assertIn("done", stdout.getvalue())
+        run_mock.assert_called_once()
+
+    def test_main_runs_unified_ifeval_review_workflow(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli._review_ifeval_draft", return_value=0) as review_mock:
+            with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "review"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        review_mock.assert_called_once_with()
+
+    def test_main_runs_unified_ifeval_report_workflow(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli._print_ifeval_status", return_value=0) as report_mock:
+            with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "report"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        report_mock.assert_called_once_with()
+
+    def test_main_runs_unified_healthcheck_compare_workflow(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli._run_evolution_workflow", return_value=0) as compare_mock:
+            with patch(
+                "sys.argv",
+                [
+                    "navi-agent",
+                    "--workflow-kind",
+                    "healthcheck",
+                    "--workflow-phase",
+                    "compare",
+                    "--workflow-name",
+                    "agent-healthcheck",
+                ],
+            ):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        compare_mock.assert_called_once()
 
     def test_main_runs_compare_workflow(self) -> None:
         fake_app = FakeApp()

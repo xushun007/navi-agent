@@ -41,7 +41,6 @@ from navi_agent.runtime import ConversationState
 from navi_agent.runtime import SQLiteSessionStore
 from navi_agent.healthcheck import (
     compare_healthcheck_workflow_results,
-    HealthcheckWorkflowService,
     list_healthcheck_tasks,
     list_healthcheck_workflows,
     replay_healthcheck_workflow,
@@ -60,6 +59,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
+    parser.add_argument("--workflow-kind", choices=["healthcheck", "ifeval"])
+    parser.add_argument("--workflow-phase", choices=["run", "compare", "report", "review"])
+    parser.add_argument("--workflow-name")
     parser.add_argument("--gateway", choices=["weixin"])
     parser.add_argument("--gateway-pairings", choices=["weixin"])
     parser.add_argument("--approve-gateway-pairing")
@@ -133,6 +135,8 @@ def main() -> int:
         return 0
     if args.doctor:
         return run_doctor()
+    if args.workflow_kind or args.workflow_phase:
+        return _run_unified_workflow(args)
     if args.gateway_pairings:
         return _list_gateway_pairings(args.gateway_pairings)
     if args.approve_gateway_pairing:
@@ -608,6 +612,89 @@ def _run_weixin_gateway(args) -> int:
         pairing_store=WeixinPairingStore(),
     ).run_forever()
     return 0
+
+
+def _run_unified_workflow(args) -> int:
+    if not args.workflow_kind or not args.workflow_phase:
+        print("--workflow-kind and --workflow-phase are required together")
+        return 1
+    if args.workflow_kind == "healthcheck":
+        if args.workflow_phase == "run":
+            workflow_name = args.workflow_name
+            if not workflow_name:
+                print("--workflow-name is required for healthcheck run")
+                return 1
+            app = build_application(
+                default_system_prompt=args.system_prompt,
+                approval_provider=CliApprovalProvider(),
+            )
+            workflow_result = run_healthcheck_workflow(
+                app=app,
+                workflow_name=workflow_name,
+                user_id=args.user_id,
+                session_id=args.session_id,
+                system_prompt=args.system_prompt,
+            )
+            print(f"workflow: {workflow_result.workflow.name}")
+            print(f"session_id: {workflow_result.session_id}")
+            for index, step in enumerate(workflow_result.steps, start=1):
+                print(f"[{index}] {step.task_name}")
+                if step.trace_id:
+                    print(f"trace_id: {step.trace_id}")
+                print(step.runtime_result.final_response)
+            return 0
+        if args.workflow_phase == "compare":
+            workflow_name = args.workflow_name
+            if not workflow_name:
+                print("--workflow-name is required for healthcheck compare")
+                return 1
+            app = build_application(
+                default_system_prompt=args.system_prompt,
+                approval_provider=CliApprovalProvider(),
+            )
+            return _run_evolution_workflow(
+                app=app,
+                workflow_name=workflow_name,
+                user_id=args.user_id,
+                session_id=args.session_id,
+                system_prompt=args.system_prompt,
+                confirm_eval_case=args.confirm_eval_case,
+            )
+        if args.workflow_phase == "report":
+            app = build_application(
+                default_system_prompt=args.system_prompt,
+                approval_provider=CliApprovalProvider(),
+            )
+            summary = ReviewLoopService().summarize(
+                candidates=app.list_candidates(limit=50),
+                eval_cases=app.list_eval_cases(limit=50),
+            )
+            latest_report = EvolutionReportStore(get_evolution_reports_dir()).get_latest()
+            overlay_info = PromptOverlayStore(get_prompt_overlay_path()).describe()
+            _print_curator_status(
+                summary=summary,
+                latest_report=latest_report,
+                overlay_info=overlay_info,
+            )
+            return 0
+        if args.workflow_phase == "review":
+            return _review_eval_case(system_prompt=args.system_prompt)
+        print(f"unsupported healthcheck workflow phase: {args.workflow_phase}")
+        return 1
+    if args.workflow_kind == "ifeval":
+        if args.workflow_phase == "run":
+            return _run_ifeval()
+        if args.workflow_phase == "compare":
+            print("ifeval compare phase is unsupported")
+            return 1
+        if args.workflow_phase == "report":
+            return _print_ifeval_status()
+        if args.workflow_phase == "review":
+            return _review_ifeval_draft()
+        print(f"unsupported ifeval workflow phase: {args.workflow_phase}")
+        return 1
+    print(f"unsupported workflow kind: {args.workflow_kind}")
+    return 1
 
 
 def _list_gateway_pairings(gateway_name: str) -> int:
