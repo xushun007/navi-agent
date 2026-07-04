@@ -132,7 +132,7 @@ class ReviewLoopService:
             if no_improvement_count:
                 return "Review no_improvement candidates and replace stale prompt overlays before expanding the workflow set."
             if verified_count:
-                return "Promote verified prompt changes into the baseline before expanding the workflow set."
+                return "Promote verified prompt changes before expanding the workflow set."
             if pending_targets:
                 target = pending_targets[0][0]
                 return f"Review pending {target} candidates before expanding the workflow set."

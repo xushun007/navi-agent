@@ -828,7 +828,7 @@ class CliTests(unittest.TestCase):
                         },
                     )()
                 ],
-                "recommendation": "Promote verified prompt changes into the baseline before expanding the workflow set.",
+                "recommendation": "Promote verified prompt changes before expanding the workflow set.",
             },
         )()
 

@@ -3,7 +3,7 @@
 This directory stores curated evaluation seed data.
 
 - `ifeval_input_data.jsonl` is the raw export from IFEval.
-- `ifeval_seed.jsonl` is the reviewed 5-sample seed set used for baseline checks.
+- `ifeval_seed.jsonl` is the reviewed 5-sample seed set used for offline eval checks.
 
 Format:
 

@@ -100,7 +100,7 @@ SMOKE_TASKS: dict[str, SmokeTask] = {
 SMOKE_WORKFLOWS: dict[str, SmokeWorkflow] = {
     "agent-healthcheck": SmokeWorkflow(
         name="agent-healthcheck",
-        description="Run the baseline smoke chain against config, entrypoints, and trace flow.",
+        description="Run the config, entrypoint, and trace-flow smoke checks.",
         steps=[
             "config-check",
             "workspace-search",

@@ -238,10 +238,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
             eval_cases=[],
         )
 
-        self.assertEqual(
-            summary.recommendation,
-            "Promote verified prompt changes into the baseline before expanding the workflow set.",
-        )
+        self.assertEqual(summary.recommendation, "Promote verified prompt changes before expanding the workflow set.")
 
     def test_summarize_recommends_replacing_no_improvement_candidates(self) -> None:
         summary = ReviewLoopService().summarize(
