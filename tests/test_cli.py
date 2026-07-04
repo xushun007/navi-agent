@@ -167,6 +167,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.candidate_status, "superseded")
         args = parser.parse_args(["--list-eval-cases"])
         self.assertTrue(args.list_eval_cases)
+        args = parser.parse_args(["--eval-seed-status"])
+        self.assertTrue(args.eval_seed_status)
+        args = parser.parse_args(["--list-eval-seeds"])
+        self.assertTrue(args.list_eval_seeds)
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -1180,6 +1184,59 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("prototype-baseline: regressed", stdout.getvalue())
+
+    def test_main_prints_eval_seed_status(self) -> None:
+        stdout = io.StringIO()
+        fake_store = type(
+            "SeedStore",
+            (),
+            {
+                "describe": lambda self: {
+                    "path": "/tmp/ifeval_seed.jsonl",
+                    "exists": True,
+                    "count": 2,
+                    "passed_count": 1,
+                    "failed_count": 1,
+                    "pending_count": 0,
+                    "keys": [1001, 1019],
+                },
+                "validate": lambda self: [],
+            },
+        )()
+
+        with patch("navi_agent.cli.EvalSeedStore", return_value=fake_store):
+            with patch("sys.argv", ["navi-agent", "--eval-seed-status"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("eval_seed_count: 2", stdout.getvalue())
+        self.assertIn("eval_seed_passed_count: 1", stdout.getvalue())
+        self.assertIn("eval_seed_failed_count: 1", stdout.getvalue())
+
+    def test_main_lists_eval_seeds(self) -> None:
+        stdout = io.StringIO()
+        fake_store = type(
+            "SeedStore",
+            (),
+            {
+                "list_recent": lambda self, limit=None: [
+                    type(
+                        "Seed",
+                        (),
+                        {"key": 1001, "pass_fail": True, "session_id": "ifeval-002", "prompt": "prompt"},
+                    )()
+                ]
+            },
+        )()
+
+        with patch("navi_agent.cli.EvalSeedStore", return_value=fake_store):
+            with patch("sys.argv", ["navi-agent", "--list-eval-seeds"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("1001 [pass] ifeval-002: prompt", stdout.getvalue())
 
     def test_main_runs_review_loop(self) -> None:
         fake_app = FakeApp()

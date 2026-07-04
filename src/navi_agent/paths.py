@@ -11,6 +11,10 @@ def get_navi_home() -> Path:
     return Path.cwd() / ".navi-agent"
 
 
+def get_repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
 def get_state_db_path() -> Path:
     return get_navi_home() / "state.db"
 
@@ -49,3 +53,11 @@ def get_candidate_store_path() -> Path:
 
 def get_eval_case_store_path() -> Path:
     return get_evolution_dir() / "eval-cases.jsonl"
+
+
+def get_eval_seed_dir() -> Path:
+    return get_repo_root() / "data" / "eval"
+
+
+def get_eval_seed_path(name: str = "ifeval_seed.jsonl") -> Path:
+    return get_eval_seed_dir() / name

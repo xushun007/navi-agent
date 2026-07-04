@@ -2,6 +2,7 @@ from .evaluator import SimpleEvaluator
 from .jsonl_store import JsonlCandidateStore, JsonlEvalCaseStore
 from .memory import InMemoryCandidateStore, InMemoryEvalCaseStore
 from .models import EvaluationResult, EvolutionCandidate, EvalCase
+from .seed import EvalSeed, EvalSeedStore
 from .prompt_overlay import PromptOverlayEntry, PromptOverlayStore
 from .report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
 from .review import ReviewLoopService, ReviewLoopSummary
@@ -18,6 +19,8 @@ __all__ = [
     "InMemoryEvalCaseStore",
     "JsonlCandidateStore",
     "JsonlEvalCaseStore",
+    "EvalSeed",
+    "EvalSeedStore",
     "PromptOverlayStore",
     "PromptOverlayEntry",
     "ReviewLoopService",

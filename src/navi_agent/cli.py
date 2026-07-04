@@ -9,6 +9,7 @@ from navi_agent.bootstrap import build_application
 from navi_agent.config import WeixinGatewaySettings, load_config
 from navi_agent.doctor import run_doctor
 from navi_agent.evolution import (
+    EvalSeedStore,
     EvolutionReportStore,
     EvolutionReportWriter,
     PromptOverlayStore,
@@ -20,6 +21,7 @@ from navi_agent.gateway.weixin import (
     WeixinPairingStore,
 )
 from navi_agent.paths import get_evolution_reports_dir
+from navi_agent.paths import get_eval_seed_path
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
 from navi_agent.runtime import CliApprovalProvider
@@ -80,6 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-note")
     parser.add_argument("--list-candidates", action="store_true")
     parser.add_argument("--list-eval-cases", action="store_true")
+    parser.add_argument("--eval-seed-status", action="store_true")
+    parser.add_argument("--list-eval-seeds", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -196,6 +200,10 @@ def main() -> int:
                 f"(source={eval_case.source_average_score}, replay={eval_case.replay_average_score}, delta={eval_case.score_delta})"
             )
         return 0
+    if args.eval_seed_status:
+        return _print_eval_seed_status()
+    if args.list_eval_seeds:
+        return _list_eval_seeds()
     if args.prompt_overlay_status:
         overlay = PromptOverlayStore(get_prompt_overlay_path())
         info = overlay.describe()
@@ -441,6 +449,8 @@ def main() -> int:
         and not args.candidate_triage
         and not args.candidate_queue
         and not args.candidate_work_items
+        and not args.eval_seed_status
+        and not args.list_eval_seeds
         and not args.apply_candidate_run
         and not args.message
     ):
@@ -575,6 +585,39 @@ def _approve_weixin_pairing(code: str) -> int:
         print(f"weixin pairing code not found: {code}")
         return 1
     print(f"approved_weixin_user: {user_id}")
+    return 0
+
+
+def _print_eval_seed_status() -> int:
+    store = EvalSeedStore(get_eval_seed_path())
+    info = store.describe()
+    issues = store.validate()
+    print(f"eval_seed_path: {info['path']}")
+    print(f"eval_seed_exists: {info['exists']}")
+    print(f"eval_seed_count: {info['count']}")
+    print(f"eval_seed_passed_count: {info['passed_count']}")
+    print(f"eval_seed_failed_count: {info['failed_count']}")
+    print(f"eval_seed_pending_count: {info['pending_count']}")
+    if info["keys"]:
+        print("eval_seed_keys:")
+        for key in info["keys"]:
+            print(f"- {key}")
+    if issues:
+        print("eval_seed_issues:")
+        for issue in issues:
+            print(f"- {issue}")
+    return 0
+
+
+def _list_eval_seeds() -> int:
+    store = EvalSeedStore(get_eval_seed_path())
+    seeds = store.list_recent(limit=None)
+    if not seeds:
+        print("no eval seeds found")
+        return 0
+    for seed in seeds:
+        status = "pending" if seed.pass_fail is None else ("pass" if seed.pass_fail else "fail")
+        print(f"{seed.key} [{status}] {seed.session_id}: {seed.prompt}")
     return 0
 
 
