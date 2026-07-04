@@ -122,19 +122,19 @@ class CliTests(unittest.TestCase):
     def test_build_parser_parses_workflow_flags(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["--workflow", "prototype-baseline"])
+        args = parser.parse_args(["--workflow", "agent-healthcheck"])
 
-        self.assertEqual(args.workflow, "prototype-baseline")
+        self.assertEqual(args.workflow, "agent-healthcheck")
         self.assertFalse(args.list_smoke_workflows)
 
     def test_build_parser_parses_compare_workflow_flag(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["--compare-workflow", "prototype-baseline"])
+        args = parser.parse_args(["--compare-workflow", "agent-healthcheck"])
 
-        self.assertEqual(args.compare_workflow, "prototype-baseline")
-        args = parser.parse_args(["--evolution-run", "prototype-baseline"])
-        self.assertEqual(args.evolution_run, "prototype-baseline")
+        self.assertEqual(args.compare_workflow, "agent-healthcheck")
+        args = parser.parse_args(["--evolution-run", "agent-healthcheck"])
+        self.assertEqual(args.evolution_run, "agent-healthcheck")
         args = parser.parse_args(["--confirm-eval-case"])
         self.assertTrue(args.confirm_eval_case)
         args = parser.parse_args(["--evolution-status"])
@@ -347,14 +347,14 @@ class CliTests(unittest.TestCase):
 
         with patch(
             "navi_agent.cli.list_smoke_workflows",
-            return_value=[type("Workflow", (), {"name": "prototype-baseline", "description": "desc"})()],
+            return_value=[type("Workflow", (), {"name": "agent-healthcheck", "description": "desc"})()],
         ):
             with patch("sys.argv", ["navi-agent", "--list-smoke-workflows"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(stdout.getvalue().strip(), "prototype-baseline: desc")
+        self.assertEqual(stdout.getvalue().strip(), "agent-healthcheck: desc")
 
     def test_main_runs_smoke_task(self) -> None:
         fake_app = FakeApp()
@@ -384,7 +384,7 @@ class CliTests(unittest.TestCase):
                 "EvalCase",
                 (),
                 {
-                    "workflow_name": "prototype-baseline",
+                    "workflow_name": "agent-healthcheck",
                     "status": "regressed",
                     "source_average_score": 1.0,
                     "replay_average_score": 0.9,
@@ -397,7 +397,7 @@ class CliTests(unittest.TestCase):
             "WorkflowResult",
             (),
             {
-                "workflow": type("Workflow", (), {"name": "prototype-baseline", "steps": ["config-check", "workspace-search"]})(),
+                "workflow": type("Workflow", (), {"name": "agent-healthcheck", "steps": ["config-check", "workspace-search"]})(),
                 "session_id": "wf-1",
                 "steps": [
                     type(
@@ -427,12 +427,12 @@ class CliTests(unittest.TestCase):
                 "navi_agent.cli.run_smoke_workflow",
                 return_value=workflow_result,
             ) as run_smoke_workflow_mock:
-                with patch("sys.argv", ["navi-agent", "--workflow", "prototype-baseline"]):
+                with patch("sys.argv", ["navi-agent", "--workflow", "agent-healthcheck"]):
                     with redirect_stdout(stdout):
                         exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("workflow: agent-healthcheck", stdout.getvalue())
         self.assertIn("[1] config-check", stdout.getvalue())
         self.assertIn("trace_id: trace-1", stdout.getvalue())
         self.assertIn("second", stdout.getvalue())
@@ -446,7 +446,7 @@ class CliTests(unittest.TestCase):
             "WorkflowResult",
             (),
             {
-                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
                 "session_id": "wf-1",
             },
         )()
@@ -454,7 +454,7 @@ class CliTests(unittest.TestCase):
             "WorkflowComparison",
             (),
             {
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "source_session_id": "wf-1",
                 "replay_session_id": "wf-1:replay:abcd1234",
                 "source_average_score": 1.0,
@@ -464,7 +464,7 @@ class CliTests(unittest.TestCase):
                     "EvalCase",
                     (),
                     {
-                        "workflow_name": "prototype-baseline",
+                        "workflow_name": "agent-healthcheck",
                         "status": "regressed",
                         "source_average_score": 1.0,
                         "replay_average_score": 0.9,
@@ -501,13 +501,13 @@ class CliTests(unittest.TestCase):
                 with patch("navi_agent.cli.replay_smoke_workflow", return_value=workflow_result) as replay_mock:
                     with patch("navi_agent.cli.compare_smoke_workflow_results", return_value=comparison) as compare_mock:
                         with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
-                            with patch("sys.argv", ["navi-agent", "--compare-workflow", "prototype-baseline"]):
+                            with patch("sys.argv", ["navi-agent", "--compare-workflow", "agent-healthcheck"]):
                                 with redirect_stdout(stdout):
                                     report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
                                     exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("workflow: agent-healthcheck", stdout.getvalue())
         self.assertIn("source_session_id: wf-1", stdout.getvalue())
         self.assertIn("workflow_status: regressed", stdout.getvalue())
         self.assertIn("report_path: /tmp/report", stdout.getvalue())
@@ -527,7 +527,7 @@ class CliTests(unittest.TestCase):
             "WorkflowResult",
             (),
             {
-                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
                 "session_id": "wf-1",
             },
         )()
@@ -535,7 +535,7 @@ class CliTests(unittest.TestCase):
             "WorkflowComparison",
             (),
             {
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "source_session_id": "wf-1",
                 "replay_session_id": "wf-1:replay:abcd1234",
                 "source_average_score": 1.0,
@@ -545,7 +545,7 @@ class CliTests(unittest.TestCase):
                     "EvalCase",
                     (),
                     {
-                        "workflow_name": "prototype-baseline",
+                        "workflow_name": "agent-healthcheck",
                         "status": "regressed",
                         "source_average_score": 1.0,
                         "replay_average_score": 0.9,
@@ -566,7 +566,7 @@ class CliTests(unittest.TestCase):
                             with patch("builtins.input", return_value="y") as input_mock:
                                 with patch(
                                     "sys.argv",
-                                    ["navi-agent", "--compare-workflow", "prototype-baseline", "--confirm-eval-case"],
+                                    ["navi-agent", "--compare-workflow", "agent-healthcheck", "--confirm-eval-case"],
                                 ):
                                     with redirect_stdout(stdout):
                                         exit_code = main()
@@ -585,7 +585,7 @@ class CliTests(unittest.TestCase):
             "WorkflowResult",
             (),
             {
-                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
                 "session_id": "wf-1",
             },
         )()
@@ -593,7 +593,7 @@ class CliTests(unittest.TestCase):
             "WorkflowComparison",
             (),
             {
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "source_session_id": "wf-1",
                 "replay_session_id": "wf-1:replay:abcd1234",
                 "source_average_score": 1.0,
@@ -603,7 +603,7 @@ class CliTests(unittest.TestCase):
                     "EvalCase",
                     (),
                     {
-                        "workflow_name": "prototype-baseline",
+                        "workflow_name": "agent-healthcheck",
                         "status": "regressed",
                         "source_average_score": 1.0,
                         "replay_average_score": 0.9,
@@ -624,7 +624,7 @@ class CliTests(unittest.TestCase):
                             with patch("builtins.input", return_value="n"):
                                 with patch(
                                     "sys.argv",
-                                    ["navi-agent", "--compare-workflow", "prototype-baseline", "--confirm-eval-case"],
+                                    ["navi-agent", "--compare-workflow", "agent-healthcheck", "--confirm-eval-case"],
                                 ):
                                     with redirect_stdout(stdout):
                                         exit_code = main()
@@ -648,7 +648,7 @@ class CliTests(unittest.TestCase):
                 "target": "prompt",
                 "summary": "Review workflow regression",
                 "review_note": None,
-                "metadata": {"workflow_name": "prototype-baseline"},
+                "metadata": {"workflow_name": "agent-healthcheck"},
             },
         )()
         first_app.saved_candidates.append(candidate)
@@ -659,7 +659,7 @@ class CliTests(unittest.TestCase):
             "WorkflowResult",
             (),
             {
-                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
                 "session_id": "wf-1",
             },
         )()
@@ -667,7 +667,7 @@ class CliTests(unittest.TestCase):
             "WorkflowResult",
             (),
             {
-                "workflow": type("Workflow", (), {"name": "prototype-baseline"})(),
+                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
                 "session_id": "wf-1:candidate:c1",
             },
         )()
@@ -675,7 +675,7 @@ class CliTests(unittest.TestCase):
             "WorkflowComparison",
             (),
             {
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "source_session_id": "wf-1",
                 "replay_session_id": "wf-1:candidate:c1",
                 "source_average_score": 1.0,
@@ -685,7 +685,7 @@ class CliTests(unittest.TestCase):
                     "EvalCase",
                     (),
                     {
-                        "workflow_name": "prototype-baseline",
+                        "workflow_name": "agent-healthcheck",
                         "status": "improved",
                         "source_average_score": 1.0,
                         "replay_average_score": 1.05,
@@ -715,7 +715,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(candidate.status, "verified")
         self.assertIn("candidate_id: c1", stdout.getvalue())
         self.assertIn("candidate_status: verified", stdout.getvalue())
-        self.assertIn("workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("workflow: agent-healthcheck", stdout.getvalue())
         self.assertIn("candidate_outcome: improved", stdout.getvalue())
         self.assertIn("candidate_report_path: /tmp/report", stdout.getvalue())
         self.assertEqual(run_smoke_workflow_mock.call_count, 2)
@@ -730,7 +730,7 @@ class CliTests(unittest.TestCase):
                 "EvalCase",
                 (),
                 {
-                    "workflow_name": "prototype-baseline",
+                    "workflow_name": "agent-healthcheck",
                     "status": "regressed",
                     "source_average_score": 1.0,
                     "replay_average_score": 0.8,
@@ -745,7 +745,7 @@ class CliTests(unittest.TestCase):
             (),
             {
                 "report_path": "/tmp/evolution-report",
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "status": "regressed",
                 "score_delta": -0.2,
                 "candidate_target": "prompt",
@@ -768,7 +768,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("superseded_candidate_count: 0", stdout.getvalue())
         self.assertIn("archived_candidate_count: 0", stdout.getvalue())
         self.assertIn("latest_report: /tmp/evolution-report", stdout.getvalue())
-        self.assertIn("latest_workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("latest_workflow: agent-healthcheck", stdout.getvalue())
         self.assertIn("latest_candidate_target: prompt", stdout.getvalue())
         self.assertIn("latest_candidate_status: pending", stdout.getvalue())
         self.assertIn("recommendation:", stdout.getvalue())
@@ -784,7 +784,7 @@ class CliTests(unittest.TestCase):
             (),
             {
                 "report_path": "/tmp/evolution-report",
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "status": "improved",
                 "score_delta": 0.2,
                 "candidate_target": "prompt",
@@ -812,7 +812,7 @@ class CliTests(unittest.TestCase):
                 "unchanged_count": 1,
                 "pending_targets": [("prompt", 1)],
                 "top_candidate_targets": [("prompt", 2)],
-                "top_regressed_workflows": [("prototype-baseline", 1)],
+                "top_regressed_workflows": [("agent-healthcheck", 1)],
                 "pending_queue": [
                     type(
                         "Candidate",
@@ -822,7 +822,7 @@ class CliTests(unittest.TestCase):
                             "target": "prompt",
                             "summary": "Review prompt",
                             "metadata": {
-                                "workflow_name": "prototype-baseline",
+                                "workflow_name": "agent-healthcheck",
                                 "task_name": "runtime-trace-check",
                             },
                         },
@@ -863,7 +863,7 @@ class CliTests(unittest.TestCase):
                             "candidate_id": "c-tool",
                             "target": "tooling",
                             "metadata": {
-                                "workflow_name": "prototype-baseline",
+                                "workflow_name": "agent-healthcheck",
                                 "task_name": "workspace-search",
                             },
                         },
@@ -875,7 +875,7 @@ class CliTests(unittest.TestCase):
                             "candidate_id": "c-prompt",
                             "target": "prompt",
                             "metadata": {
-                                "workflow_name": "prototype-baseline",
+                                "workflow_name": "agent-healthcheck",
                                 "task_name": "runtime-trace-check",
                                 "workflow_status": "regressed",
                                 "workflow_score_delta": -0.2,
@@ -898,7 +898,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("curator_candidate_id: c-prompt", stdout.getvalue())
         self.assertIn("curator_target: prompt", stdout.getvalue())
-        self.assertIn("curator_workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("curator_workflow: agent-healthcheck", stdout.getvalue())
         self.assertIn(
             "curator_selection_reason: prompt candidate prioritized by workflow_status=regressed, workflow_score_delta=-0.2, step_score_delta=-0.1",
             stdout.getvalue(),
@@ -921,7 +921,7 @@ class CliTests(unittest.TestCase):
                             "candidate_id": "c-prompt",
                             "target": "prompt",
                             "metadata": {
-                                "workflow_name": "prototype-baseline",
+                                "workflow_name": "agent-healthcheck",
                                 "task_name": "runtime-trace-check",
                                 "workflow_status": "regressed",
                                 "workflow_score_delta": -0.2,
@@ -966,7 +966,7 @@ class CliTests(unittest.TestCase):
                             "candidate_id": "c-prompt-later",
                             "target": "prompt",
                             "metadata": {
-                                "workflow_name": "prototype-baseline",
+                                "workflow_name": "agent-healthcheck",
                                 "task_name": "workspace-search",
                                 "workflow_status": "regressed",
                                 "workflow_score_delta": -0.1,
@@ -981,7 +981,7 @@ class CliTests(unittest.TestCase):
                             "candidate_id": "c-prompt-worse",
                             "target": "prompt",
                             "metadata": {
-                                "workflow_name": "prototype-baseline",
+                                "workflow_name": "agent-healthcheck",
                                 "task_name": "runtime-trace-check",
                                 "workflow_status": "regressed",
                                 "workflow_score_delta": -0.3,
@@ -1169,7 +1169,7 @@ class CliTests(unittest.TestCase):
                 "EvalCase",
                 (),
                 {
-                    "workflow_name": "prototype-baseline",
+                    "workflow_name": "agent-healthcheck",
                     "status": "regressed",
                     "source_average_score": 1.0,
                     "replay_average_score": 0.8,
@@ -1185,7 +1185,7 @@ class CliTests(unittest.TestCase):
                     exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("prototype-baseline: regressed", stdout.getvalue())
+        self.assertIn("agent-healthcheck: regressed", stdout.getvalue())
 
     def test_main_prints_eval_seed_status(self) -> None:
         stdout = io.StringIO()
@@ -1278,7 +1278,7 @@ class CliTests(unittest.TestCase):
                 "EvalCase",
                 (),
                 {
-                    "workflow_name": "prototype-baseline",
+                    "workflow_name": "agent-healthcheck",
                     "status": "regressed",
                     "source_average_score": 1.0,
                     "replay_average_score": 0.8,
@@ -1307,8 +1307,8 @@ class CliTests(unittest.TestCase):
                 "improved_count": 0,
                 "unchanged_count": 0,
                 "top_candidate_targets": [("prompt", 1)],
-                "top_regressed_workflows": [("prototype-baseline", 1)],
-                "recommendation": "Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+                "top_regressed_workflows": [("agent-healthcheck", 1)],
+                "recommendation": "Prioritize prompt improvements for agent-healthcheck based on recent regressions.",
             },
         )()
 
@@ -1361,7 +1361,7 @@ class CliTests(unittest.TestCase):
                         )()
                     ],
                 },
-                "recommendation": "Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+                "recommendation": "Prioritize prompt improvements for agent-healthcheck based on recent regressions.",
             },
         )()
 
@@ -1396,7 +1396,7 @@ class CliTests(unittest.TestCase):
                             "target": "prompt",
                             "summary": "Review workflow regression in runtime-trace-check (prompt)",
                             "metadata": {
-                                "workflow_name": "prototype-baseline",
+                                "workflow_name": "agent-healthcheck",
                                 "workflow_status": "regressed",
                                 "workflow_score_delta": -0.3,
                                 "task_name": "runtime-trace-check",
@@ -1419,7 +1419,7 @@ class CliTests(unittest.TestCase):
                         },
                     )(),
                 ],
-                "recommendation": "Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+                "recommendation": "Prioritize prompt improvements for agent-healthcheck based on recent regressions.",
             },
         )()
 
@@ -1434,7 +1434,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("pending_candidate_count: 2", stdout.getvalue())
         self.assertIn("candidate_queue:", stdout.getvalue())
         self.assertIn("- c1 [prompt] Review workflow regression in runtime-trace-check (prompt)", stdout.getvalue())
-        self.assertIn("workflow=prototype-baseline status=regressed workflow_score_delta=-0.3 step=runtime-trace-check", stdout.getvalue())
+        self.assertIn("workflow=agent-healthcheck status=regressed workflow_score_delta=-0.3 step=runtime-trace-check", stdout.getvalue())
 
     def test_main_runs_candidate_work_items(self) -> None:
         fake_app = FakeApp()
@@ -1450,7 +1450,7 @@ class CliTests(unittest.TestCase):
                         "target": "prompt",
                         "summary": "Review workflow regression in runtime-trace-check (prompt)",
                         "rationale": "Run completed without a final answer",
-                        "workflow_name": "prototype-baseline",
+                        "workflow_name": "agent-healthcheck",
                         "workflow_status": "regressed",
                         "workflow_score_delta": -0.3,
                         "task_name": "runtime-trace-check",
@@ -1462,7 +1462,7 @@ class CliTests(unittest.TestCase):
                         "signals": ["empty_response", "iterations:4"],
                     }
                 ],
-                "recommendation": "Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+                "recommendation": "Prioritize prompt improvements for agent-healthcheck based on recent regressions.",
             },
         )()
 
@@ -1476,7 +1476,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_work_items:", stdout.getvalue())
         self.assertIn("- c1 [prompt] Review workflow regression in runtime-trace-check (prompt)", stdout.getvalue())
-        self.assertIn("workflow=prototype-baseline status=regressed workflow_score_delta=-0.3", stdout.getvalue())
+        self.assertIn("workflow=agent-healthcheck status=regressed workflow_score_delta=-0.3", stdout.getvalue())
         self.assertIn("step=runtime-trace-check step_score_delta=-0.2", stdout.getvalue())
         self.assertIn("source_trace_id=trace-1 replay_trace_id=trace-2", stdout.getvalue())
         self.assertIn("signals=empty_response,iterations:4", stdout.getvalue())
@@ -1506,7 +1506,7 @@ class CliTests(unittest.TestCase):
                 "exists": True,
                 "candidate_count": 2,
                 "candidate_ids": ["c1", "c2"],
-                "workflow_names": ["prototype-baseline"],
+                "workflow_names": ["agent-healthcheck"],
                 "source_session_ids": ["source-1"],
                 "replay_session_ids": ["replay-1"],
             }
@@ -1538,7 +1538,7 @@ class CliTests(unittest.TestCase):
 
         with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
             overlay_cls.return_value.list_entries_by_workflow.return_value = {
-                "prototype-baseline": [
+                "agent-healthcheck": [
                     type(
                         "Entry",
                         (),
@@ -1559,7 +1559,7 @@ class CliTests(unittest.TestCase):
                     exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("workflow: prototype-baseline", stdout.getvalue())
+        self.assertIn("workflow: agent-healthcheck", stdout.getvalue())
         self.assertIn("- c1 [applied] prompt: Tighten final answer behavior", stdout.getvalue())
         self.assertIn("step: runtime-trace-check", stdout.getvalue())
         self.assertIn("source_session_id: source-1", stdout.getvalue())

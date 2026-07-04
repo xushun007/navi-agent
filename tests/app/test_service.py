@@ -212,7 +212,7 @@ class ApplicationServiceTests(unittest.TestCase):
             summary="Old prompt candidate",
             rationale="Need better answer",
             metadata={
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "task_name": "runtime-trace-check",
             },
         )
@@ -221,7 +221,7 @@ class ApplicationServiceTests(unittest.TestCase):
             summary="New prompt candidate",
             rationale="Need even better answer",
             metadata={
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "task_name": "runtime-trace-check",
             },
         )
@@ -248,7 +248,7 @@ class ApplicationServiceTests(unittest.TestCase):
             summary="Old prompt candidate",
             rationale="Need better answer",
             metadata={
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "task_name": "runtime-trace-check",
             },
         )
@@ -257,7 +257,7 @@ class ApplicationServiceTests(unittest.TestCase):
             summary="Different step candidate",
             rationale="Need better search",
             metadata={
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "task_name": "workspace-search",
             },
         )
@@ -281,7 +281,7 @@ class ApplicationServiceTests(unittest.TestCase):
             rationale="Worked before",
             status="verified",
             metadata={
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "task_name": "runtime-trace-check",
             },
         )
@@ -290,7 +290,7 @@ class ApplicationServiceTests(unittest.TestCase):
             summary="New prompt candidate",
             rationale="Need new attempt",
             metadata={
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "task_name": "runtime-trace-check",
             },
         )
@@ -321,7 +321,7 @@ class ApplicationServiceTests(unittest.TestCase):
             rationale="Old result",
             status="no_improvement",
             metadata={
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "task_name": "runtime-trace-check",
             },
         )
@@ -330,7 +330,7 @@ class ApplicationServiceTests(unittest.TestCase):
             summary="Newer prompt candidate",
             rationale="New result",
             metadata={
-                "workflow_name": "prototype-baseline",
+                "workflow_name": "agent-healthcheck",
                 "task_name": "runtime-trace-check",
             },
         )
@@ -416,7 +416,7 @@ class ApplicationServiceTests(unittest.TestCase):
             eval_case_store=FakeEvalCaseStore(),
         )
         eval_case = EvalCase(
-            workflow_name="prototype-baseline",
+            workflow_name="agent-healthcheck",
             source_session_id="wf-1",
             replay_session_id="wf-2",
             source_average_score=1.0,
@@ -430,7 +430,7 @@ class ApplicationServiceTests(unittest.TestCase):
 
         items = service.list_eval_cases(limit=10)
         self.assertEqual(len(items), 1)
-        self.assertEqual(items[0].workflow_name, "prototype-baseline")
+        self.assertEqual(items[0].workflow_name, "agent-healthcheck")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ from navi_agent.telemetry import RuntimeTrace
 class EvolutionReportWriterTests(unittest.TestCase):
     def test_write_workflow_comparison_report_creates_json_and_markdown(self) -> None:
         comparison = SmokeWorkflowComparison(
-            workflow_name="prototype-baseline",
+            workflow_name="agent-healthcheck",
             source_session_id="wf-1",
             replay_session_id="wf-2",
             step_comparisons=[
@@ -59,7 +59,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
             replay_average_score=0.8,
             score_delta=-0.2,
             eval_case=EvalCase(
-                workflow_name="prototype-baseline",
+                workflow_name="agent-healthcheck",
                 source_session_id="wf-1",
                 replay_session_id="wf-2",
                 source_average_score=1.0,
@@ -91,8 +91,8 @@ class EvolutionReportWriterTests(unittest.TestCase):
             improved_count=1,
             unchanged_count=0,
             top_candidate_targets=[("prompt", 1)],
-            top_regressed_workflows=[("prototype-baseline", 1)],
-            recommendation="Prioritize prompt improvements for prototype-baseline based on recent regressions.",
+            top_regressed_workflows=[("agent-healthcheck", 1)],
+            recommendation="Prioritize prompt improvements for agent-healthcheck based on recent regressions.",
         )
 
         with TemporaryDirectory() as tmp_dir:
@@ -105,19 +105,19 @@ class EvolutionReportWriterTests(unittest.TestCase):
             payload = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
             report_md = (run_dir / "REPORT.md").read_text(encoding="utf-8")
 
-        self.assertEqual(payload["workflow_name"], "prototype-baseline")
+        self.assertEqual(payload["workflow_name"], "agent-healthcheck")
         self.assertEqual(payload["candidate"]["target"], "prompt")
         self.assertEqual(payload["candidate"]["status"], "pending")
         self.assertEqual(payload["step_comparisons"][0]["source_trace_id"], "trace-1")
         self.assertEqual(payload["review_summary"]["regressed_count"], 1)
         self.assertIn("# Evolution workflow comparison", report_md)
         self.assertIn("## Candidate", report_md)
-        self.assertIn("prototype-baseline", report_md)
+        self.assertIn("agent-healthcheck", report_md)
         self.assertIn("verified candidate count", report_md)
 
     def test_report_store_loads_latest_report(self) -> None:
         comparison = SmokeWorkflowComparison(
-            workflow_name="prototype-baseline",
+            workflow_name="agent-healthcheck",
             source_session_id="wf-1",
             replay_session_id="wf-2",
             step_comparisons=[],
@@ -125,7 +125,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
             replay_average_score=0.8,
             score_delta=-0.2,
             eval_case=EvalCase(
-                workflow_name="prototype-baseline",
+                workflow_name="agent-healthcheck",
                 source_session_id="wf-1",
                 replay_session_id="wf-2",
                 source_average_score=1.0,
@@ -148,7 +148,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
             latest = EvolutionReportStore(root).get_latest()
 
         self.assertIsNotNone(latest)
-        self.assertEqual(latest.workflow_name, "prototype-baseline")
+        self.assertEqual(latest.workflow_name, "agent-healthcheck")
         self.assertEqual(latest.status, "regressed")
         self.assertEqual(latest.candidate_target, "prompt")
         self.assertEqual(latest.candidate_status, "pending")

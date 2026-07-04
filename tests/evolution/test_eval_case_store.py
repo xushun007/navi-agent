@@ -7,7 +7,7 @@ class EvalCaseStoreTests(unittest.TestCase):
     def test_add_stores_eval_case(self) -> None:
         store = InMemoryEvalCaseStore()
         eval_case = EvalCase(
-            workflow_name="prototype-baseline",
+            workflow_name="agent-healthcheck",
             source_session_id="wf-1",
             replay_session_id="wf-2",
             source_average_score=1.0,
@@ -20,7 +20,7 @@ class EvalCaseStoreTests(unittest.TestCase):
         store.add(eval_case)
 
         self.assertEqual(len(store.eval_cases), 1)
-        self.assertEqual(store.eval_cases[0].workflow_name, "prototype-baseline")
+        self.assertEqual(store.eval_cases[0].workflow_name, "agent-healthcheck")
 
 
 if __name__ == "__main__":

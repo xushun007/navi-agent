@@ -64,9 +64,9 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual([workflow.name for workflow in workflows], sorted(workflow.name for workflow in workflows))
 
     def test_get_smoke_workflow_returns_workflow(self) -> None:
-        workflow = get_smoke_workflow("prototype-baseline")
+        workflow = get_smoke_workflow("agent-healthcheck")
 
-        self.assertEqual(workflow.name, "prototype-baseline")
+        self.assertEqual(workflow.name, "agent-healthcheck")
         self.assertEqual(workflow.steps[0], "config-check")
 
     def test_get_smoke_workflow_raises_for_unknown_workflow(self) -> None:

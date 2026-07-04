@@ -13,7 +13,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
             ],
             eval_cases=[
                 EvalCase(
-                    workflow_name="prototype-baseline",
+                    workflow_name="agent-healthcheck",
                     source_session_id="s1",
                     replay_session_id="r1",
                     source_average_score=1.0,
@@ -23,7 +23,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     summary="regressed",
                 ),
                 EvalCase(
-                    workflow_name="prototype-baseline",
+                    workflow_name="agent-healthcheck",
                     source_session_id="s2",
                     replay_session_id="r2",
                     source_average_score=1.0,
@@ -60,7 +60,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.regressed_count, 2)
         self.assertEqual(summary.top_candidate_targets[0], ("prompt", 2))
         self.assertEqual(summary.pending_targets[0], ("prompt", 1))
-        self.assertEqual(summary.top_regressed_workflows[0], ("prototype-baseline", 2))
+        self.assertEqual(summary.top_regressed_workflows[0], ("agent-healthcheck", 2))
         self.assertEqual(len(summary.candidates_by_target["prompt"]), 2)
         self.assertIn("Prioritize prompt improvements", summary.recommendation)
 
@@ -109,7 +109,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     summary="mild regression",
                     rationale="r",
                     metadata={
-                        "workflow_name": "prototype-baseline",
+                        "workflow_name": "agent-healthcheck",
                         "workflow_status": "regressed",
                         "workflow_score_delta": -0.1,
                         "step_score_delta": -0.05,
@@ -120,7 +120,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
                     summary="strong regression",
                     rationale="r",
                     metadata={
-                        "workflow_name": "prototype-baseline",
+                        "workflow_name": "agent-healthcheck",
                         "workflow_status": "regressed",
                         "workflow_score_delta": -0.4,
                         "step_score_delta": -0.2,
@@ -145,7 +145,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
         self.assertEqual(summary.pending_queue[1].summary, "mild regression")
         self.assertEqual(summary.pending_queue[2].summary, "unchanged run")
         self.assertEqual(summary.pending_work_items[0]["summary"], "strong regression")
-        self.assertEqual(summary.pending_work_items[0]["workflow_name"], "prototype-baseline")
+        self.assertEqual(summary.pending_work_items[0]["workflow_name"], "agent-healthcheck")
         self.assertEqual(summary.pending_work_items[0]["workflow_status"], "regressed")
 
     def test_summarize_counts_candidate_outcomes(self) -> None:
@@ -208,7 +208,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
             ],
             eval_cases=[
                 EvalCase(
-                    workflow_name="prototype-baseline",
+                    workflow_name="agent-healthcheck",
                     source_session_id="s1",
                     replay_session_id="r1",
                     source_average_score=1.0,
@@ -222,7 +222,7 @@ class ReviewLoopServiceTests(unittest.TestCase):
 
         self.assertEqual(
             summary.recommendation,
-            "Inspect regressed_after_apply candidates before applying more prompt changes to prototype-baseline.",
+            "Inspect regressed_after_apply candidates before applying more prompt changes to agent-healthcheck.",
         )
 
     def test_summarize_recommends_promoting_verified_candidates(self) -> None:
