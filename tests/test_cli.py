@@ -387,34 +387,6 @@ class CliTests(unittest.TestCase):
         self.assertIn("powered by xushun", stdout.getvalue())
         self.assertIn("███╗   ██╗", stdout.getvalue())
 
-    def test_main_lists_healthcheck_tasks(self) -> None:
-        stdout = io.StringIO()
-
-        with patch(
-            "navi_agent.cli.list_healthcheck_tasks",
-            return_value=[type("Task", (), {"name": "config-check", "description": "desc"})()],
-        ):
-            with patch("sys.argv", ["navi-agent", "--list-healthcheck-tasks"]):
-                with redirect_stdout(stdout):
-                    exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(stdout.getvalue().strip(), "config-check: desc")
-
-    def test_main_lists_healthcheck_workflows(self) -> None:
-        stdout = io.StringIO()
-
-        with patch(
-            "navi_agent.cli.list_healthcheck_workflows",
-            return_value=[type("Workflow", (), {"name": "agent-healthcheck", "description": "desc"})()],
-        ):
-            with patch("sys.argv", ["navi-agent", "--list-healthcheck-workflows"]):
-                with redirect_stdout(stdout):
-                    exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(stdout.getvalue().strip(), "agent-healthcheck: desc")
-
     def test_main_runs_unified_healthcheck_run_workflow(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()

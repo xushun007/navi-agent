@@ -41,8 +41,6 @@ from navi_agent.runtime import ConversationState
 from navi_agent.runtime import SQLiteSessionStore
 from navi_agent.healthcheck import (
     compare_healthcheck_workflow_results,
-    list_healthcheck_tasks,
-    list_healthcheck_workflows,
     replay_healthcheck_workflow,
     run_healthcheck_workflow,
 )
@@ -111,8 +109,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-queue", action="store_true")
     parser.add_argument("--candidate-work-items", action="store_true")
     parser.add_argument("--review-eval-case", action="store_true")
-    parser.add_argument("--list-healthcheck-tasks", action="store_true")
-    parser.add_argument("--list-healthcheck-workflows", action="store_true")
     return parser
 
 
@@ -134,14 +130,6 @@ def main() -> int:
         return _run_gateway(args)
     if args.review_eval_case:
         return _review_eval_case(system_prompt=args.system_prompt)
-    if args.list_healthcheck_tasks:
-        for task in list_healthcheck_tasks():
-            print(f"{task.name}: {task.description}")
-        return 0
-    if args.list_healthcheck_workflows:
-        for workflow in list_healthcheck_workflows():
-            print(f"{workflow.name}: {workflow.description}")
-        return 0
     if args.curator_run:
         return _run_curator(
             user_id=args.user_id,
