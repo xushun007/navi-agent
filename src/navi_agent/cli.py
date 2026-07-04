@@ -63,35 +63,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gateway-pairings", choices=["weixin"])
     parser.add_argument("--approve-gateway-pairing")
     parser.add_argument("--confirm-eval-case", action="store_true")
-    parser.add_argument("--evolution-status", action="store_true")
-    parser.add_argument("--curator-status", action="store_true")
-    parser.add_argument("--curator-run", action="store_true")
-    parser.add_argument("--candidate-id")
-    parser.add_argument(
-        "--candidate-status",
-        choices=[
-            "pending",
-            "accepted",
-            "rejected",
-            "applied",
-            "verified",
-            "no_improvement",
-            "regressed_after_apply",
-            "superseded",
-            "archived",
-            "all",
-        ],
-        default="all",
-    )
-    parser.add_argument("--accept-candidate", action="store_true")
-    parser.add_argument("--reject-candidate", action="store_true")
-    parser.add_argument("--apply-candidate", action="store_true")
-    parser.add_argument("--apply-candidate-run", action="store_true")
-    parser.add_argument("--supersede-candidate", action="store_true")
-    parser.add_argument("--archive-candidate", action="store_true")
-    parser.add_argument("--candidate-note")
-    parser.add_argument("--list-candidates", action="store_true")
-    parser.add_argument("--list-eval-cases", action="store_true")
     parser.add_argument("--eval-seed-status", action="store_true")
     parser.add_argument("--list-eval-seeds", action="store_true")
     parser.add_argument("--eval-seed-report", action="store_true")
@@ -104,10 +75,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
     parser.add_argument("--list-prompt-overlay-snapshots", action="store_true")
     parser.add_argument("--rollback-prompt-overlay")
-    parser.add_argument("--review-loop", action="store_true")
-    parser.add_argument("--candidate-triage", action="store_true")
-    parser.add_argument("--candidate-queue", action="store_true")
-    parser.add_argument("--candidate-work-items", action="store_true")
     parser.add_argument("--review-eval-case", action="store_true")
     return parser
 
@@ -130,83 +97,6 @@ def main() -> int:
         return _run_gateway(args)
     if args.review_eval_case:
         return _review_eval_case(system_prompt=args.system_prompt)
-    if args.curator_run:
-        return _run_curator(
-            user_id=args.user_id,
-            session_id=args.session_id,
-            system_prompt=args.system_prompt,
-            review_note=args.candidate_note,
-            dry_run=args.dry_run,
-            confirm_eval_case=args.confirm_eval_case,
-        )
-    if args.apply_candidate_run:
-        if not args.candidate_id:
-            parser.error("--candidate-id is required for --apply-candidate-run")
-        return _run_candidate_apply_workflow(
-            candidate_id=args.candidate_id,
-            user_id=args.user_id,
-            session_id=args.session_id,
-            system_prompt=args.system_prompt,
-            review_note=args.candidate_note,
-            confirm_eval_case=args.confirm_eval_case,
-        )
-    candidate_action = _candidate_action_from_args(args)
-    if candidate_action is not None:
-        app = build_application(
-            default_system_prompt=args.system_prompt,
-            approval_provider=CliApprovalProvider(),
-        )
-        if not args.candidate_id:
-            parser.error("--candidate-id is required for candidate status updates")
-        if candidate_action == "applied":
-            updated = app.apply_candidate(
-                args.candidate_id,
-                review_note=args.candidate_note,
-            )
-        else:
-            updated = app.update_candidate_status(
-                args.candidate_id,
-                candidate_action,
-                review_note=args.candidate_note,
-            )
-        if updated is None:
-            if candidate_action == "applied":
-                print(f"candidate cannot be applied: {args.candidate_id}")
-            else:
-                print(f"candidate not found: {args.candidate_id}")
-            return 1
-        print(f"candidate_id: {updated.candidate_id}")
-        print(f"candidate_status: {updated.status}")
-        print(f"candidate_target: {updated.target}")
-        if updated.review_note:
-            print(f"candidate_note: {updated.review_note}")
-        return 0
-    if args.list_candidates:
-        app = build_application(
-            default_system_prompt=args.system_prompt,
-            approval_provider=CliApprovalProvider(),
-        )
-        candidates = app.list_candidates(
-            limit=10,
-            status=None if args.candidate_status == "all" else args.candidate_status,
-        )
-        for candidate in candidates:
-            print(
-                f"{candidate.candidate_id} [{candidate.status}] "
-                f"{candidate.target}: {candidate.summary}"
-            )
-        return 0
-    if args.list_eval_cases:
-        app = build_application(
-            default_system_prompt=args.system_prompt,
-            approval_provider=CliApprovalProvider(),
-        )
-        for eval_case in app.list_eval_cases(limit=10):
-            print(
-                f"{eval_case.workflow_name}: {eval_case.status} "
-                f"(source={eval_case.source_average_score}, replay={eval_case.replay_average_score}, delta={eval_case.score_delta})"
-            )
-        return 0
     if args.eval_seed_status:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
@@ -295,177 +185,20 @@ def main() -> int:
             return 1
         print(f"rolled back prompt overlay to {args.rollback_prompt_overlay}")
         return 0
-    if args.evolution_status or args.curator_status:
-        app = build_application(
-            default_system_prompt=args.system_prompt,
-            approval_provider=CliApprovalProvider(),
-        )
-        summary = ReviewLoopService().summarize(
-            candidates=app.list_candidates(limit=50),
-            eval_cases=app.list_eval_cases(limit=50),
-        )
-        latest_report = EvolutionReportStore(get_evolution_reports_dir()).get_latest()
-        overlay_info = PromptOverlayStore(get_prompt_overlay_path()).describe()
-        _print_curator_status(
-            summary=summary,
-            latest_report=latest_report,
-            overlay_info=overlay_info,
-        )
-        return 0
-    if args.review_loop:
-        app = build_application(
-            default_system_prompt=args.system_prompt,
-            approval_provider=CliApprovalProvider(),
-        )
-        summary = ReviewLoopService().summarize(
-            candidates=app.list_candidates(limit=50),
-            eval_cases=app.list_eval_cases(limit=50),
-        )
-        print(f"candidate_count: {summary.candidate_count}")
-        print(f"active_candidate_count: {summary.active_candidate_count}")
-        print(f"pending_candidate_count: {summary.pending_candidate_count}")
-        print(f"accepted_candidate_count: {summary.accepted_candidate_count}")
-        print(f"rejected_candidate_count: {summary.rejected_candidate_count}")
-        print(f"applied_candidate_count: {summary.applied_candidate_count}")
-        print(f"verified_candidate_count: {summary.verified_candidate_count}")
-        print(f"no_improvement_candidate_count: {summary.no_improvement_candidate_count}")
-        print(f"regressed_after_apply_candidate_count: {summary.regressed_after_apply_candidate_count}")
-        print(f"superseded_candidate_count: {summary.superseded_candidate_count}")
-        print(f"archived_candidate_count: {summary.archived_candidate_count}")
-        print(f"eval_case_count: {summary.eval_case_count}")
-        print(f"regressed_count: {summary.regressed_count}")
-        print(f"improved_count: {summary.improved_count}")
-        print(f"unchanged_count: {summary.unchanged_count}")
-        if summary.top_candidate_targets:
-            print("top_candidate_targets:")
-            for target, count in summary.top_candidate_targets:
-                print(f"- {target}: {count}")
-        if summary.top_regressed_workflows:
-            print("top_regressed_workflows:")
-            for workflow, count in summary.top_regressed_workflows:
-                print(f"- {workflow}: {count}")
-        print(f"recommendation: {summary.recommendation}")
-        return 0
-    if args.candidate_triage:
-        app = build_application(
-            default_system_prompt=args.system_prompt,
-            approval_provider=CliApprovalProvider(),
-        )
-        summary = ReviewLoopService().summarize(
-            candidates=app.list_candidates(limit=50),
-            eval_cases=app.list_eval_cases(limit=50),
-        )
-        print(f"candidate_count: {summary.candidate_count}")
-        print(f"pending_candidate_count: {summary.pending_candidate_count}")
-        if summary.pending_targets:
-            print("pending_targets:")
-            for target, count in summary.pending_targets:
-                print(f"- {target}: {count}")
-        if summary.candidates_by_target:
-            print("candidate_buckets:")
-            for target in sorted(summary.candidates_by_target):
-                print(f"{target}:")
-                for candidate in summary.candidates_by_target[target][:5]:
-                    print(
-                        f"- {candidate.candidate_id} [{candidate.status}] {candidate.summary}"
-                    )
-        print(f"recommendation: {summary.recommendation}")
-        return 0
-    if args.candidate_queue:
-        app = build_application(
-            default_system_prompt=args.system_prompt,
-            approval_provider=CliApprovalProvider(),
-        )
-        summary = ReviewLoopService().summarize(
-            candidates=app.list_candidates(limit=50),
-            eval_cases=app.list_eval_cases(limit=50),
-        )
-        print(f"pending_candidate_count: {summary.pending_candidate_count}")
-        if not summary.pending_queue:
-            print("candidate queue is empty")
-            return 0
-        print("candidate_queue:")
-        for candidate in summary.pending_queue[:10]:
-            metadata = candidate.metadata or {}
-            workflow_name = metadata.get("workflow_name", "unknown-workflow")
-            workflow_status = metadata.get("workflow_status", "unknown")
-            workflow_score_delta = metadata.get("workflow_score_delta", 0.0)
-            task_name = metadata.get("task_name", "unknown-step")
-            print(
-                f"- {candidate.candidate_id} [{candidate.target}] {candidate.summary}"
-            )
-            print(
-                f"  workflow={workflow_name} status={workflow_status} "
-                f"workflow_score_delta={workflow_score_delta} step={task_name}"
-            )
-        print(f"recommendation: {summary.recommendation}")
-        return 0
-    if args.candidate_work_items:
-        app = build_application(
-            default_system_prompt=args.system_prompt,
-            approval_provider=CliApprovalProvider(),
-        )
-        summary = ReviewLoopService().summarize(
-            candidates=app.list_candidates(limit=50),
-            eval_cases=app.list_eval_cases(limit=50),
-        )
-        print(f"pending_candidate_count: {summary.pending_candidate_count}")
-        if not summary.pending_work_items:
-            print("candidate work items are empty")
-            return 0
-        print("candidate_work_items:")
-        for item in summary.pending_work_items[:10]:
-            print(f"- {item['candidate_id']} [{item['target']}] {item['summary']}")
-            print(
-                "  "
-                f"workflow={item['workflow_name'] or 'unknown-workflow'} "
-                f"status={item['workflow_status'] or 'unknown'} "
-                f"workflow_score_delta={item['workflow_score_delta']}"
-            )
-            print(
-                "  "
-                f"step={item['task_name'] or 'unknown-step'} "
-                f"step_score_delta={item['step_score_delta']}"
-            )
-            if item["source_trace_id"] or item["replay_trace_id"]:
-                print(
-                    "  "
-                    f"source_trace_id={item['source_trace_id'] or '-'} "
-                    f"replay_trace_id={item['replay_trace_id'] or '-'}"
-                )
-            if item["source_session_id"] or item["replay_session_id"]:
-                print(
-                    "  "
-                    f"source_session_id={item['source_session_id'] or '-'} "
-                    f"replay_session_id={item['replay_session_id'] or '-'}"
-                )
-            if item["signals"]:
-                print(f"  signals={','.join(item['signals'])}")
-            print(f"  rationale={item['rationale']}")
-        print(f"recommendation: {summary.recommendation}")
-        return 0
     if (
         not args.interactive
         and not args.gateway
         and not args.gateway_pairings
         and not args.approve_gateway_pairing
-        and not args.evolution_status
-        and not args.curator_status
-        and not args.curator_run
         and not args.prompt_overlay_status
         and not args.show_prompt_overlay
         and not args.list_prompt_overlay_entries
         and not args.list_prompt_overlay_snapshots
         and not args.rollback_prompt_overlay
-        and not args.review_loop
-        and not args.candidate_triage
-        and not args.candidate_queue
-        and not args.candidate_work_items
         and not args.eval_seed_status
         and not args.list_eval_seeds
         and not args.eval_seed_report
         and not args.ifeval_import_session
-        and not args.apply_candidate_run
         and not args.message
     ):
         parser.error("message is required unless --interactive is set")

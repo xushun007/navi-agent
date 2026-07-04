@@ -18,28 +18,6 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 
 这里的“自我进化”不是无约束自修改，而是基于真实运行数据持续发现问题、评估方案、验证改进，并逐步提升效果。
 
-## 后续方向
-
-- 打通微信入口
-- 建立最小运行时闭环
-- 建立反馈与评估机制
-- 支持策略层的持续优化
-- 真实 `console` / 微信会话若命中失败、空回复、重复工具、超时或审批阻塞，会自动生成 `target=eval_case` 的候选，使用 `--list-candidates` 和 `--accept-candidate` / `--reject-candidate` 复核
-- 也可以直接用 `--review-eval-case` 交互确认最新的待处理 `eval_case` 候选，默认确认/拒绝两步走
-- 评测 seed 放在 `data/eval/`，设计稿仍保留在 `design/`
-- `--eval-seed-status` 和 `--list-eval-seeds` 可以查看 `data/eval` 里的 seed 资产
-- `--eval-seed-report` 会把 seed 统计和明细写到 `.navi-agent/eval-seed-reports/`
-- `--ifeval-import-session <session_id> --ifeval-import-key <key> --ifeval-import-instruction-id <id> ...` 可以从真实会话导入一个 IFEval 草稿样本，后续再人工筛选进 `data/eval/`
-- 统一入口用 `--workflow-kind <healthcheck|ifeval> --workflow-phase <run|compare|report|review>`，阶段名保持一致，后续新增 workflow 也按这套语义扩展
-
-```bash
-uv run navi-agent --ifeval-import-session ifeval-002 --ifeval-import-key 1001 --ifeval-import-instruction-id punctuation:no_comma --ifeval-import-kwargs '{}'
-uv run navi-agent --workflow-kind ifeval --workflow-phase review
-uv run navi-agent --workflow-kind ifeval --workflow-phase run
-uv run navi-agent --workflow-kind ifeval --workflow-phase report
-uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-name agent-healthcheck
-```
-
 ## 微信网关
 
 当前微信网关只保留 iLink 本地轮询风格，参考 Hermes 的接入方式，使用 iLink token 拉取文本消息并发送文本回复。
@@ -80,3 +58,18 @@ uv run navi-agent --approve-gateway-pairing 123456
 ## 一句话定义
 
 Navi Agent = 一个以微信为起点、以持续进化为目标的最小 Agent 内核。
+
+## 命令
+
+```bash
+uv run navi-agent --workflow-kind ifeval --workflow-phase review
+uv run navi-agent --workflow-kind ifeval --workflow-phase run
+uv run navi-agent --workflow-kind ifeval --workflow-phase report
+uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-name agent-healthcheck
+```
+
+## 评测
+
+- 在线会话先进入 runtime，离线只看稳定样本和评测集
+- IFEval 这类基准用统一 workflow 跑分，结果写入报告
+- 新样本先人工确认，再纳入 `data/eval/` 回归
