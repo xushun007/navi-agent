@@ -171,6 +171,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.eval_seed_status)
         args = parser.parse_args(["--list-eval-seeds"])
         self.assertTrue(args.list_eval_seeds)
+        args = parser.parse_args(["--eval-seed-report"])
+        self.assertTrue(args.eval_seed_report)
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -1237,6 +1239,34 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("1001 [pass] ifeval-002: prompt", stdout.getvalue())
+
+    def test_main_writes_eval_seed_report(self) -> None:
+        stdout = io.StringIO()
+        fake_writer = type(
+            "Writer",
+            (),
+            {
+                "write_report": lambda self, seed_store: "/tmp/eval-seed-report",
+            },
+        )()
+        fake_store = type(
+            "ReportStore",
+            (),
+            {
+                "get_latest": lambda self: type("Record", (), {"count": 2, "pass_rate": 0.5})(),
+            },
+        )()
+
+        with patch("navi_agent.cli.EvalSeedReportWriter", return_value=fake_writer):
+            with patch("navi_agent.cli.EvalSeedReportStore", return_value=fake_store):
+                with patch("sys.argv", ["navi-agent", "--eval-seed-report"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("eval_seed_report_path: /tmp/eval-seed-report", stdout.getvalue())
+        self.assertIn("eval_seed_count: 2", stdout.getvalue())
+        self.assertIn("eval_seed_pass_rate: 0.5", stdout.getvalue())
 
     def test_main_runs_review_loop(self) -> None:
         fake_app = FakeApp()

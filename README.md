@@ -29,6 +29,7 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - 也可以直接用 `--review-eval-case` 交互确认最新的待处理 `eval_case` 候选，默认确认/拒绝两步走
 - 评测 seed 放在 `data/eval/`，设计稿仍保留在 `design/`
 - `--eval-seed-status` 和 `--list-eval-seeds` 可以查看 `data/eval` 里的 seed 资产
+- `--eval-seed-report` 会把 seed 统计和明细写到 `.navi-agent/eval-seed-reports/`
 
 ## 微信网关
 

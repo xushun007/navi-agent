@@ -10,6 +10,8 @@ from navi_agent.config import WeixinGatewaySettings, load_config
 from navi_agent.doctor import run_doctor
 from navi_agent.evolution import (
     EvalSeedStore,
+    EvalSeedReportStore,
+    EvalSeedReportWriter,
     EvolutionReportStore,
     EvolutionReportWriter,
     PromptOverlayStore,
@@ -21,6 +23,7 @@ from navi_agent.gateway.weixin import (
     WeixinPairingStore,
 )
 from navi_agent.paths import get_evolution_reports_dir
+from navi_agent.paths import get_eval_seed_reports_dir
 from navi_agent.paths import get_eval_seed_path
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
@@ -84,6 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-eval-cases", action="store_true")
     parser.add_argument("--eval-seed-status", action="store_true")
     parser.add_argument("--list-eval-seeds", action="store_true")
+    parser.add_argument("--eval-seed-report", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -204,6 +208,8 @@ def main() -> int:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
         return _list_eval_seeds()
+    if args.eval_seed_report:
+        return _write_eval_seed_report()
     if args.prompt_overlay_status:
         overlay = PromptOverlayStore(get_prompt_overlay_path())
         info = overlay.describe()
@@ -451,6 +457,7 @@ def main() -> int:
         and not args.candidate_work_items
         and not args.eval_seed_status
         and not args.list_eval_seeds
+        and not args.eval_seed_report
         and not args.apply_candidate_run
         and not args.message
     ):
@@ -618,6 +625,17 @@ def _list_eval_seeds() -> int:
     for seed in seeds:
         status = "pending" if seed.pass_fail is None else ("pass" if seed.pass_fail else "fail")
         print(f"{seed.key} [{status}] {seed.session_id}: {seed.prompt}")
+    return 0
+
+
+def _write_eval_seed_report() -> int:
+    seed_store = EvalSeedStore(get_eval_seed_path())
+    report_dir = EvalSeedReportWriter(get_eval_seed_reports_dir()).write_report(seed_store=seed_store)
+    record = EvalSeedReportStore(get_eval_seed_reports_dir()).get_latest()
+    print(f"eval_seed_report_path: {report_dir}")
+    if record is not None:
+        print(f"eval_seed_count: {record.count}")
+        print(f"eval_seed_pass_rate: {record.pass_rate}")
     return 0
 
 
