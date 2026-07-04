@@ -24,24 +24,19 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - 建立最小运行时闭环
 - 建立反馈与评估机制
 - 支持策略层的持续优化
-- `--compare-workflow` / `--evolution-run` / `--curator-run` / `--apply-candidate-run` 可加 `--confirm-eval-case`，先人工确认再把结果入库为 `EvalCase`
 - 真实 `console` / 微信会话若命中失败、空回复、重复工具、超时或审批阻塞，会自动生成 `target=eval_case` 的候选，使用 `--list-candidates` 和 `--accept-candidate` / `--reject-candidate` 复核
 - 也可以直接用 `--review-eval-case` 交互确认最新的待处理 `eval_case` 候选，默认确认/拒绝两步走
 - 评测 seed 放在 `data/eval/`，设计稿仍保留在 `design/`
 - `--eval-seed-status` 和 `--list-eval-seeds` 可以查看 `data/eval` 里的 seed 资产
 - `--eval-seed-report` 会把 seed 统计和明细写到 `.navi-agent/eval-seed-reports/`
-- `--ifeval-run` 会直接跑 `data/eval/ifeval_seed.jsonl`，执行 Agent、再用 IFEval evaluator 打分，并把结果写到 `.navi-agent/ifeval-reports/`
-- `--ifeval-status` 可以查看最近一次 IFEval 离线评测摘要
-- `--ifeval-drafts-status` 和 `--list-ifeval-drafts` 用来查看本地草稿样本，默认落在 `.navi-agent/ifeval-drafts.jsonl`
 - `--ifeval-import-session <session_id> --ifeval-import-key <key> --ifeval-import-instruction-id <id> ...` 可以从真实会话导入一个 IFEval 草稿样本，后续再人工筛选进 `data/eval/`
-- `--review-ifeval-draft` 会把最新草稿交给你确认，确认后自动写入 `data/eval/ifeval_seed.jsonl` 并从草稿里移除
-- `--ifeval-workflow` 会按“审阅草稿 -> 跑 IFEval -> 打印最新状态”的顺序，一次性完成最小离线闭环
-- 统一入口推荐用 `--workflow-kind <healthcheck|ifeval> --workflow-phase <run|compare|report|review>`，阶段名保持一致，后续新增 workflow 也按这套语义扩展
+- 统一入口用 `--workflow-kind <healthcheck|ifeval> --workflow-phase <run|compare|report|review>`，阶段名保持一致，后续新增 workflow 也按这套语义扩展
 
 ```bash
 uv run navi-agent --ifeval-import-session ifeval-002 --ifeval-import-key 1001 --ifeval-import-instruction-id punctuation:no_comma --ifeval-import-kwargs '{}'
-uv run navi-agent --review-ifeval-draft
-uv run navi-agent --ifeval-workflow
+uv run navi-agent --workflow-kind ifeval --workflow-phase review
+uv run navi-agent --workflow-kind ifeval --workflow-phase run
+uv run navi-agent --workflow-kind ifeval --workflow-phase report
 uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-name agent-healthcheck
 ```
 

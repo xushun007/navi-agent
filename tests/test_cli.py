@@ -7,11 +7,6 @@ from unittest.mock import patch
 
 from navi_agent.evolution import EvalSeed
 from navi_agent.evolution import EvalSeedStore
-from navi_agent.evolution import IfevalReviewResult
-from navi_agent.evolution import IfevalRunSummary
-from navi_agent.evolution import IfevalRunRecord
-from navi_agent.evolution import IfevalStatusSummary
-from navi_agent.evolution import IfevalWorkflowResult
 from navi_agent.cli import _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult
 
@@ -108,7 +103,12 @@ class CliTests(unittest.TestCase):
 
         self.assertTrue(args.doctor)
         self.assertIsNone(args.message)
+
+    def test_build_parser_parses_unified_workflow_run_flag(self) -> None:
+        parser = build_parser()
+
         args = parser.parse_args(["--workflow-kind", "healthcheck", "--workflow-phase", "run", "--workflow-name", "agent-healthcheck"])
+
         self.assertEqual(args.workflow_kind, "healthcheck")
         self.assertEqual(args.workflow_phase, "run")
         self.assertEqual(args.workflow_name, "agent-healthcheck")
@@ -131,31 +131,14 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.gateway_pairings, "weixin")
         self.assertEqual(args.approve_gateway_pairing, "123456")
 
-    def test_build_parser_parses_healthcheck_flags(self) -> None:
-        parser = build_parser()
-
-        args = parser.parse_args(["--healthcheck", "config-check"])
-
-        self.assertEqual(args.healthcheck, "config-check")
-        self.assertFalse(args.list_healthcheck_tasks)
-        self.assertIsNone(args.workflow)
-
-    def test_build_parser_parses_workflow_flags(self) -> None:
-        parser = build_parser()
-
-        args = parser.parse_args(["--workflow", "agent-healthcheck"])
-
-        self.assertEqual(args.workflow, "agent-healthcheck")
-        self.assertFalse(args.list_healthcheck_workflows)
-
     def test_build_parser_parses_compare_workflow_flag(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["--compare-workflow", "agent-healthcheck"])
+        args = parser.parse_args(["--workflow-kind", "healthcheck", "--workflow-phase", "compare", "--workflow-name", "agent-healthcheck"])
 
-        self.assertEqual(args.compare_workflow, "agent-healthcheck")
-        args = parser.parse_args(["--evolution-run", "agent-healthcheck"])
-        self.assertEqual(args.evolution_run, "agent-healthcheck")
+        self.assertEqual(args.workflow_kind, "healthcheck")
+        self.assertEqual(args.workflow_phase, "compare")
+        self.assertEqual(args.workflow_name, "agent-healthcheck")
         args = parser.parse_args(["--confirm-eval-case"])
         self.assertTrue(args.confirm_eval_case)
         args = parser.parse_args(["--evolution-status"])
@@ -194,14 +177,6 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.list_eval_seeds)
         args = parser.parse_args(["--eval-seed-report"])
         self.assertTrue(args.eval_seed_report)
-        args = parser.parse_args(["--ifeval-run"])
-        self.assertTrue(args.ifeval_run)
-        args = parser.parse_args(["--ifeval-status"])
-        self.assertTrue(args.ifeval_status)
-        args = parser.parse_args(["--ifeval-drafts-status"])
-        self.assertTrue(args.ifeval_drafts_status)
-        args = parser.parse_args(["--list-ifeval-drafts"])
-        self.assertTrue(args.list_ifeval_drafts)
         args = parser.parse_args(
             [
                 "--ifeval-import-session",
@@ -218,10 +193,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.ifeval_import_key, 1)
         self.assertEqual(args.ifeval_import_instruction_id, ["rule:one"])
         self.assertEqual(args.ifeval_import_kwargs, ['{"foo":"bar"}'])
-        args = parser.parse_args(["--review-ifeval-draft"])
-        self.assertTrue(args.review_ifeval_draft)
-        args = parser.parse_args(["--ifeval-workflow"])
-        self.assertTrue(args.ifeval_workflow)
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -270,35 +241,6 @@ class CliTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 main()
 
-    def test_list_ifeval_drafts_prints_empty_state(self) -> None:
-        stdout = io.StringIO()
-
-        with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=Path("/tmp/drafts.jsonl")):
-            with patch("sys.argv", ["navi-agent", "--list-ifeval-drafts"]):
-                with redirect_stdout(stdout):
-                    exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("no ifeval drafts found", stdout.getvalue())
-
-    def test_ifeval_drafts_status_reports_counts(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            draft_path = Path(tmpdir) / "ifeval-drafts.jsonl"
-            draft_path.write_text(
-                '{"key": 1, "prompt": "p", "instruction_id_list": ["rule:one"], "kwargs": [{}], "session_id": "s1", "output": "o", "pass_fail": null, "notes": null}\n',
-                encoding="utf-8",
-            )
-            stdout = io.StringIO()
-
-            with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=draft_path):
-                with patch("sys.argv", ["navi-agent", "--ifeval-drafts-status"]):
-                    with redirect_stdout(stdout):
-                        exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("ifeval_drafts_count: 1", stdout.getvalue())
-        self.assertIn("ifeval_drafts_pending_count: 1", stdout.getvalue())
-
     def test_import_ifeval_seed_writes_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             draft_path = Path(tmpdir) / "ifeval-drafts.jsonl"
@@ -337,89 +279,6 @@ class CliTests(unittest.TestCase):
             self.assertEqual(draft_seed.output, "summary output")
             self.assertEqual(draft_seed.instruction_id_list, ["rule:one"])
             self.assertEqual(draft_seed.kwargs, [{"foo": "bar"}])
-
-    def test_review_ifeval_draft_promotes_draft(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            draft_path = Path(tmpdir) / "ifeval-drafts.jsonl"
-            eval_path = Path(tmpdir) / "ifeval_seed.jsonl"
-            draft_path.write_text(
-                '{"key": 42, "prompt": "Write a summary.", "instruction_id_list": ["rule:one"], "kwargs": [{"foo": "bar"}], "session_id": "session-1", "output": "summary output", "pass_fail": null, "notes": "draft"}\n',
-                encoding="utf-8",
-            )
-            stdout = io.StringIO()
-
-            with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=draft_path):
-                with patch("navi_agent.cli.get_eval_seed_path", return_value=eval_path):
-                    with patch("builtins.input", return_value="y"):
-                        with patch("sys.argv", ["navi-agent", "--review-ifeval-draft"]):
-                            with redirect_stdout(stdout):
-                                exit_code = main()
-
-            self.assertEqual(exit_code, 0)
-            self.assertIn("ifeval draft review:", stdout.getvalue())
-            self.assertIn("ifeval_draft_promoted: 42", stdout.getvalue())
-            self.assertEqual(EvalSeedStore(draft_path).list_recent(limit=None), [])
-            published = EvalSeedStore(eval_path).list_recent(limit=None)
-            self.assertEqual(len(published), 1)
-            self.assertEqual(published[0].key, 42)
-            self.assertEqual(published[0].session_id, "session-1")
-
-    def test_ifeval_workflow_runs_review_then_eval_then_status(self) -> None:
-        stdout = io.StringIO()
-
-        draft = EvalSeed(
-            key=42,
-            prompt="Write a summary.",
-            instruction_id_list=["rule:one"],
-            kwargs=[{"foo": "bar"}],
-            session_id="session-1",
-            output="summary output",
-            pass_fail=None,
-            notes="draft",
-        )
-        workflow_result = IfevalWorkflowResult(
-            review=IfevalReviewResult(
-                draft_count=1,
-                draft=draft,
-                promoted=True,
-                skipped=False,
-                message="promoted draft 42",
-            ),
-            run=IfevalRunSummary(
-                count=1,
-                passed_count=1,
-                failed_count=0,
-                pass_rate=1.0,
-                report_path=Path("/tmp/ifeval-run"),
-                skipped=False,
-                message="ifeval run completed",
-            ),
-            status=IfevalStatusSummary(
-                latest_report=IfevalRunRecord(
-                    seed_path="/tmp/ifeval_seed.jsonl",
-                    report_path=Path("/tmp/ifeval-reports/20260704-090000"),
-                    count=1,
-                    passed_count=1,
-                    failed_count=0,
-                    pass_rate=1.0,
-                    created_at="20260704-090000",
-                )
-            ),
-        )
-
-        with patch("navi_agent.cli.IfevalWorkflowService") as service_cls:
-            service_cls.return_value.run.return_value = workflow_result
-            with patch("sys.argv", ["navi-agent", "--ifeval-workflow"]):
-                with redirect_stdout(stdout):
-                    exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("ifeval workflow:", stdout.getvalue())
-        self.assertIn("collect: draft_count=1", stdout.getvalue())
-        self.assertIn("review: promoted draft 42", stdout.getvalue())
-        self.assertIn("run: count=1 passed=1 failed=0 pass_rate=1.0", stdout.getvalue())
-        self.assertIn("report: /tmp/ifeval-reports/20260704-090000", stdout.getvalue())
-        service_cls.return_value.run.assert_called_once()
 
     def test_main_runs_doctor_mode(self) -> None:
         with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:
@@ -556,88 +415,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "agent-healthcheck: desc")
 
-    def test_main_runs_healthcheck_task(self) -> None:
-        fake_app = FakeApp()
-        stdout = io.StringIO()
-
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch(
-                "navi_agent.cli.run_healthcheck_task",
-                return_value=RuntimeResult(session_id="s1", status="success", final_response="done"),
-            ) as run_healthcheck_task_mock:
-                with patch("sys.argv", ["navi-agent", "--healthcheck", "config-check"]):
-                    with redirect_stdout(stdout):
-                        exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(stdout.getvalue().strip(), "done")
-        run_healthcheck_task_mock.assert_called_once()
-
-    def test_main_runs_healthcheck_workflow(self) -> None:
-        fake_app = FakeApp()
-        stdout = io.StringIO()
-        fake_app.list_candidates = lambda limit=50: [
-            type("Candidate", (), {"candidate_id": "c1", "status": "pending", "target": "prompt", "summary": "Review prompt"})()
-        ]
-        fake_app.list_eval_cases = lambda limit=50: [
-            type(
-                "EvalCase",
-                (),
-                {
-                    "workflow_name": "agent-healthcheck",
-                    "status": "regressed",
-                    "source_average_score": 1.0,
-                    "replay_average_score": 0.9,
-                    "score_delta": -0.1,
-                },
-            )()
-        ]
-
-        workflow_result = type(
-            "WorkflowResult",
-            (),
-            {
-                "workflow": type("Workflow", (), {"name": "agent-healthcheck", "steps": ["config-check", "workspace-search"]})(),
-                "session_id": "wf-1",
-                "steps": [
-                    type(
-                        "StepResult",
-                        (),
-                        {
-                            "task_name": "config-check",
-                            "trace_id": "trace-1",
-                            "runtime_result": RuntimeResult(session_id="wf-1", status="success", final_response="first"),
-                        },
-                    )(),
-                    type(
-                        "StepResult",
-                        (),
-                        {
-                            "task_name": "workspace-search",
-                            "trace_id": "trace-2",
-                            "runtime_result": RuntimeResult(session_id="wf-1", status="success", final_response="second"),
-                        },
-                    )(),
-                ],
-            },
-        )()
-
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch(
-                "navi_agent.cli.run_healthcheck_workflow",
-                return_value=workflow_result,
-            ) as run_healthcheck_workflow_mock:
-                with patch("sys.argv", ["navi-agent", "--workflow", "agent-healthcheck"]):
-                    with redirect_stdout(stdout):
-                        exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("workflow: agent-healthcheck", stdout.getvalue())
-        self.assertIn("[1] config-check", stdout.getvalue())
-        self.assertIn("trace_id: trace-1", stdout.getvalue())
-        self.assertIn("second", stdout.getvalue())
-        run_healthcheck_workflow_mock.assert_called_once()
-
     def test_main_runs_unified_healthcheck_run_workflow(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
@@ -675,28 +452,6 @@ class CliTests(unittest.TestCase):
         self.assertIn("done", stdout.getvalue())
         run_mock.assert_called_once()
 
-    def test_main_runs_unified_ifeval_review_workflow(self) -> None:
-        stdout = io.StringIO()
-
-        with patch("navi_agent.cli._review_ifeval_draft", return_value=0) as review_mock:
-            with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "review"]):
-                with redirect_stdout(stdout):
-                    exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        review_mock.assert_called_once_with()
-
-    def test_main_runs_unified_ifeval_report_workflow(self) -> None:
-        stdout = io.StringIO()
-
-        with patch("navi_agent.cli._print_ifeval_status", return_value=0) as report_mock:
-            with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "report"]):
-                with redirect_stdout(stdout):
-                    exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        report_mock.assert_called_once_with()
-
     def test_main_runs_unified_healthcheck_compare_workflow(self) -> None:
         stdout = io.StringIO()
 
@@ -719,201 +474,27 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         compare_mock.assert_called_once()
 
-    def test_main_runs_compare_workflow(self) -> None:
-        fake_app = FakeApp()
+    def test_main_runs_unified_ifeval_review_workflow(self) -> None:
         stdout = io.StringIO()
 
-        workflow_result = type(
-            "WorkflowResult",
-            (),
-            {
-                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
-                "session_id": "wf-1",
-            },
-        )()
-        comparison = type(
-            "WorkflowComparison",
-            (),
-            {
-                "workflow_name": "agent-healthcheck",
-                "source_session_id": "wf-1",
-                "replay_session_id": "wf-1:replay:abcd1234",
-                "source_average_score": 1.0,
-                "replay_average_score": 0.9,
-                "score_delta": -0.1,
-                "eval_case": type(
-                    "EvalCase",
-                    (),
-                    {
-                        "workflow_name": "agent-healthcheck",
-                        "status": "regressed",
-                        "source_average_score": 1.0,
-                        "replay_average_score": 0.9,
-                        "score_delta": -0.1,
-                    },
-                )(),
-                "candidate": type(
-                    "Candidate",
-                    (),
-                    {
-                        "candidate_id": "c1",
-                        "status": "pending",
-                        "target": "prompt",
-                        "summary": "Review workflow regression",
-                    },
-                )(),
-                "step_comparisons": [
-                    type(
-                        "StepComparison",
-                        (),
-                        {
-                            "task_name": "config-check",
-                            "source_step": type("Step", (), {"trace_id": "trace-1"})(),
-                            "replay_step": type("Step", (), {"trace_id": "trace-2"})(),
-                            "score_delta": -0.1,
-                        },
-                    )()
-                ],
-            },
-        )()
-
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.run_healthcheck_workflow", return_value=workflow_result) as run_healthcheck_workflow_mock:
-                with patch("navi_agent.cli.replay_healthcheck_workflow", return_value=workflow_result) as replay_mock:
-                    with patch("navi_agent.cli.compare_healthcheck_workflow_results", return_value=comparison) as compare_mock:
-                        with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
-                            with patch("sys.argv", ["navi-agent", "--compare-workflow", "agent-healthcheck"]):
-                                with redirect_stdout(stdout):
-                                    report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
-                                    exit_code = main()
+        with patch("navi_agent.cli._review_ifeval_draft", return_value=0) as review_mock:
+            with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "review"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("workflow: agent-healthcheck", stdout.getvalue())
-        self.assertIn("source_session_id: wf-1", stdout.getvalue())
-        self.assertIn("workflow_status: regressed", stdout.getvalue())
-        self.assertIn("report_path: /tmp/report", stdout.getvalue())
-        self.assertIn("candidate_target: prompt", stdout.getvalue())
-        self.assertIn("replay_trace_id: trace-2", stdout.getvalue())
-        self.assertEqual(len(fake_app.saved_eval_cases), 1)
-        self.assertEqual(len(fake_app.saved_candidates), 1)
-        run_healthcheck_workflow_mock.assert_called_once()
-        replay_mock.assert_called_once()
-        compare_mock.assert_called_once()
+        review_mock.assert_called_once_with()
 
-    def test_main_runs_compare_workflow_with_confirmation(self) -> None:
-        fake_app = FakeApp()
+    def test_main_runs_unified_ifeval_report_workflow(self) -> None:
         stdout = io.StringIO()
 
-        workflow_result = type(
-            "WorkflowResult",
-            (),
-            {
-                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
-                "session_id": "wf-1",
-            },
-        )()
-        comparison = type(
-            "WorkflowComparison",
-            (),
-            {
-                "workflow_name": "agent-healthcheck",
-                "source_session_id": "wf-1",
-                "replay_session_id": "wf-1:replay:abcd1234",
-                "source_average_score": 1.0,
-                "replay_average_score": 0.9,
-                "score_delta": -0.1,
-                "eval_case": type(
-                    "EvalCase",
-                    (),
-                    {
-                        "workflow_name": "agent-healthcheck",
-                        "status": "regressed",
-                        "source_average_score": 1.0,
-                        "replay_average_score": 0.9,
-                        "score_delta": -0.1,
-                    },
-                )(),
-                "candidate": None,
-                "step_comparisons": [],
-            },
-        )()
-
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.run_healthcheck_workflow", return_value=workflow_result):
-                with patch("navi_agent.cli.replay_healthcheck_workflow", return_value=workflow_result):
-                    with patch("navi_agent.cli.compare_healthcheck_workflow_results", return_value=comparison):
-                        with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
-                            report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
-                            with patch("builtins.input", return_value="y") as input_mock:
-                                with patch(
-                                    "sys.argv",
-                                    ["navi-agent", "--compare-workflow", "agent-healthcheck", "--confirm-eval-case"],
-                                ):
-                                    with redirect_stdout(stdout):
-                                        exit_code = main()
+        with patch("navi_agent.cli._print_ifeval_status", return_value=0) as report_mock:
+            with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "report"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("eval case candidate:", stdout.getvalue())
-        self.assertIn("eval_case_saved: yes", stdout.getvalue())
-        self.assertEqual(len(fake_app.saved_eval_cases), 1)
-        input_mock.assert_called_once()
-
-    def test_main_skips_eval_case_when_confirmation_rejected(self) -> None:
-        fake_app = FakeApp()
-        stdout = io.StringIO()
-
-        workflow_result = type(
-            "WorkflowResult",
-            (),
-            {
-                "workflow": type("Workflow", (), {"name": "agent-healthcheck"})(),
-                "session_id": "wf-1",
-            },
-        )()
-        comparison = type(
-            "WorkflowComparison",
-            (),
-            {
-                "workflow_name": "agent-healthcheck",
-                "source_session_id": "wf-1",
-                "replay_session_id": "wf-1:replay:abcd1234",
-                "source_average_score": 1.0,
-                "replay_average_score": 0.9,
-                "score_delta": -0.1,
-                "eval_case": type(
-                    "EvalCase",
-                    (),
-                    {
-                        "workflow_name": "agent-healthcheck",
-                        "status": "regressed",
-                        "source_average_score": 1.0,
-                        "replay_average_score": 0.9,
-                        "score_delta": -0.1,
-                    },
-                )(),
-                "candidate": None,
-                "step_comparisons": [],
-            },
-        )()
-
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.run_healthcheck_workflow", return_value=workflow_result):
-                with patch("navi_agent.cli.replay_healthcheck_workflow", return_value=workflow_result):
-                    with patch("navi_agent.cli.compare_healthcheck_workflow_results", return_value=comparison):
-                        with patch("navi_agent.cli.EvolutionReportWriter") as report_writer_cls:
-                            report_writer_cls.return_value.write_workflow_comparison_report.return_value = "/tmp/report"
-                            with patch("builtins.input", return_value="n"):
-                                with patch(
-                                    "sys.argv",
-                                    ["navi-agent", "--compare-workflow", "agent-healthcheck", "--confirm-eval-case"],
-                                ):
-                                    with redirect_stdout(stdout):
-                                        exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("eval case candidate:", stdout.getvalue())
-        self.assertIn("eval_case_saved: no", stdout.getvalue())
-        self.assertEqual(len(fake_app.saved_eval_cases), 0)
+        report_mock.assert_called_once_with()
 
     def test_main_runs_apply_candidate_workflow(self) -> None:
         first_app = FakeApp()
@@ -1589,7 +1170,10 @@ class CliTests(unittest.TestCase):
         with patch("navi_agent.cli.EvalSeedStore", return_value=fake_store):
             with patch("navi_agent.cli.IfevalRunWriter", return_value=fake_writer):
                 with patch("navi_agent.cli.build_application", return_value=FakeApp()):
-                    with patch("sys.argv", ["navi-agent", "--ifeval-run"]):
+                    with patch(
+                        "sys.argv",
+                        ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "run"],
+                    ):
                         with redirect_stdout(stdout):
                             exit_code = main()
 
@@ -1622,7 +1206,7 @@ class CliTests(unittest.TestCase):
         )()
 
         with patch("navi_agent.cli.IfevalRunStore", return_value=fake_store):
-            with patch("sys.argv", ["navi-agent", "--ifeval-status"]):
+            with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "report"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
 

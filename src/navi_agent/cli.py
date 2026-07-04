@@ -44,7 +44,6 @@ from navi_agent.healthcheck import (
     list_healthcheck_tasks,
     list_healthcheck_workflows,
     replay_healthcheck_workflow,
-    run_healthcheck_task,
     run_healthcheck_workflow,
 )
 
@@ -65,10 +64,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gateway", choices=["weixin"])
     parser.add_argument("--gateway-pairings", choices=["weixin"])
     parser.add_argument("--approve-gateway-pairing")
-    parser.add_argument("--healthcheck")
-    parser.add_argument("--workflow")
-    parser.add_argument("--compare-workflow")
-    parser.add_argument("--evolution-run")
     parser.add_argument("--confirm-eval-case", action="store_true")
     parser.add_argument("--evolution-status", action="store_true")
     parser.add_argument("--curator-status", action="store_true")
@@ -102,16 +97,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-seed-status", action="store_true")
     parser.add_argument("--list-eval-seeds", action="store_true")
     parser.add_argument("--eval-seed-report", action="store_true")
-    parser.add_argument("--ifeval-run", action="store_true")
-    parser.add_argument("--ifeval-status", action="store_true")
-    parser.add_argument("--ifeval-drafts-status", action="store_true")
-    parser.add_argument("--list-ifeval-drafts", action="store_true")
     parser.add_argument("--ifeval-import-session")
     parser.add_argument("--ifeval-import-key", type=int)
     parser.add_argument("--ifeval-import-instruction-id", action="append")
     parser.add_argument("--ifeval-import-kwargs", action="append")
-    parser.add_argument("--review-ifeval-draft", action="store_true")
-    parser.add_argument("--ifeval-workflow", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -236,14 +225,6 @@ def main() -> int:
         return _list_eval_seeds()
     if args.eval_seed_report:
         return _write_eval_seed_report()
-    if args.ifeval_run:
-        return _run_ifeval()
-    if args.ifeval_status:
-        return _print_ifeval_status()
-    if args.ifeval_drafts_status:
-        return _print_ifeval_drafts_status()
-    if args.list_ifeval_drafts:
-        return _list_ifeval_drafts()
     if args.ifeval_import_session:
         return _import_ifeval_seed(
             session_id=args.ifeval_import_session,
@@ -251,10 +232,6 @@ def main() -> int:
             instruction_ids=args.ifeval_import_instruction_id or [],
             kwargs_json=args.ifeval_import_kwargs or [],
         )
-    if args.review_ifeval_draft:
-        return _review_ifeval_draft()
-    if args.ifeval_workflow:
-        return _run_ifeval_workflow()
     if args.prompt_overlay_status:
         overlay = PromptOverlayStore(get_prompt_overlay_path())
         info = overlay.describe()
@@ -481,13 +458,9 @@ def main() -> int:
         return 0
     if (
         not args.interactive
-        and not args.healthcheck
         and not args.gateway
         and not args.gateway_pairings
         and not args.approve_gateway_pairing
-        and not args.workflow
-        and not args.compare_workflow
-        and not args.evolution_run
         and not args.evolution_status
         and not args.curator_status
         and not args.curator_run
@@ -503,13 +476,7 @@ def main() -> int:
         and not args.eval_seed_status
         and not args.list_eval_seeds
         and not args.eval_seed_report
-        and not args.ifeval_run
-        and not args.ifeval_status
-        and not args.ifeval_drafts_status
-        and not args.list_ifeval_drafts
         and not args.ifeval_import_session
-        and not args.review_ifeval_draft
-        and not args.ifeval_workflow
         and not args.apply_candidate_run
         and not args.message
     ):
@@ -519,42 +486,6 @@ def main() -> int:
         default_system_prompt=args.system_prompt,
         approval_provider=CliApprovalProvider(),
     )
-    if args.healthcheck:
-        result = run_healthcheck_task(
-            app=app,
-            task_name=args.healthcheck,
-            user_id=args.user_id,
-            session_id=args.session_id,
-            system_prompt=args.system_prompt,
-        )
-        print(result.final_response)
-        return 0
-    if args.workflow:
-        workflow_result = run_healthcheck_workflow(
-            app=app,
-            workflow_name=args.workflow,
-            user_id=args.user_id,
-            session_id=args.session_id,
-            system_prompt=args.system_prompt,
-        )
-        print(f"workflow: {workflow_result.workflow.name}")
-        print(f"session_id: {workflow_result.session_id}")
-        for index, step in enumerate(workflow_result.steps, start=1):
-            print(f"[{index}] {step.task_name}")
-            if step.trace_id:
-                print(f"trace_id: {step.trace_id}")
-            print(step.runtime_result.final_response)
-        return 0
-    if args.compare_workflow or args.evolution_run:
-        workflow_name = args.compare_workflow or args.evolution_run
-        return _run_evolution_workflow(
-            app=app,
-            workflow_name=workflow_name,
-            user_id=args.user_id,
-            session_id=args.session_id,
-            system_prompt=args.system_prompt,
-            confirm_eval_case=args.confirm_eval_case,
-        )
     if args.interactive:
         return _run_interactive(
             app=app,
@@ -837,29 +768,6 @@ def _print_ifeval_status() -> int:
     return 0
 
 
-def _print_ifeval_drafts_status() -> int:
-    store = EvalSeedStore(get_ifeval_drafts_path())
-    info = store.describe()
-    print(f"ifeval_drafts_path: {info['path']}")
-    print(f"ifeval_drafts_exists: {info['exists']}")
-    print(f"ifeval_drafts_count: {info['count']}")
-    print(f"ifeval_drafts_pending_count: {info['pending_count']}")
-    return 0
-
-
-def _list_ifeval_drafts() -> int:
-    store = EvalSeedStore(get_ifeval_drafts_path())
-    seeds = store.list_recent(limit=None)
-    if not seeds:
-        print("no ifeval drafts found")
-        return 0
-    for seed in seeds:
-        print(f"{seed.key}: {seed.session_id}")
-        print(f"  prompt: {seed.prompt}")
-        print(f"  instructions: {', '.join(seed.instruction_id_list) or 'none'}")
-    return 0
-
-
 def _confirm_ifeval_draft(draft: EvalSeed) -> bool:
     print("ifeval draft review:")
     print(f"draft_key: {draft.key}")
@@ -959,54 +867,6 @@ def _review_ifeval_draft() -> int:
         return 0
     print(result.message)
     return 0
-
-
-def _run_ifeval_workflow() -> int:
-    app = build_application(approval_provider=CliApprovalProvider())
-    service = IfevalWorkflowService(
-        draft_store=EvalSeedStore(get_ifeval_drafts_path()),
-        seed_store=EvalSeedStore(get_eval_seed_path()),
-        report_root=get_ifeval_reports_dir(),
-        run_seed=lambda seed: _run_ifeval_seed(app, seed),
-    )
-    result = service.run(confirm_latest_draft=_confirm_ifeval_draft)
-    print("ifeval workflow:")
-    print(f"collect: draft_count={result.review.draft_count}")
-    if result.review.draft is None:
-        print(f"review: skipped ({result.review.message})")
-    elif result.review.promoted:
-        print(f"review: promoted draft {result.review.draft.key}")
-    else:
-        print(f"review: skipped ({result.review.message})")
-    if result.run.skipped:
-        print(f"run: skipped ({result.run.message})")
-    else:
-        print(
-            f"run: count={result.run.count} passed={result.run.passed_count} "
-            f"failed={result.run.failed_count} pass_rate={result.run.pass_rate}"
-        )
-        print(f"run_report_path: {result.run.report_path}")
-    if result.status.latest_report is None:
-        print("report: none")
-    else:
-        latest = result.status.latest_report
-        print(f"report: {latest.report_path}")
-        print(f"report_count: {latest.count}")
-        print(f"report_pass_rate: {latest.pass_rate}")
-        print(f"report_created_at: {latest.created_at}")
-    return 0
-
-
-def _run_ifeval_seed(app, seed: EvalSeed) -> tuple[str, str]:
-    runtime_result = app.handle(
-        AppRequest(
-            user_id="ifeval",
-            session_id=seed.session_id,
-            message=seed.prompt,
-            auto_propose_eval_case=False,
-        )
-    )
-    return runtime_result.session_id, runtime_result.final_response
 
 
 def _candidate_action_from_args(args) -> str | None:
