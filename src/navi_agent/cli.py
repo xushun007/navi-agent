@@ -19,6 +19,7 @@ from navi_agent.evolution import (
     IfevalRunWriter,
     EvolutionReportStore,
     EvolutionReportWriter,
+    IfevalWorkflowService,
     PromptOverlayStore,
     ReviewLoopService,
 )
@@ -771,6 +772,26 @@ def _list_ifeval_drafts() -> int:
     return 0
 
 
+def _confirm_ifeval_draft(draft: EvalSeed) -> bool:
+    print("ifeval draft review:")
+    print(f"draft_key: {draft.key}")
+    print(f"draft_session_id: {draft.session_id}")
+    print(f"draft_prompt: {draft.prompt}")
+    print(f"draft_instructions: {', '.join(draft.instruction_id_list) or 'none'}")
+    print(f"draft_output: {draft.output}")
+    while True:
+        try:
+            answer = input("promote draft to data/eval? [y/N]: ").strip().lower()
+        except EOFError:
+            print("ifeval draft review cancelled")
+            return False
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"", "n", "no"}:
+            return False
+        print("please answer y or n")
+
+
 def _import_ifeval_seed(
     *,
     session_id: str,
@@ -836,59 +857,68 @@ def _import_ifeval_seed(
 
 
 def _review_ifeval_draft() -> int:
-    draft_store = EvalSeedStore(get_ifeval_drafts_path())
-    seeds = draft_store.list_recent(limit=None)
-    if not seeds:
-        print("no ifeval drafts found")
+    service = IfevalWorkflowService(
+        draft_store=EvalSeedStore(get_ifeval_drafts_path()),
+        seed_store=EvalSeedStore(get_eval_seed_path()),
+    )
+    result = service.review_latest_draft(confirm_latest_draft=_confirm_ifeval_draft)
+    if result.draft is None:
+        print(result.message)
         return 1
-
-    draft = seeds[-1]
-    print("ifeval draft review:")
-    print(f"draft_key: {draft.key}")
-    print(f"draft_session_id: {draft.session_id}")
-    print(f"draft_prompt: {draft.prompt}")
-    print(f"draft_instructions: {', '.join(draft.instruction_id_list) or 'none'}")
-    print(f"draft_output: {draft.output}")
-    while True:
-        try:
-            answer = input("promote draft to data/eval? [y/N]: ").strip().lower()
-        except EOFError:
-            print("ifeval draft review cancelled")
-            return 1
-        if answer in {"y", "yes"}:
-            published_store = EvalSeedStore(get_eval_seed_path())
-            published_store.append(draft)
-            removed = draft_store.remove_by_key(draft.key)
-            if removed is None:
-                print(f"ifeval draft not found: {draft.key}")
-                return 1
-            print(f"ifeval_draft_promoted: {draft.key}")
-            print(f"ifeval_seed_path: {published_store.path}")
-            return 0
-        if answer in {"", "n", "no"}:
-            print("ifeval draft review cancelled")
-            return 0
-        print("please answer y or n")
+    if result.promoted:
+        print(f"ifeval_draft_promoted: {result.draft.key}")
+        print(f"ifeval_seed_path: {get_eval_seed_path()}")
+        return 0
+    print(result.message)
+    return 0
 
 
 def _run_ifeval_workflow() -> int:
-    draft_store = EvalSeedStore(get_ifeval_drafts_path())
-    draft_count = len(draft_store.list_recent(limit=None))
+    app = build_application(approval_provider=CliApprovalProvider())
+    service = IfevalWorkflowService(
+        draft_store=EvalSeedStore(get_ifeval_drafts_path()),
+        seed_store=EvalSeedStore(get_eval_seed_path()),
+        report_root=get_ifeval_reports_dir(),
+        run_seed=lambda seed: _run_ifeval_seed(app, seed),
+    )
+    result = service.run(confirm_latest_draft=_confirm_ifeval_draft)
     print("ifeval workflow:")
-    print(f"draft_count: {draft_count}")
-    if draft_count:
-        print("phase: review draft")
-        review_exit_code = _review_ifeval_draft()
-        if review_exit_code != 0:
-            return review_exit_code
+    print(f"collect: draft_count={result.review.draft_count}")
+    if result.review.draft is None:
+        print(f"review: skipped ({result.review.message})")
+    elif result.review.promoted:
+        print(f"review: promoted draft {result.review.draft.key}")
     else:
-        print("phase: review draft skipped")
-    print("phase: run ifeval")
-    run_exit_code = _run_ifeval()
-    if run_exit_code != 0:
-        return run_exit_code
-    print("phase: report status")
-    return _print_ifeval_status()
+        print(f"review: skipped ({result.review.message})")
+    if result.run.skipped:
+        print(f"run: skipped ({result.run.message})")
+    else:
+        print(
+            f"run: count={result.run.count} passed={result.run.passed_count} "
+            f"failed={result.run.failed_count} pass_rate={result.run.pass_rate}"
+        )
+        print(f"run_report_path: {result.run.report_path}")
+    if result.status.latest_report is None:
+        print("report: none")
+    else:
+        latest = result.status.latest_report
+        print(f"report: {latest.report_path}")
+        print(f"report_count: {latest.count}")
+        print(f"report_pass_rate: {latest.pass_rate}")
+        print(f"report_created_at: {latest.created_at}")
+    return 0
+
+
+def _run_ifeval_seed(app, seed: EvalSeed) -> tuple[str, str]:
+    runtime_result = app.handle(
+        AppRequest(
+            user_id="ifeval",
+            session_id=seed.session_id,
+            message=seed.prompt,
+            auto_propose_eval_case=False,
+        )
+    )
+    return runtime_result.session_id, runtime_result.final_response
 
 
 def _candidate_action_from_args(args) -> str | None:

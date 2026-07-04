@@ -7,6 +7,11 @@ from unittest.mock import patch
 
 from navi_agent.evolution import EvalSeed
 from navi_agent.evolution import EvalSeedStore
+from navi_agent.evolution import IfevalReviewResult
+from navi_agent.evolution import IfevalRunSummary
+from navi_agent.evolution import IfevalRunRecord
+from navi_agent.evolution import IfevalStatusSummary
+from navi_agent.evolution import IfevalWorkflowResult
 from navi_agent.cli import _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult
 
@@ -358,24 +363,59 @@ class CliTests(unittest.TestCase):
     def test_ifeval_workflow_runs_review_then_eval_then_status(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli._review_ifeval_draft", return_value=0) as review_mock:
-            with patch("navi_agent.cli._run_ifeval", return_value=0) as run_mock:
-                with patch("navi_agent.cli._print_ifeval_status", return_value=0) as status_mock:
-                    with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=Path("/tmp/drafts.jsonl")):
-                        with patch("navi_agent.cli.EvalSeedStore") as store_cls:
-                            store_cls.return_value.list_recent.return_value = [object()]
-                            with patch("sys.argv", ["navi-agent", "--ifeval-workflow"]):
-                                with redirect_stdout(stdout):
-                                    exit_code = main()
+        draft = EvalSeed(
+            key=42,
+            prompt="Write a summary.",
+            instruction_id_list=["rule:one"],
+            kwargs=[{"foo": "bar"}],
+            session_id="session-1",
+            output="summary output",
+            pass_fail=None,
+            notes="draft",
+        )
+        workflow_result = IfevalWorkflowResult(
+            review=IfevalReviewResult(
+                draft_count=1,
+                draft=draft,
+                promoted=True,
+                skipped=False,
+                message="promoted draft 42",
+            ),
+            run=IfevalRunSummary(
+                count=1,
+                passed_count=1,
+                failed_count=0,
+                pass_rate=1.0,
+                report_path=Path("/tmp/ifeval-run"),
+                skipped=False,
+                message="ifeval run completed",
+            ),
+            status=IfevalStatusSummary(
+                latest_report=IfevalRunRecord(
+                    seed_path="/tmp/ifeval_seed.jsonl",
+                    report_path=Path("/tmp/ifeval-reports/20260704-090000"),
+                    count=1,
+                    passed_count=1,
+                    failed_count=0,
+                    pass_rate=1.0,
+                    created_at="20260704-090000",
+                )
+            ),
+        )
+
+        with patch("navi_agent.cli.IfevalWorkflowService") as service_cls:
+            service_cls.return_value.run.return_value = workflow_result
+            with patch("sys.argv", ["navi-agent", "--ifeval-workflow"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("ifeval workflow:", stdout.getvalue())
-        self.assertIn("phase: review draft", stdout.getvalue())
-        self.assertIn("phase: run ifeval", stdout.getvalue())
-        self.assertIn("phase: report status", stdout.getvalue())
-        review_mock.assert_called_once_with()
-        run_mock.assert_called_once_with()
-        status_mock.assert_called_once_with()
+        self.assertIn("collect: draft_count=1", stdout.getvalue())
+        self.assertIn("review: promoted draft 42", stdout.getvalue())
+        self.assertIn("run: count=1 passed=1 failed=0 pass_rate=1.0", stdout.getvalue())
+        self.assertIn("report: /tmp/ifeval-reports/20260704-090000", stdout.getvalue())
+        service_cls.return_value.run.assert_called_once()
 
     def test_main_runs_doctor_mode(self) -> None:
         with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:
