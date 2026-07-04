@@ -4,29 +4,29 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 
 ## 目标
 
-- 构建一个可持续优化的 Agent，而不是一次性脚本
-- 聚焦最小可行闭环：接入、执行、反馈、进化
-- 先把单入口、单主链路跑通，再逐步扩展能力
+- 可持续优化的 Agent
+- 最小闭环：接入、执行、反馈、进化
+- 先跑通单入口、单主链路
 
 ## 当前范围
 
-- `gateway` 第一阶段只接入微信
-- 只保留核心运行链路，不追求大而全平台
-- 优先支持单 Agent 的稳定执行与持续优化
+- `gateway` 只接微信
+- 只保留核心运行链路
+- 优先单 Agent 稳定执行
 
-## 自我进化的含义
+## 自我进化
 
-这里的“自我进化”不是无约束自修改，而是基于真实运行数据持续发现问题、评估方案、验证改进，并逐步提升效果。
+基于真实运行数据持续发现问题、评估方案、验证改进。
 
 ## 微信网关
 
-当前微信网关只保留 iLink 本地轮询风格，参考 Hermes 的接入方式，使用 iLink token 拉取文本消息并发送文本回复。
+当前微信网关只保留 iLink 本地轮询风格，拉取文本消息并发送文本回复。
 
 ```bash
 uv run navi-agent --gateway weixin
 ```
 
-微信网关只从 `config.yaml` 或环境变量读取配置，推荐写入 `config.yaml`：
+微信网关只从 `config.yaml` 或环境变量读取配置：
 
 ```yaml
 gateway:
@@ -53,7 +53,7 @@ uv run navi-agent --gateway-pairings weixin
 uv run navi-agent --approve-gateway-pairing 123456
 ```
 
-当前先保留文本消息和私聊授权的最小闭环，登录、媒体、群策略和更完整的账号态管理后续再补。
+当前先保留文本消息和私聊授权的最小闭环，其他能力后续再补。
 
 ## 一句话定义
 
@@ -70,6 +70,6 @@ uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-na
 
 ## 评测
 
-- 在线会话先进入 runtime，离线只看稳定样本和评测集
-- IFEval 这类基准用统一 workflow 跑分，结果写入报告
-- 新样本先人工确认，再纳入 `data/eval/` 回归
+- 在线会话进 runtime，离线只看稳定样本
+- IFEval 用统一 workflow 跑分并写报告
+- 新样本先人工确认，再进 `data/eval/` 回归
