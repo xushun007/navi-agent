@@ -176,6 +176,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.eval_seed_report)
         args = parser.parse_args(["--ifeval-run"])
         self.assertTrue(args.ifeval_run)
+        args = parser.parse_args(["--ifeval-status"])
+        self.assertTrue(args.ifeval_status)
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -1320,6 +1322,38 @@ class CliTests(unittest.TestCase):
         self.assertIn("1019 [pass] ifeval-002: score=1.0", stdout.getvalue())
         self.assertIn("ifeval_report_path: /tmp/ifeval-run", stdout.getvalue())
         self.assertIn("ifeval_pass_rate: 1.0", stdout.getvalue())
+
+    def test_main_prints_ifeval_status(self) -> None:
+        stdout = io.StringIO()
+        fake_store = type(
+            "RunStore",
+            (),
+            {
+                "get_latest": lambda self: type(
+                    "RunRecord",
+                    (),
+                    {
+                        "report_path": "/tmp/ifeval-reports/20260704-090000",
+                        "seed_path": "/tmp/ifeval_seed.jsonl",
+                        "count": 2,
+                        "passed_count": 1,
+                        "failed_count": 1,
+                        "pass_rate": 0.5,
+                        "created_at": "20260704-090000",
+                    },
+                )(),
+            },
+        )()
+
+        with patch("navi_agent.cli.IfevalRunStore", return_value=fake_store):
+            with patch("sys.argv", ["navi-agent", "--ifeval-status"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("ifeval_report_root:", stdout.getvalue())
+        self.assertIn("ifeval_latest_report_path: /tmp/ifeval-reports/20260704-090000", stdout.getvalue())
+        self.assertIn("ifeval_latest_pass_rate: 0.5", stdout.getvalue())
 
     def test_main_runs_review_loop(self) -> None:
         fake_app = FakeApp()

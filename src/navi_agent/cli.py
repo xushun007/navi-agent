@@ -13,6 +13,7 @@ from navi_agent.evolution import (
     EvalSeedReportStore,
     EvalSeedReportWriter,
     IfevalEvaluator,
+    IfevalRunStore,
     IfevalRunWriter,
     EvolutionReportStore,
     EvolutionReportWriter,
@@ -92,6 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-eval-seeds", action="store_true")
     parser.add_argument("--eval-seed-report", action="store_true")
     parser.add_argument("--ifeval-run", action="store_true")
+    parser.add_argument("--ifeval-status", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -216,6 +218,8 @@ def main() -> int:
         return _write_eval_seed_report()
     if args.ifeval_run:
         return _run_ifeval()
+    if args.ifeval_status:
+        return _print_ifeval_status()
     if args.prompt_overlay_status:
         overlay = PromptOverlayStore(get_prompt_overlay_path())
         info = overlay.describe()
@@ -465,6 +469,7 @@ def main() -> int:
         and not args.list_eval_seeds
         and not args.eval_seed_report
         and not args.ifeval_run
+        and not args.ifeval_status
         and not args.apply_candidate_run
         and not args.message
     ):
@@ -689,6 +694,23 @@ def _run_ifeval() -> int:
     print(f"ifeval_passed_count: {passed_count}")
     print(f"ifeval_failed_count: {failed_count}")
     print(f"ifeval_pass_rate: {pass_rate}")
+    return 0
+
+
+def _print_ifeval_status() -> int:
+    report_root = get_ifeval_reports_dir()
+    latest = IfevalRunStore(report_root).get_latest()
+    print(f"ifeval_report_root: {report_root}")
+    if latest is None:
+        print("ifeval_latest_report: none")
+        return 0
+    print(f"ifeval_latest_report_path: {latest.report_path}")
+    print(f"ifeval_latest_seed_path: {latest.seed_path}")
+    print(f"ifeval_latest_count: {latest.count}")
+    print(f"ifeval_latest_passed_count: {latest.passed_count}")
+    print(f"ifeval_latest_failed_count: {latest.failed_count}")
+    print(f"ifeval_latest_pass_rate: {latest.pass_rate}")
+    print(f"ifeval_latest_created_at: {latest.created_at}")
     return 0
 
 

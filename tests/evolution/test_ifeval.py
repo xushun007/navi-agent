@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from navi_agent.evolution import EvalSeed, IfevalEvaluator
+from navi_agent.evolution import IfevalRunStore
 from navi_agent.evolution import IfevalRunWriter
 from navi_agent.evolution import EvalSeedStore
 
@@ -146,6 +147,30 @@ class IfevalEvaluatorTests(unittest.TestCase):
         self.assertEqual(payload["pass_rate"], 1.0)
         self.assertIn("# IFEval run report", report_md)
         self.assertIn("keep it lowercase.", report_md)
+
+    def test_run_store_loads_latest_report(self) -> None:
+        evaluator = IfevalEvaluator()
+        result = evaluator.evaluate(
+            key=1,
+            session_id="s1",
+            prompt="keep it lowercase.",
+            output="keep it lowercase.",
+            instruction_id_list=["change_case:english_lowercase"],
+            kwargs_list=[{}],
+        )
+
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "runs"
+            writer = IfevalRunWriter(root)
+            writer.write_run_report(seed_store=EvalSeedStore(Path(tmp_dir) / "ifeval_seed.jsonl"), results=[result])
+
+            latest = IfevalRunStore(root).get_latest()
+
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.count, 1)
+        self.assertEqual(latest.passed_count, 1)
+        self.assertEqual(latest.failed_count, 0)
+        self.assertEqual(latest.pass_rate, 1.0)
 
 
 if __name__ == "__main__":
