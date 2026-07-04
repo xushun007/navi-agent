@@ -106,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ifeval-import-key", type=int)
     parser.add_argument("--ifeval-import-instruction-id", action="append")
     parser.add_argument("--ifeval-import-kwargs", action="append")
+    parser.add_argument("--review-ifeval-draft", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -243,6 +244,8 @@ def main() -> int:
             instruction_ids=args.ifeval_import_instruction_id or [],
             kwargs_json=args.ifeval_import_kwargs or [],
         )
+    if args.review_ifeval_draft:
+        return _review_ifeval_draft()
     if args.prompt_overlay_status:
         overlay = PromptOverlayStore(get_prompt_overlay_path())
         info = overlay.describe()
@@ -496,6 +499,7 @@ def main() -> int:
         and not args.ifeval_drafts_status
         and not args.list_ifeval_drafts
         and not args.ifeval_import_session
+        and not args.review_ifeval_draft
         and not args.apply_candidate_run
         and not args.message
     ):
@@ -825,6 +829,42 @@ def _import_ifeval_seed(
     print(f"ifeval_draft_key: {seed.key}")
     print(f"ifeval_draft_session_id: {seed.session_id}")
     return 0
+
+
+def _review_ifeval_draft() -> int:
+    draft_store = EvalSeedStore(get_ifeval_drafts_path())
+    seeds = draft_store.list_recent(limit=None)
+    if not seeds:
+        print("no ifeval drafts found")
+        return 1
+
+    draft = seeds[-1]
+    print("ifeval draft review:")
+    print(f"draft_key: {draft.key}")
+    print(f"draft_session_id: {draft.session_id}")
+    print(f"draft_prompt: {draft.prompt}")
+    print(f"draft_instructions: {', '.join(draft.instruction_id_list) or 'none'}")
+    print(f"draft_output: {draft.output}")
+    while True:
+        try:
+            answer = input("promote draft to data/eval? [y/N]: ").strip().lower()
+        except EOFError:
+            print("ifeval draft review cancelled")
+            return 1
+        if answer in {"y", "yes"}:
+            published_store = EvalSeedStore(get_eval_seed_path())
+            published_store.append(draft)
+            removed = draft_store.remove_by_key(draft.key)
+            if removed is None:
+                print(f"ifeval draft not found: {draft.key}")
+                return 1
+            print(f"ifeval_draft_promoted: {draft.key}")
+            print(f"ifeval_seed_path: {published_store.path}")
+            return 0
+        if answer in {"", "n", "no"}:
+            print("ifeval draft review cancelled")
+            return 0
+        print("please answer y or n")
 
 
 def _candidate_action_from_args(args) -> str | None:

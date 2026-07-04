@@ -34,6 +34,24 @@ class EvalSeedStore:
             handle.write(json.dumps(asdict(seed), ensure_ascii=False, sort_keys=True))
             handle.write("\n")
 
+    def remove_by_key(self, key: int) -> EvalSeed | None:
+        seeds = self._load()
+        remaining: list[EvalSeed] = []
+        removed: EvalSeed | None = None
+        for seed in seeds:
+            if removed is None and seed.key == key:
+                removed = seed
+                continue
+            remaining.append(seed)
+        if removed is None:
+            return None
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with self._path.open("w", encoding="utf-8") as handle:
+            for seed in remaining:
+                handle.write(json.dumps(asdict(seed), ensure_ascii=False, sort_keys=True))
+                handle.write("\n")
+        return removed
+
     def list_recent(self, limit: int | None = None) -> list[EvalSeed]:
         seeds = self._load()
         if limit is None:

@@ -209,6 +209,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.ifeval_import_key, 1)
         self.assertEqual(args.ifeval_import_instruction_id, ["rule:one"])
         self.assertEqual(args.ifeval_import_kwargs, ['{"foo":"bar"}'])
+        args = parser.parse_args(["--review-ifeval-draft"])
+        self.assertTrue(args.review_ifeval_draft)
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -324,6 +326,32 @@ class CliTests(unittest.TestCase):
             self.assertEqual(draft_seed.output, "summary output")
             self.assertEqual(draft_seed.instruction_id_list, ["rule:one"])
             self.assertEqual(draft_seed.kwargs, [{"foo": "bar"}])
+
+    def test_review_ifeval_draft_promotes_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            draft_path = Path(tmpdir) / "ifeval-drafts.jsonl"
+            eval_path = Path(tmpdir) / "ifeval_seed.jsonl"
+            draft_path.write_text(
+                '{"key": 42, "prompt": "Write a summary.", "instruction_id_list": ["rule:one"], "kwargs": [{"foo": "bar"}], "session_id": "session-1", "output": "summary output", "pass_fail": null, "notes": "draft"}\n',
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=draft_path):
+                with patch("navi_agent.cli.get_eval_seed_path", return_value=eval_path):
+                    with patch("builtins.input", return_value="y"):
+                        with patch("sys.argv", ["navi-agent", "--review-ifeval-draft"]):
+                            with redirect_stdout(stdout):
+                                exit_code = main()
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("ifeval draft review:", stdout.getvalue())
+            self.assertIn("ifeval_draft_promoted: 42", stdout.getvalue())
+            self.assertEqual(EvalSeedStore(draft_path).list_recent(limit=None), [])
+            published = EvalSeedStore(eval_path).list_recent(limit=None)
+            self.assertEqual(len(published), 1)
+            self.assertEqual(published[0].key, 42)
+            self.assertEqual(published[0].session_id, "session-1")
 
     def test_main_runs_doctor_mode(self) -> None:
         with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:

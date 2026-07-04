@@ -34,9 +34,11 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - `--ifeval-status` 可以查看最近一次 IFEval 离线评测摘要
 - `--ifeval-drafts-status` 和 `--list-ifeval-drafts` 用来查看本地草稿样本，默认落在 `.navi-agent/ifeval-drafts.jsonl`
 - `--ifeval-import-session <session_id> --ifeval-import-key <key> --ifeval-import-instruction-id <id> ...` 可以从真实会话导入一个 IFEval 草稿样本，后续再人工筛选进 `data/eval/`
+- `--review-ifeval-draft` 会把最新草稿交给你确认，确认后自动写入 `data/eval/ifeval_seed.jsonl` 并从草稿里移除
 
 ```bash
 uv run navi-agent --ifeval-import-session ifeval-002 --ifeval-import-key 1001 --ifeval-import-instruction-id punctuation:no_comma --ifeval-import-kwargs '{}'
+uv run navi-agent --review-ifeval-draft
 ```
 
 ## 微信网关
