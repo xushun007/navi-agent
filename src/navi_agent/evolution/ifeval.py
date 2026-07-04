@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+from dataclasses import asdict
+from dataclasses import dataclass
+from dataclasses import field
+import re
+from typing import Any
+
+from .models import EvaluationResult
+from .seed import EvalSeed
+
+_PLACEHOLDER_PATTERN = re.compile(r"\[[^\[\]\n]+\]")
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^#{1,6}\s+\S")
+_TITLE_TAG_PATTERN = re.compile(r"<<[^<>\n]+>>")
+_WORD_PATTERN = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?")
+_UPPERCASE_PATTERN = re.compile(r"[A-Z]")
+
+
+@dataclass(frozen=True, slots=True)
+class IfevalInstructionResult:
+    instruction_id: str
+    passed: bool
+    evidence: str
+
+
+@dataclass(frozen=True, slots=True)
+class IfevalEvaluationResult:
+    key: int
+    session_id: str
+    prompt: str
+    output: str
+    instruction_results: list[IfevalInstructionResult]
+    score: float
+    summary: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def overall_pass(self) -> bool:
+        return bool(self.instruction_results) and all(result.passed for result in self.instruction_results)
+
+    @property
+    def passed_count(self) -> int:
+        return sum(1 for result in self.instruction_results if result.passed)
+
+    @property
+    def failed_count(self) -> int:
+        return len(self.instruction_results) - self.passed_count
+
+    def to_evaluation_result(self) -> EvaluationResult:
+        return EvaluationResult(
+            session_id=self.session_id,
+            score=self.score,
+            summary=self.summary,
+            metadata={
+                **self.metadata,
+                "key": self.key,
+                "prompt": self.prompt,
+                "output": self.output,
+                "overall_pass": self.overall_pass,
+                "passed_count": self.passed_count,
+                "failed_count": self.failed_count,
+                "instruction_results": [asdict(result) for result in self.instruction_results],
+            },
+        )
+
+
+class IfevalEvaluator:
+    def evaluate_seed(self, seed: EvalSeed) -> IfevalEvaluationResult:
+        return self.evaluate(
+            key=seed.key,
+            session_id=seed.session_id,
+            prompt=seed.prompt,
+            output=seed.output,
+            instruction_id_list=seed.instruction_id_list,
+            kwargs_list=seed.kwargs,
+        )
+
+    def evaluate(
+        self,
+        *,
+        key: int,
+        session_id: str,
+        prompt: str,
+        output: str,
+        instruction_id_list: list[str],
+        kwargs_list: list[dict[str, Any]],
+    ) -> IfevalEvaluationResult:
+        instruction_results: list[IfevalInstructionResult] = []
+        for index, instruction_id in enumerate(instruction_id_list):
+            instruction_kwargs = kwargs_list[index] if index < len(kwargs_list) and isinstance(kwargs_list[index], dict) else {}
+            instruction_results.append(
+                self._evaluate_instruction(
+                    instruction_id=instruction_id,
+                    instruction_kwargs=instruction_kwargs,
+                    prompt=prompt,
+                    output=output,
+                )
+            )
+
+        passed_count = sum(1 for result in instruction_results if result.passed)
+        total_count = len(instruction_results)
+        score = round(passed_count / total_count, 3) if total_count else 0.0
+        failed_ids = [result.instruction_id for result in instruction_results if not result.passed]
+        if not instruction_results:
+            summary = "No IFEval instructions supplied"
+        elif not failed_ids:
+            summary = "All IFEval instructions passed"
+        else:
+            summary = f"Failed instructions: {', '.join(failed_ids)}"
+        return IfevalEvaluationResult(
+            key=key,
+            session_id=session_id,
+            prompt=prompt,
+            output=output,
+            instruction_results=instruction_results,
+            score=score,
+            summary=summary,
+            metadata={
+                "instruction_id_list": list(instruction_id_list),
+                "kwargs_list": kwargs_list,
+                "word_count": self._count_words(output),
+                "placeholder_count": self._count_placeholders(output),
+                "title_tag_count": self._count_title_tags(output),
+                "comma_count": output.count(","),
+            },
+        )
+
+    def _evaluate_instruction(
+        self,
+        *,
+        instruction_id: str,
+        instruction_kwargs: dict[str, Any],
+        prompt: str,
+        output: str,
+    ) -> IfevalInstructionResult:
+        if instruction_id == "punctuation:no_comma":
+            passed = "," not in output
+            evidence = "No commas found in the output." if passed else f"Found {output.count(',')} comma(s) in the output."
+            return IfevalInstructionResult(instruction_id=instruction_id, passed=passed, evidence=evidence)
+        if instruction_id == "detectable_format:number_highlighted_sections":
+            expected = self._as_int(instruction_kwargs.get("num_highlights"), default=1)
+            relation = self._as_relation(instruction_kwargs.get("relation"), default="at least")
+            observed = self._count_markdown_titles(output)
+            passed = self._compare_count(observed=observed, expected=expected, relation=relation)
+            evidence = f"Found {observed} markdown title section(s); expected {relation} {expected}."
+            return IfevalInstructionResult(instruction_id=instruction_id, passed=passed, evidence=evidence)
+        if instruction_id == "length_constraints:number_words":
+            expected = self._as_int(instruction_kwargs.get("num_words"), default=1)
+            relation = self._as_relation(instruction_kwargs.get("relation"), default="at least")
+            observed = self._count_words(output)
+            passed = self._compare_count(observed=observed, expected=expected, relation=relation)
+            evidence = f"Found {observed} word(s); expected {relation} {expected}."
+            return IfevalInstructionResult(instruction_id=instruction_id, passed=passed, evidence=evidence)
+        if instruction_id == "detectable_content:number_placeholders":
+            expected = self._as_int(instruction_kwargs.get("num_placeholders"), default=1)
+            relation = self._as_relation(instruction_kwargs.get("relation"), default="at least")
+            observed = self._count_placeholders(output)
+            passed = self._compare_count(observed=observed, expected=expected, relation=relation)
+            evidence = f"Found {observed} placeholder(s); expected {relation} {expected}."
+            return IfevalInstructionResult(instruction_id=instruction_id, passed=passed, evidence=evidence)
+        if instruction_id == "combination:repeat_prompt":
+            prompt_to_repeat = str(instruction_kwargs.get("prompt_to_repeat", ""))
+            passed = bool(prompt_to_repeat) and output.startswith(prompt_to_repeat)
+            evidence = (
+                "Output begins with the exact repeated prompt."
+                if passed
+                else "Output does not begin with the exact repeated prompt."
+            )
+            return IfevalInstructionResult(instruction_id=instruction_id, passed=passed, evidence=evidence)
+        if instruction_id == "detectable_format:title":
+            observed = self._count_title_tags(output)
+            passed = observed >= 1
+            evidence = f"Found {observed} title tag(s) wrapped in double angle brackets."
+            return IfevalInstructionResult(instruction_id=instruction_id, passed=passed, evidence=evidence)
+        if instruction_id == "change_case:english_lowercase":
+            uppercase_match = _UPPERCASE_PATTERN.search(output)
+            passed = uppercase_match is None
+            evidence = (
+                "No ASCII uppercase letters found."
+                if passed
+                else f"Found uppercase letter {uppercase_match.group(0)!r}."
+            )
+            return IfevalInstructionResult(instruction_id=instruction_id, passed=passed, evidence=evidence)
+        return IfevalInstructionResult(
+            instruction_id=instruction_id,
+            passed=False,
+            evidence=f"Unsupported IFEval instruction: {instruction_id}",
+        )
+
+    @staticmethod
+    def _count_words(text: str) -> int:
+        return len(_WORD_PATTERN.findall(text))
+
+    @staticmethod
+    def _count_placeholders(text: str) -> int:
+        return len(_PLACEHOLDER_PATTERN.findall(text))
+
+    @staticmethod
+    def _count_title_tags(text: str) -> int:
+        return len(_TITLE_TAG_PATTERN.findall(text))
+
+    @staticmethod
+    def _count_markdown_titles(text: str) -> int:
+        count = 0
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if _MARKDOWN_HEADING_PATTERN.match(stripped):
+                count += 1
+                continue
+            if IfevalEvaluator._is_emphasis_title(stripped):
+                count += 1
+        return count
+
+    @staticmethod
+    def _is_emphasis_title(line: str) -> bool:
+        if len(line) < 2:
+            return False
+        for marker in ("**", "__", "*", "_"):
+            if line.startswith(marker) and line.endswith(marker):
+                body = line[len(marker) : -len(marker)].strip()
+                return bool(body) and marker not in body
+        return False
+
+    @staticmethod
+    def _as_int(value: Any, *, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _as_relation(value: Any, *, default: str) -> str:
+        relation = str(value).strip().lower() if value is not None else default
+        return relation or default
+
+    @staticmethod
+    def _compare_count(*, observed: int, expected: int, relation: str) -> bool:
+        relation = relation.strip().lower()
+        if relation in {"at least", "minimum", "min"}:
+            return observed >= expected
+        if relation in {"at most", "maximum", "max"}:
+            return observed <= expected
+        if relation in {"exactly", "equal to"}:
+            return observed == expected
+        if relation in {"more than", "greater than"}:
+            return observed > expected
+        if relation in {"less than"}:
+            return observed < expected
+        return False
