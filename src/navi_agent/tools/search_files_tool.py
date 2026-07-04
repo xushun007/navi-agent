@@ -21,25 +21,29 @@ class SearchFilesTool(WorkspaceTool):
 
     @property
     def description(self) -> str:
-        return "Search text across workspace files."
+        return "Search text across workspace files. Use query as the search term, not a shell command."
 
     def schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "query": {"type": "string"},
-                "path": {"type": "string"},
-                "glob": {"type": "string"},
+                "query": {"type": "string", "description": "Search term or regex pattern."},
+                "path": {"type": "string", "description": "Optional base path inside the workspace."},
+                "glob": {"type": "string", "description": "Optional filename glob filter."},
                 "search_mode": {
                     "type": "string",
                     "enum": ["content", "filename", "regex"],
+                    "description": "Search content, filenames, or treat query as a regex.",
                 },
             },
             "required": ["query"],
         }
 
     def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
-        query = str(kwargs["query"]).strip()
+        query_value = kwargs.get("query")
+        if query_value is None:
+            return ToolResult.error(name=self.name, content="Missing required argument: query")
+        query = str(query_value).strip()
         if not query:
             return ToolResult.error(name=self.name, content="Search query must not be empty")
         requested_path = kwargs.get("path")

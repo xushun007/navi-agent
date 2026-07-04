@@ -27,6 +27,15 @@ class SearchFilesToolTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertIn("must not be empty", result.content)
 
+    def test_rejects_missing_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            tool = SearchFilesTool(root=root)
+            result = tool.invoke()
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("Missing required argument: query", result.content)
+
     def test_skips_binary_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
