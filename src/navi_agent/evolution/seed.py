@@ -24,6 +24,10 @@ class EvalSeedStore:
     def __init__(self, path: Path) -> None:
         self._path = path
 
+    @property
+    def path(self) -> Path:
+        return self._path
+
     def list_recent(self, limit: int | None = None) -> list[EvalSeed]:
         seeds = self._load()
         if limit is None:

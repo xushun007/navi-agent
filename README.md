@@ -30,6 +30,7 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - 评测 seed 放在 `data/eval/`，设计稿仍保留在 `design/`
 - `--eval-seed-status` 和 `--list-eval-seeds` 可以查看 `data/eval` 里的 seed 资产
 - `--eval-seed-report` 会把 seed 统计和明细写到 `.navi-agent/eval-seed-reports/`
+- `--ifeval-run` 会直接跑 `data/eval/ifeval_seed.jsonl`，执行 Agent、再用 IFEval evaluator 打分，并把结果写到 `.navi-agent/ifeval-reports/`
 
 ## 微信网关
 

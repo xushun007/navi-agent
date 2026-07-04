@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import datetime
+from datetime import timezone
 import re
+from pathlib import Path
 from typing import Any
 
 from .models import EvaluationResult
 from .seed import EvalSeed
+from .seed import EvalSeedStore
 
 _PLACEHOLDER_PATTERN = re.compile(r"\[[^\[\]\n]+\]")
 _MARKDOWN_HEADING_PATTERN = re.compile(r"^#{1,6}\s+\S")
@@ -62,6 +67,17 @@ class IfevalEvaluationResult:
                 "instruction_results": [asdict(result) for result in self.instruction_results],
             },
         )
+
+
+@dataclass(frozen=True, slots=True)
+class IfevalRunRecord:
+    seed_path: str
+    report_path: Path
+    count: int
+    passed_count: int
+    failed_count: int
+    pass_rate: float
+    created_at: str | None = None
 
 
 class IfevalEvaluator:
@@ -249,3 +265,104 @@ class IfevalEvaluator:
         if relation in {"less than"}:
             return observed < expected
         return False
+
+
+class IfevalRunWriter:
+    def __init__(self, reports_root: Path) -> None:
+        self._reports_root = reports_root
+
+    def write_run_report(
+        self,
+        *,
+        seed_store: EvalSeedStore,
+        results: list[IfevalEvaluationResult],
+    ) -> Path:
+        run_dir = self._new_run_dir()
+        payload = self._build_payload(seed_store=seed_store, results=results)
+        (run_dir / "run.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (run_dir / "REPORT.md").write_text(
+            self._build_markdown(payload),
+            encoding="utf-8",
+        )
+        return run_dir
+
+    def _new_run_dir(self) -> Path:
+        self._reports_root.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        run_dir = self._reports_root / timestamp
+        suffix = 1
+        while run_dir.exists():
+            run_dir = self._reports_root / f"{timestamp}-{suffix}"
+            suffix += 1
+        run_dir.mkdir(parents=True, exist_ok=False)
+        return run_dir
+
+    @staticmethod
+    def _build_payload(
+        *,
+        seed_store: EvalSeedStore,
+        results: list[IfevalEvaluationResult],
+    ) -> dict[str, object]:
+        passed_count = sum(1 for result in results if result.overall_pass)
+        count = len(results)
+        return {
+            "seed_path": str(seed_store.path),
+            "count": count,
+            "passed_count": passed_count,
+            "failed_count": count - passed_count,
+            "pass_rate": IfevalRunWriter._pass_rate(count, passed_count),
+            "results": [IfevalRunWriter._result_payload(result) for result in results],
+        }
+
+    @staticmethod
+    def _result_payload(result: IfevalEvaluationResult) -> dict[str, object]:
+        return {
+            "key": result.key,
+            "session_id": result.session_id,
+            "prompt": result.prompt,
+            "output": result.output,
+            "score": result.score,
+            "summary": result.summary,
+            "overall_pass": result.overall_pass,
+            "passed_count": result.passed_count,
+            "failed_count": result.failed_count,
+            "instruction_results": [asdict(item) for item in result.instruction_results],
+            "metadata": result.metadata,
+        }
+
+    @staticmethod
+    def _build_markdown(payload: dict[str, object]) -> str:
+        lines = [
+            "# IFEval run report",
+            "",
+            "## Summary",
+            f"- seed path: `{payload['seed_path']}`",
+            f"- count: `{payload['count']}`",
+            f"- passed: `{payload['passed_count']}`",
+            f"- failed: `{payload['failed_count']}`",
+            f"- pass rate: `{payload['pass_rate']}`",
+            "",
+            "## Results",
+        ]
+        for result in payload.get("results", []):
+            if not isinstance(result, dict):
+                continue
+            status = "pass" if result.get("overall_pass") else "fail"
+            lines.extend(
+                [
+                    f"- `{result.get('key')}` [{status}] `{result.get('session_id')}`",
+                    f"  prompt: {result.get('prompt', '')}",
+                    f"  score: `{result.get('score')}`",
+                    f"  summary: {result.get('summary', '')}",
+                ]
+            )
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _pass_rate(count: int, passed_count: int) -> float:
+        if count <= 0:
+            return 0.0
+        return round(passed_count / count, 3)

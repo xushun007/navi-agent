@@ -12,6 +12,8 @@ from navi_agent.evolution import (
     EvalSeedStore,
     EvalSeedReportStore,
     EvalSeedReportWriter,
+    IfevalEvaluator,
+    IfevalRunWriter,
     EvolutionReportStore,
     EvolutionReportWriter,
     PromptOverlayStore,
@@ -25,6 +27,7 @@ from navi_agent.gateway.weixin import (
 from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.paths import get_eval_seed_reports_dir
 from navi_agent.paths import get_eval_seed_path
+from navi_agent.paths import get_ifeval_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
 from navi_agent.runtime import CliApprovalProvider
@@ -88,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-seed-status", action="store_true")
     parser.add_argument("--list-eval-seeds", action="store_true")
     parser.add_argument("--eval-seed-report", action="store_true")
+    parser.add_argument("--ifeval-run", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -210,6 +214,8 @@ def main() -> int:
         return _list_eval_seeds()
     if args.eval_seed_report:
         return _write_eval_seed_report()
+    if args.ifeval_run:
+        return _run_ifeval()
     if args.prompt_overlay_status:
         overlay = PromptOverlayStore(get_prompt_overlay_path())
         info = overlay.describe()
@@ -458,6 +464,7 @@ def main() -> int:
         and not args.eval_seed_status
         and not args.list_eval_seeds
         and not args.eval_seed_report
+        and not args.ifeval_run
         and not args.apply_candidate_run
         and not args.message
     ):
@@ -636,6 +643,52 @@ def _write_eval_seed_report() -> int:
     if record is not None:
         print(f"eval_seed_count: {record.count}")
         print(f"eval_seed_pass_rate: {record.pass_rate}")
+    return 0
+
+
+def _run_ifeval() -> int:
+    seed_store = EvalSeedStore(get_eval_seed_path())
+    seeds = seed_store.list_recent(limit=None)
+    if not seeds:
+        print("no ifeval seeds found")
+        return 0
+
+    app = build_application(approval_provider=CliApprovalProvider())
+    evaluator = IfevalEvaluator()
+    results = []
+    for seed in seeds:
+        runtime_result = app.handle(
+            AppRequest(
+                user_id="ifeval",
+                session_id=seed.session_id,
+                message=seed.prompt,
+                auto_propose_eval_case=False,
+            )
+        )
+        result = evaluator.evaluate(
+            key=seed.key,
+            session_id=runtime_result.session_id,
+            prompt=seed.prompt,
+            output=runtime_result.final_response,
+            instruction_id_list=seed.instruction_id_list,
+            kwargs_list=seed.kwargs,
+        )
+        results.append(result)
+        status = "pass" if result.overall_pass else "fail"
+        print(f"{seed.key} [{status}] {seed.session_id}: score={result.score} {result.summary}")
+
+    report_dir = IfevalRunWriter(get_ifeval_reports_dir()).write_run_report(
+        seed_store=seed_store,
+        results=results,
+    )
+    passed_count = sum(1 for result in results if result.overall_pass)
+    failed_count = len(results) - passed_count
+    pass_rate = round(passed_count / len(results), 3) if results else 0.0
+    print(f"ifeval_report_path: {report_dir}")
+    print(f"ifeval_count: {len(results)}")
+    print(f"ifeval_passed_count: {passed_count}")
+    print(f"ifeval_failed_count: {failed_count}")
+    print(f"ifeval_pass_rate: {pass_rate}")
     return 0
 
 

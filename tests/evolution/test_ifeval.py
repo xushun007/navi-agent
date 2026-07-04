@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from navi_agent.evolution import EvalSeed, IfevalEvaluator
+from navi_agent.evolution import IfevalRunWriter
 from navi_agent.evolution import EvalSeedStore
 
 
@@ -116,6 +119,33 @@ class IfevalEvaluatorTests(unittest.TestCase):
         self.assertTrue(evaluator.evaluate_seed(seeds[1005]).overall_pass)
         self.assertTrue(evaluator.evaluate_seed(seeds[1012]).overall_pass)
         self.assertTrue(evaluator.evaluate_seed(seeds[1019]).overall_pass)
+
+    def test_write_run_report_creates_json_and_markdown(self) -> None:
+        evaluator = IfevalEvaluator()
+        result = evaluator.evaluate(
+            key=1,
+            session_id="s1",
+            prompt="keep it lowercase.",
+            output="keep it lowercase.",
+            instruction_id_list=["change_case:english_lowercase"],
+            kwargs_list=[{}],
+        )
+
+        with TemporaryDirectory() as tmp_dir:
+            seed_store = EvalSeedStore(Path(tmp_dir) / "ifeval_seed.jsonl")
+            writer = IfevalRunWriter(Path(tmp_dir) / "runs")
+            run_dir = writer.write_run_report(seed_store=seed_store, results=[result])
+
+            payload = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+            report_md = (run_dir / "REPORT.md").read_text(encoding="utf-8")
+
+        self.assertEqual(payload["seed_path"], str(seed_store.path))
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["passed_count"], 1)
+        self.assertEqual(payload["failed_count"], 0)
+        self.assertEqual(payload["pass_rate"], 1.0)
+        self.assertIn("# IFEval run report", report_md)
+        self.assertIn("keep it lowercase.", report_md)
 
 
 if __name__ == "__main__":

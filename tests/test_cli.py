@@ -3,6 +3,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from navi_agent.evolution import EvalSeed
 from navi_agent.cli import _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, RuntimeResult
 
@@ -173,6 +174,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.list_eval_seeds)
         args = parser.parse_args(["--eval-seed-report"])
         self.assertTrue(args.eval_seed_report)
+        args = parser.parse_args(["--ifeval-run"])
+        self.assertTrue(args.ifeval_run)
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -1267,6 +1270,56 @@ class CliTests(unittest.TestCase):
         self.assertIn("eval_seed_report_path: /tmp/eval-seed-report", stdout.getvalue())
         self.assertIn("eval_seed_count: 2", stdout.getvalue())
         self.assertIn("eval_seed_pass_rate: 0.5", stdout.getvalue())
+
+    def test_main_runs_ifeval(self) -> None:
+        stdout = io.StringIO()
+        fake_store = type(
+            "SeedStore",
+            (),
+            {
+                "path": "/tmp/ifeval_seed.jsonl",
+                "list_recent": lambda self, limit=None: [
+                    EvalSeed(
+                        key=1001,
+                        prompt="prompt one",
+                        instruction_id_list=["punctuation:no_comma"],
+                        kwargs=[{}],
+                        session_id="ifeval-001",
+                        output="done",
+                        pass_fail=True,
+                    ),
+                    EvalSeed(
+                        key=1019,
+                        prompt="prompt two",
+                        instruction_id_list=["change_case:english_lowercase"],
+                        kwargs=[{}],
+                        session_id="ifeval-002",
+                        output="done",
+                        pass_fail=True,
+                    ),
+                ],
+            },
+        )()
+        fake_writer = type(
+            "Writer",
+            (),
+            {
+                "write_run_report": lambda self, seed_store, results: "/tmp/ifeval-run",
+            },
+        )()
+
+        with patch("navi_agent.cli.EvalSeedStore", return_value=fake_store):
+            with patch("navi_agent.cli.IfevalRunWriter", return_value=fake_writer):
+                with patch("navi_agent.cli.build_application", return_value=FakeApp()):
+                    with patch("sys.argv", ["navi-agent", "--ifeval-run"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("1001 [pass] ifeval-001: score=1.0", stdout.getvalue())
+        self.assertIn("1019 [pass] ifeval-002: score=1.0", stdout.getvalue())
+        self.assertIn("ifeval_report_path: /tmp/ifeval-run", stdout.getvalue())
+        self.assertIn("ifeval_pass_rate: 1.0", stdout.getvalue())
 
     def test_main_runs_review_loop(self) -> None:
         fake_app = FakeApp()

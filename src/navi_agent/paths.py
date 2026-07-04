@@ -65,3 +65,7 @@ def get_eval_seed_path(name: str = "ifeval_seed.jsonl") -> Path:
 
 def get_eval_seed_reports_dir() -> Path:
     return get_navi_home() / "eval-seed-reports"
+
+
+def get_ifeval_reports_dir() -> Path:
+    return get_navi_home() / "ifeval-reports"
