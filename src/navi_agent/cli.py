@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from uuid import uuid4
 
 from navi_agent.app import AppRequest
@@ -10,6 +11,7 @@ from navi_agent.config import WeixinGatewaySettings, load_config
 from navi_agent.doctor import run_doctor
 from navi_agent.evolution import (
     EvalSeedStore,
+    EvalSeed,
     EvalSeedReportStore,
     EvalSeedReportWriter,
     IfevalEvaluator,
@@ -28,10 +30,14 @@ from navi_agent.gateway.weixin import (
 from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.paths import get_eval_seed_reports_dir
 from navi_agent.paths import get_eval_seed_path
+from navi_agent.paths import get_ifeval_drafts_path
 from navi_agent.paths import get_ifeval_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
+from navi_agent.paths import get_state_db_path
 from navi_agent.runtime import CliApprovalProvider
+from navi_agent.runtime import ConversationState
+from navi_agent.runtime import SQLiteSessionStore
 from navi_agent.healthcheck import (
     compare_healthcheck_workflow_results,
     list_healthcheck_tasks,
@@ -94,6 +100,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-seed-report", action="store_true")
     parser.add_argument("--ifeval-run", action="store_true")
     parser.add_argument("--ifeval-status", action="store_true")
+    parser.add_argument("--ifeval-drafts-status", action="store_true")
+    parser.add_argument("--list-ifeval-drafts", action="store_true")
+    parser.add_argument("--ifeval-import-session")
+    parser.add_argument("--ifeval-import-key", type=int)
+    parser.add_argument("--ifeval-import-instruction-id", action="append")
+    parser.add_argument("--ifeval-import-kwargs", action="append")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -220,6 +232,17 @@ def main() -> int:
         return _run_ifeval()
     if args.ifeval_status:
         return _print_ifeval_status()
+    if args.ifeval_drafts_status:
+        return _print_ifeval_drafts_status()
+    if args.list_ifeval_drafts:
+        return _list_ifeval_drafts()
+    if args.ifeval_import_session:
+        return _import_ifeval_seed(
+            session_id=args.ifeval_import_session,
+            seed_key=args.ifeval_import_key,
+            instruction_ids=args.ifeval_import_instruction_id or [],
+            kwargs_json=args.ifeval_import_kwargs or [],
+        )
     if args.prompt_overlay_status:
         overlay = PromptOverlayStore(get_prompt_overlay_path())
         info = overlay.describe()
@@ -470,6 +493,9 @@ def main() -> int:
         and not args.eval_seed_report
         and not args.ifeval_run
         and not args.ifeval_status
+        and not args.ifeval_drafts_status
+        and not args.list_ifeval_drafts
+        and not args.ifeval_import_session
         and not args.apply_candidate_run
         and not args.message
     ):
@@ -711,6 +737,93 @@ def _print_ifeval_status() -> int:
     print(f"ifeval_latest_failed_count: {latest.failed_count}")
     print(f"ifeval_latest_pass_rate: {latest.pass_rate}")
     print(f"ifeval_latest_created_at: {latest.created_at}")
+    return 0
+
+
+def _print_ifeval_drafts_status() -> int:
+    store = EvalSeedStore(get_ifeval_drafts_path())
+    info = store.describe()
+    print(f"ifeval_drafts_path: {info['path']}")
+    print(f"ifeval_drafts_exists: {info['exists']}")
+    print(f"ifeval_drafts_count: {info['count']}")
+    print(f"ifeval_drafts_pending_count: {info['pending_count']}")
+    return 0
+
+
+def _list_ifeval_drafts() -> int:
+    store = EvalSeedStore(get_ifeval_drafts_path())
+    seeds = store.list_recent(limit=None)
+    if not seeds:
+        print("no ifeval drafts found")
+        return 0
+    for seed in seeds:
+        print(f"{seed.key}: {seed.session_id}")
+        print(f"  prompt: {seed.prompt}")
+        print(f"  instructions: {', '.join(seed.instruction_id_list) or 'none'}")
+    return 0
+
+
+def _import_ifeval_seed(
+    *,
+    session_id: str,
+    seed_key: int | None,
+    instruction_ids: list[str],
+    kwargs_json: list[str],
+) -> int:
+    if seed_key is None:
+        print("--ifeval-import-key is required")
+        return 1
+    if not instruction_ids:
+        print("--ifeval-import-instruction-id is required")
+        return 1
+
+    session_store = SQLiteSessionStore(get_state_db_path())
+    messages = session_store.snapshot(
+        ConversationState(session_id=session_id, user_id="draft-import")
+    )
+    prompt = next(
+        (message.content for message in messages if message.role == "user" and message.content.strip()),
+        None,
+    )
+    output = next(
+        (message.content for message in reversed(messages) if message.role == "assistant"),
+        None,
+    )
+    if prompt is None:
+        print(f"user prompt not found for session: {session_id}")
+        return 1
+    if output is None:
+        print(f"assistant output not found for session: {session_id}")
+        return 1
+
+    kwargs_list: list[dict[str, object]] = []
+    for index, instruction_id in enumerate(instruction_ids):
+        raw_kwargs = kwargs_json[index] if index < len(kwargs_json) else "{}"
+        try:
+            parsed_kwargs = json.loads(raw_kwargs)
+        except json.JSONDecodeError:
+            print(f"invalid kwargs JSON for {instruction_id}: {raw_kwargs}")
+            return 1
+        if not isinstance(parsed_kwargs, dict):
+            print(f"kwargs must be an object for {instruction_id}")
+            return 1
+        kwargs_list.append(parsed_kwargs)
+
+    seed = EvalSeed(
+        key=seed_key,
+        prompt=prompt,
+        instruction_id_list=list(instruction_ids),
+        kwargs=kwargs_list,
+        session_id=session_id,
+        output=output,
+        pass_fail=None,
+        notes=f"imported from session {session_id}",
+    )
+    draft_store = EvalSeedStore(get_ifeval_drafts_path())
+    draft_store.append(seed)
+    print(f"ifeval_draft_written: {draft_store.path}")
+    print(f"ifeval_draft_key: {seed.key}")
+    print(f"ifeval_draft_session_id: {seed.session_id}")
     return 0
 
 

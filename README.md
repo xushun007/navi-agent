@@ -32,6 +32,12 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - `--eval-seed-report` 会把 seed 统计和明细写到 `.navi-agent/eval-seed-reports/`
 - `--ifeval-run` 会直接跑 `data/eval/ifeval_seed.jsonl`，执行 Agent、再用 IFEval evaluator 打分，并把结果写到 `.navi-agent/ifeval-reports/`
 - `--ifeval-status` 可以查看最近一次 IFEval 离线评测摘要
+- `--ifeval-drafts-status` 和 `--list-ifeval-drafts` 用来查看本地草稿样本，默认落在 `.navi-agent/ifeval-drafts.jsonl`
+- `--ifeval-import-session <session_id> --ifeval-import-key <key> --ifeval-import-instruction-id <id> ...` 可以从真实会话导入一个 IFEval 草稿样本，后续再人工筛选进 `data/eval/`
+
+```bash
+uv run navi-agent --ifeval-import-session ifeval-002 --ifeval-import-key 1001 --ifeval-import-instruction-id punctuation:no_comma --ifeval-import-kwargs '{}'
+```
 
 ## 微信网关
 

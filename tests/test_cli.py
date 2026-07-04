@@ -1,11 +1,14 @@
 import io
+import tempfile
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
 from navi_agent.evolution import EvalSeed
+from navi_agent.evolution import EvalSeedStore
 from navi_agent.cli import _run_interactive, build_parser, main
-from navi_agent.runtime import CliApprovalProvider, RuntimeResult
+from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult
 
 
 class FakeApp:
@@ -54,6 +57,14 @@ class FakeApp:
         if candidate is not None:
             self.applied_candidate = candidate
         return candidate
+
+
+class FakeSessionStore:
+    def __init__(self, messages):
+        self._messages = messages
+
+    def snapshot(self, session):
+        return list(self._messages)
 
 
 class CliTests(unittest.TestCase):
@@ -178,6 +189,26 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.ifeval_run)
         args = parser.parse_args(["--ifeval-status"])
         self.assertTrue(args.ifeval_status)
+        args = parser.parse_args(["--ifeval-drafts-status"])
+        self.assertTrue(args.ifeval_drafts_status)
+        args = parser.parse_args(["--list-ifeval-drafts"])
+        self.assertTrue(args.list_ifeval_drafts)
+        args = parser.parse_args(
+            [
+                "--ifeval-import-session",
+                "session-1",
+                "--ifeval-import-key",
+                "1",
+                "--ifeval-import-instruction-id",
+                "rule:one",
+                "--ifeval-import-kwargs",
+                '{"foo":"bar"}',
+            ]
+        )
+        self.assertEqual(args.ifeval_import_session, "session-1")
+        self.assertEqual(args.ifeval_import_key, 1)
+        self.assertEqual(args.ifeval_import_instruction_id, ["rule:one"])
+        self.assertEqual(args.ifeval_import_kwargs, ['{"foo":"bar"}'])
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -225,6 +256,74 @@ class CliTests(unittest.TestCase):
         with patch("sys.argv", ["navi-agent"]):
             with self.assertRaises(SystemExit):
                 main()
+
+    def test_list_ifeval_drafts_prints_empty_state(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=Path("/tmp/drafts.jsonl")):
+            with patch("sys.argv", ["navi-agent", "--list-ifeval-drafts"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("no ifeval drafts found", stdout.getvalue())
+
+    def test_ifeval_drafts_status_reports_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            draft_path = Path(tmpdir) / "ifeval-drafts.jsonl"
+            draft_path.write_text(
+                '{"key": 1, "prompt": "p", "instruction_id_list": ["rule:one"], "kwargs": [{}], "session_id": "s1", "output": "o", "pass_fail": null, "notes": null}\n',
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=draft_path):
+                with patch("sys.argv", ["navi-agent", "--ifeval-drafts-status"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("ifeval_drafts_count: 1", stdout.getvalue())
+        self.assertIn("ifeval_drafts_pending_count: 1", stdout.getvalue())
+
+    def test_import_ifeval_seed_writes_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            draft_path = Path(tmpdir) / "ifeval-drafts.jsonl"
+            stdout = io.StringIO()
+            messages = [
+                Message(role="user", content="Write a summary."),
+                Message(role="assistant", content="summary output"),
+            ]
+
+            with patch("navi_agent.cli.get_state_db_path", return_value=Path(tmpdir) / "state.db"):
+                with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=draft_path):
+                    with patch("navi_agent.cli.SQLiteSessionStore", return_value=FakeSessionStore(messages)):
+                        with patch(
+                            "sys.argv",
+                            [
+                                "navi-agent",
+                                "--ifeval-import-session",
+                                "session-1",
+                                "--ifeval-import-key",
+                                "42",
+                                "--ifeval-import-instruction-id",
+                                "rule:one",
+                                "--ifeval-import-kwargs",
+                                '{"foo": "bar"}',
+                            ],
+                        ):
+                            with redirect_stdout(stdout):
+                                exit_code = main()
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("ifeval_draft_written:", stdout.getvalue())
+            self.assertTrue(draft_path.exists())
+            draft_seed = EvalSeedStore(draft_path).list_recent(limit=None)[0]
+            self.assertEqual(draft_seed.key, 42)
+            self.assertEqual(draft_seed.prompt, "Write a summary.")
+            self.assertEqual(draft_seed.output, "summary output")
+            self.assertEqual(draft_seed.instruction_id_list, ["rule:one"])
+            self.assertEqual(draft_seed.kwargs, [{"foo": "bar"}])
 
     def test_main_runs_doctor_mode(self) -> None:
         with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:

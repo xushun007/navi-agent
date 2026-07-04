@@ -42,6 +42,28 @@ class EvalSeedStoreTests(unittest.TestCase):
         self.assertIn("key must be an integer", "\n".join(issues))
         self.assertIn("prompt must be a non-empty string", "\n".join(issues))
 
+    def test_append_writes_seed_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "ifeval-drafts.jsonl"
+            store = EvalSeedStore(path)
+            seed = EvalSeed(
+                key=7,
+                prompt="prompt",
+                instruction_id_list=["rule:one"],
+                kwargs=[{"foo": "bar"}],
+                session_id="session-1",
+                output="answer",
+                pass_fail=None,
+                notes="draft",
+            )
+
+            store.append(seed)
+
+            records = store.list_recent(limit=None)
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0], seed)
+
 
 if __name__ == "__main__":
     unittest.main()

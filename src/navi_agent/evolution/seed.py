@@ -28,6 +28,12 @@ class EvalSeedStore:
     def path(self) -> Path:
         return self._path
 
+    def append(self, seed: EvalSeed) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with self._path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(asdict(seed), ensure_ascii=False, sort_keys=True))
+            handle.write("\n")
+
     def list_recent(self, limit: int | None = None) -> list[EvalSeed]:
         seeds = self._load()
         if limit is None:
