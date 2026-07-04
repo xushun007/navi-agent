@@ -107,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ifeval-import-instruction-id", action="append")
     parser.add_argument("--ifeval-import-kwargs", action="append")
     parser.add_argument("--review-ifeval-draft", action="store_true")
+    parser.add_argument("--ifeval-workflow", action="store_true")
     parser.add_argument("--prompt-overlay-status", action="store_true")
     parser.add_argument("--show-prompt-overlay", action="store_true")
     parser.add_argument("--list-prompt-overlay-entries", action="store_true")
@@ -246,6 +247,8 @@ def main() -> int:
         )
     if args.review_ifeval_draft:
         return _review_ifeval_draft()
+    if args.ifeval_workflow:
+        return _run_ifeval_workflow()
     if args.prompt_overlay_status:
         overlay = PromptOverlayStore(get_prompt_overlay_path())
         info = overlay.describe()
@@ -500,6 +503,7 @@ def main() -> int:
         and not args.list_ifeval_drafts
         and not args.ifeval_import_session
         and not args.review_ifeval_draft
+        and not args.ifeval_workflow
         and not args.apply_candidate_run
         and not args.message
     ):
@@ -865,6 +869,26 @@ def _review_ifeval_draft() -> int:
             print("ifeval draft review cancelled")
             return 0
         print("please answer y or n")
+
+
+def _run_ifeval_workflow() -> int:
+    draft_store = EvalSeedStore(get_ifeval_drafts_path())
+    draft_count = len(draft_store.list_recent(limit=None))
+    print("ifeval workflow:")
+    print(f"draft_count: {draft_count}")
+    if draft_count:
+        print("phase: review draft")
+        review_exit_code = _review_ifeval_draft()
+        if review_exit_code != 0:
+            return review_exit_code
+    else:
+        print("phase: review draft skipped")
+    print("phase: run ifeval")
+    run_exit_code = _run_ifeval()
+    if run_exit_code != 0:
+        return run_exit_code
+    print("phase: report status")
+    return _print_ifeval_status()
 
 
 def _candidate_action_from_args(args) -> str | None:

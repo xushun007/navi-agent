@@ -211,6 +211,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.ifeval_import_kwargs, ['{"foo":"bar"}'])
         args = parser.parse_args(["--review-ifeval-draft"])
         self.assertTrue(args.review_ifeval_draft)
+        args = parser.parse_args(["--ifeval-workflow"])
+        self.assertTrue(args.ifeval_workflow)
         args = parser.parse_args(["--prompt-overlay-status"])
         self.assertTrue(args.prompt_overlay_status)
         args = parser.parse_args(["--show-prompt-overlay"])
@@ -352,6 +354,28 @@ class CliTests(unittest.TestCase):
             self.assertEqual(len(published), 1)
             self.assertEqual(published[0].key, 42)
             self.assertEqual(published[0].session_id, "session-1")
+
+    def test_ifeval_workflow_runs_review_then_eval_then_status(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli._review_ifeval_draft", return_value=0) as review_mock:
+            with patch("navi_agent.cli._run_ifeval", return_value=0) as run_mock:
+                with patch("navi_agent.cli._print_ifeval_status", return_value=0) as status_mock:
+                    with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=Path("/tmp/drafts.jsonl")):
+                        with patch("navi_agent.cli.EvalSeedStore") as store_cls:
+                            store_cls.return_value.list_recent.return_value = [object()]
+                            with patch("sys.argv", ["navi-agent", "--ifeval-workflow"]):
+                                with redirect_stdout(stdout):
+                                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("ifeval workflow:", stdout.getvalue())
+        self.assertIn("phase: review draft", stdout.getvalue())
+        self.assertIn("phase: run ifeval", stdout.getvalue())
+        self.assertIn("phase: report status", stdout.getvalue())
+        review_mock.assert_called_once_with()
+        run_mock.assert_called_once_with()
+        status_mock.assert_called_once_with()
 
     def test_main_runs_doctor_mode(self) -> None:
         with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:
