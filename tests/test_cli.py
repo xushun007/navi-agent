@@ -8,7 +8,7 @@ from unittest.mock import patch
 from navi_agent.evolution import EvalSeed
 from navi_agent.evolution import EvalSeedStore
 from navi_agent.cli import _run_interactive, build_parser, main
-from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult
+from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult, WorkspaceYoloApprovalProvider
 
 
 class FakeApp:
@@ -88,6 +88,15 @@ class CliTests(unittest.TestCase):
 
         self.assertTrue(args.interactive)
         self.assertIsNone(args.message)
+
+    def test_build_parser_parses_yolo_flag(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["--yolo", "hello"])
+        short_args = parser.parse_args(["-y", "hello"])
+
+        self.assertTrue(args.yolo)
+        self.assertTrue(short_args.yolo)
 
     def test_build_parser_parses_banner_flag(self) -> None:
         parser = build_parser()
@@ -197,6 +206,19 @@ class CliTests(unittest.TestCase):
         self.assertIsInstance(kwargs["approval_provider"], CliApprovalProvider)
         self.assertEqual(fake_app.calls[0].user_id, "u1")
         self.assertEqual(fake_app.calls[0].message, "hello")
+
+    def test_main_uses_workspace_yolo_approval_provider(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application_mock:
+            with patch("sys.argv", ["navi-agent", "--yolo", "hello"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = build_application_mock.call_args
+        self.assertIsInstance(kwargs["approval_provider"], WorkspaceYoloApprovalProvider)
 
     def test_main_requires_message_without_interactive(self) -> None:
         with patch("sys.argv", ["navi-agent"]):

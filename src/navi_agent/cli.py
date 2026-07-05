@@ -39,6 +39,7 @@ from navi_agent.paths import get_state_db_path
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.runtime import ConversationState
 from navi_agent.runtime import SQLiteSessionStore
+from navi_agent.runtime import WorkspaceYoloApprovalProvider
 from navi_agent.healthcheck import (
     compare_healthcheck_workflow_results,
     replay_healthcheck_workflow,
@@ -54,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--system-prompt")
     parser.add_argument("--banner", action="store_true")
     parser.add_argument("--interactive", action="store_true")
+    parser.add_argument("-y", "--yolo", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
     parser.add_argument("--workflow-kind", choices=["healthcheck", "ifeval"])
@@ -96,7 +98,7 @@ def main() -> int:
     if args.gateway:
         return _run_gateway(args)
     if args.review_eval_case:
-        return _review_eval_case(system_prompt=args.system_prompt)
+        return _review_eval_case(system_prompt=args.system_prompt, yolo=args.yolo)
     if args.eval_seed_status:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
@@ -205,7 +207,7 @@ def main() -> int:
 
     app = build_application(
         default_system_prompt=args.system_prompt,
-        approval_provider=CliApprovalProvider(),
+        approval_provider=_build_approval_provider(args),
     )
     if args.interactive:
         return _run_interactive(
@@ -227,6 +229,12 @@ def main() -> int:
     return 0
 
 
+def _build_approval_provider(args):
+    if getattr(args, "yolo", False):
+        return WorkspaceYoloApprovalProvider()
+    return CliApprovalProvider()
+
+
 def _run_gateway(args) -> int:
     if args.gateway == "weixin":
         return _run_weixin_gateway(args)
@@ -242,7 +250,7 @@ def _run_weixin_gateway(args) -> int:
         return 1
     app = build_application(
         default_system_prompt=args.system_prompt,
-        approval_provider=CliApprovalProvider(),
+        approval_provider=_build_approval_provider(args),
     )
     account_id = settings.account_id
     if not account_id:
@@ -278,7 +286,7 @@ def _run_unified_workflow(args) -> int:
                 return 1
             app = build_application(
                 default_system_prompt=args.system_prompt,
-                approval_provider=CliApprovalProvider(),
+                approval_provider=_build_approval_provider(args),
             )
             workflow_result = run_healthcheck_workflow(
                 app=app,
@@ -302,7 +310,7 @@ def _run_unified_workflow(args) -> int:
                 return 1
             app = build_application(
                 default_system_prompt=args.system_prompt,
-                approval_provider=CliApprovalProvider(),
+                approval_provider=_build_approval_provider(args),
             )
             return _run_evolution_workflow(
                 app=app,
@@ -315,7 +323,7 @@ def _run_unified_workflow(args) -> int:
         if args.workflow_phase == "report":
             app = build_application(
                 default_system_prompt=args.system_prompt,
-                approval_provider=CliApprovalProvider(),
+                approval_provider=_build_approval_provider(args),
             )
             summary = ReviewLoopService().summarize(
                 candidates=app.list_candidates(limit=50),
@@ -330,12 +338,12 @@ def _run_unified_workflow(args) -> int:
             )
             return 0
         if args.workflow_phase == "review":
-            return _review_eval_case(system_prompt=args.system_prompt)
+            return _review_eval_case(system_prompt=args.system_prompt, yolo=args.yolo)
         print(f"unsupported healthcheck workflow phase: {args.workflow_phase}")
         return 1
     if args.workflow_kind == "ifeval":
         if args.workflow_phase == "run":
-            return _run_ifeval()
+            return _run_ifeval(yolo=args.yolo)
         if args.workflow_phase == "compare":
             print("ifeval compare phase is unsupported")
             return 1
@@ -426,14 +434,14 @@ def _write_eval_seed_report() -> int:
     return 0
 
 
-def _run_ifeval() -> int:
+def _run_ifeval(*, yolo: bool = False) -> int:
     seed_store = EvalSeedStore(get_eval_seed_path())
     seeds = seed_store.list_recent(limit=None)
     if not seeds:
         print("no ifeval seeds found")
         return 0
 
-    app = build_application(approval_provider=CliApprovalProvider())
+    app = build_application(approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider())
     evaluator = IfevalEvaluator()
     results = []
     for seed in seeds:
@@ -626,10 +634,11 @@ def _candidate_action_from_args(args) -> str | None:
 def _review_eval_case(
     *,
     system_prompt: str | None,
+    yolo: bool = False,
 ) -> int:
     app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=CliApprovalProvider(),
+        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     pending_candidates = [
         candidate
@@ -696,10 +705,11 @@ def _run_curator(
     review_note: str | None,
     dry_run: bool,
     confirm_eval_case: bool,
+    yolo: bool = False,
 ) -> int:
     app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=CliApprovalProvider(),
+        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     summary = ReviewLoopService().summarize(
         candidates=app.list_candidates(limit=50),
@@ -726,6 +736,7 @@ def _run_curator(
         system_prompt=system_prompt,
         review_note=review_note or "curator-run applied top pending prompt candidate",
         confirm_eval_case=confirm_eval_case,
+        yolo=yolo,
     )
 
 
@@ -831,10 +842,11 @@ def _run_candidate_apply_workflow(
     system_prompt: str | None,
     review_note: str | None,
     confirm_eval_case: bool,
+    yolo: bool = False,
 ) -> int:
     source_app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=CliApprovalProvider(),
+        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     candidate = source_app.get_candidate(candidate_id)
     if candidate is None:
@@ -863,7 +875,7 @@ def _run_candidate_apply_workflow(
         return 1
     rerun_app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=CliApprovalProvider(),
+        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     replay_result = run_healthcheck_workflow(
         app=rerun_app,

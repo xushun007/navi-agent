@@ -5,6 +5,7 @@ from .approval import (
     AutoApproveApprovalProvider,
     CliApprovalProvider,
     DenyAllApprovalProvider,
+    WorkspaceYoloApprovalProvider,
 )
 from .engine import AgentRuntime
 from .models import (
@@ -63,5 +64,6 @@ __all__ = [
     "ToolResultRenderer",
     "ToolResult",
     "ToolsetDefinition",
+    "WorkspaceYoloApprovalProvider",
     "build_transport",
 ]
