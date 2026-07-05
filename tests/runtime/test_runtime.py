@@ -3,7 +3,9 @@ import unittest
 from navi_agent.tooling import ToolDecision
 from navi_agent.runtime import (
     AgentRuntime,
+    ContextEngine,
     InMemorySessionStore,
+    Message,
     ModelRequest,
     ModelResponse,
     PromptBuilder,
@@ -123,6 +125,41 @@ class AgentRuntimeTests(unittest.TestCase):
 
         session = session_store.load(session_id="s1", user_id="u1")
         self.assertEqual([message.role for message in session.messages], ["user", "assistant"])
+
+    def test_runtime_uses_compressed_context_for_model_request(self) -> None:
+        session_store = InMemorySessionStore()
+        session = session_store.load(session_id="s1", user_id="u1")
+        for index in range(6):
+            session_store.append(session, Message(role="user", content=f"old user {index}"))
+            session_store.append(session, Message(role="assistant", content=f"old assistant {index}"))
+        transport = FakeTransport([ModelResponse(content="done")])
+        observer = RecordingObserver()
+        runtime = AgentRuntime(
+            transport=transport,
+            session_store=session_store,
+            context_engine=ContextEngine(
+                context_limit_tokens=160,
+                reserved_output_tokens=20,
+                compression_threshold_ratio=0.5,
+                protect_first_messages=1,
+                tail_budget_ratio=0.1,
+            ),
+            observers=[observer],
+        )
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="new request",
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertLess(len(transport.calls[0].messages), len(result.messages))
+        self.assertTrue(any("[Context Summary]" in message.content for message in transport.calls[0].messages))
+        self.assertEqual(result.messages[-2].content, "new request")
+        self.assertTrue(any(event.name == "context.compressed" for event in observer.events))
+        compression_events = [event for event in observer.events if event.name == "context.compressed"]
+        self.assertIn("estimated_tokens_before", compression_events[0].metadata)
 
     def test_runtime_injects_system_prompt_on_first_turn_only(self) -> None:
         session_store = InMemorySessionStore()

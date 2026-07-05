@@ -7,6 +7,7 @@ from .approval import (
     DenyAllApprovalProvider,
     WorkspaceYoloApprovalProvider,
 )
+from .context_engine import ContextBuildResult, ContextEngine
 from .engine import AgentRuntime
 from .models import (
     ConversationState,
@@ -39,6 +40,8 @@ __all__ = [
     "AllowAllToolPolicy",
     "AutoApproveApprovalProvider",
     "CliApprovalProvider",
+    "ContextBuildResult",
+    "ContextEngine",
     "ConversationState",
     "DefaultToolResultRenderer",
     "DenyAllApprovalProvider",

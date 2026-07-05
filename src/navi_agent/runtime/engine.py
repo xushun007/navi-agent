@@ -7,6 +7,7 @@ from time import perf_counter
 
 from navi_agent.tooling import ToolContext
 
+from .context_engine import ContextEngine
 from .models import Message, RuntimeEvent, RuntimeResult
 from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
@@ -51,6 +52,7 @@ class AgentRuntime:
         trace_store: TraceStore | None = None,
         observers: Sequence[RuntimeObserver] | None = None,
         tool_result_renderer: ToolResultRenderer | None = None,
+        context_engine: ContextEngine | None = None,
         enabled_toolsets: list[str] | None = None,
         disabled_toolsets: list[str] | None = None,
         max_iterations: int = 8,
@@ -62,6 +64,7 @@ class AgentRuntime:
         self._trace_store = trace_store
         self._observers = list(observers or [])
         self._tool_result_renderer = tool_result_renderer or DefaultToolResultRenderer()
+        self._context_engine = context_engine or ContextEngine()
         self._enabled_toolsets = enabled_toolsets
         self._disabled_toolsets = disabled_toolsets
         self._max_iterations = max_iterations
@@ -111,9 +114,40 @@ class AgentRuntime:
             )
             model_started_at = _utc_now_iso()
             model_started_perf = perf_counter()
+            context_result = self._context_engine.build(self._session_store.snapshot(session))
+            if context_result.compressed:
+                logger.info(
+                    "Runtime context compressed: session_id=%s original_messages=%s compressed_messages=%s final_messages=%s tokens=%s->%s threshold=%s",
+                    session_id,
+                    context_result.original_message_count,
+                    context_result.compressed_message_count,
+                    len(context_result.messages),
+                    context_result.estimated_tokens_before,
+                    context_result.estimated_tokens_after,
+                    context_result.threshold_tokens,
+                )
+                self._emit_event(
+                    RuntimeEvent(
+                        name="context.compressed",
+                        session_id=session_id,
+                        user_id=user_id,
+                        iteration=iteration_number,
+                        metadata={
+                            "original_message_count": context_result.original_message_count,
+                            "compressed_message_count": context_result.compressed_message_count,
+                            "final_message_count": len(context_result.messages),
+                            "estimated_tokens_before": context_result.estimated_tokens_before,
+                            "estimated_tokens_after": context_result.estimated_tokens_after,
+                            "threshold_tokens": context_result.threshold_tokens,
+                            "protected_head_count": context_result.protected_head_count,
+                            "protected_tail_count": context_result.protected_tail_count,
+                            "latest_user_anchored": context_result.latest_user_anchored,
+                        },
+                    )
+                )
             response = self._transport.generate(
                 ModelRequest(
-                    messages=self._session_store.snapshot(session),
+                    messages=context_result.messages,
                     tools=self._tool_registry.schemas(
                         enabled_toolsets=self._enabled_toolsets,
                         disabled_toolsets=self._disabled_toolsets,
