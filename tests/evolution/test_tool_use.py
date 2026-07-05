@@ -5,6 +5,7 @@ from pathlib import Path
 from navi_agent.evolution import (
     ToolUseEvalCase,
     ToolUseEvalCaseStore,
+    ToolUseEvalWorkflowService,
     ToolUseEvaluator,
     ToolUseRunStore,
     ToolUseWorkflowService,
@@ -145,6 +146,65 @@ class ToolUseEvalTests(unittest.TestCase):
         self.assertIsNotNone(summary.report_path)
         self.assertIsNotNone(latest)
         self.assertEqual(latest["count"], 5)
+
+    def test_llm_workflow_uses_real_runner_interface(self) -> None:
+        class FakeRuntime:
+            def __init__(self, *, trace_store, **kwargs) -> None:
+                self._trace_store = trace_store
+                self.calls = []
+
+            def run_conversation(self, *, session_id, user_id, user_message, system_prompt=None):
+                self.calls.append((session_id, user_id, user_message, system_prompt))
+                self._trace_store.record(
+                    RuntimeTrace(
+                        session_id=session_id,
+                        user_id=user_id,
+                        user_message=user_message,
+                        final_response="done",
+                        status="success",
+                        total_iterations=1,
+                        tool_executions=[
+                            ToolExecutionTrace(
+                                iteration=1,
+                                tool_call_id="tc1",
+                                tool_name="read_file",
+                                status="success",
+                                arguments={"path": "README.md"},
+                                content="...",
+                            )
+                        ],
+                    )
+                )
+                return type("Result", (), {"session_id": session_id})()
+
+        case = ToolUseEvalCase(
+            id="case-llm-1",
+            level="L0",
+            category="tool_use.file_read",
+            prompt="读取 README.md",
+            source_inspiration="bfcl",
+            required_tools=["read_file"],
+            expected_args={"read_file": {"path": "README.md"}},
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            case_path = Path(tmpdir) / "tool_use.jsonl"
+            report_root = Path(tmpdir) / "reports"
+            ToolUseEvalCaseStore(case_path).write_cases([case])
+
+            with unittest.mock.patch("navi_agent.evolution.tool_use.AgentRuntime", FakeRuntime):
+                with unittest.mock.patch("navi_agent.evolution.tool_use.build_transport", return_value=object()):
+                    service = ToolUseEvalWorkflowService(
+                        case_store=ToolUseEvalCaseStore(case_path),
+                        report_root=report_root,
+                        model_settings=type("Settings", (), {"model": "fake", "api_key": "fake"})(),
+                        runtime_settings=type("Runtime", (), {"max_iterations": 3})(),
+                    )
+                    summary = service.run()
+
+        self.assertEqual(summary.count, 1)
+        self.assertEqual(summary.passed_count, 1)
+        self.assertEqual(summary.pass_rate, 1.0)
 
 
 if __name__ == "__main__":

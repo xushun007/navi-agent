@@ -5,6 +5,8 @@ This directory stores curated evaluation seed data.
 - `ifeval_input_data.jsonl` is the raw export from IFEval.
 - `ifeval_seed.jsonl` is the reviewed 5-sample seed set used for offline eval checks.
 - `tool_use_seed.jsonl` is a benchmark-inspired seed set for Navi tool-use evals.
+  - `tool_use` is the scripted smoke runner.
+  - `tool_use_eval` is the real LLM runner.
 
 Format:
 
@@ -38,4 +40,6 @@ Run:
 ```bash
 uv run navi-agent --workflow-kind tool_use --workflow-phase run
 uv run navi-agent --workflow-kind tool_use --workflow-phase report
+uv run navi-agent --workflow-kind tool_use_eval --workflow-phase run
+uv run navi-agent --workflow-kind tool_use_eval --workflow-phase report
 ```

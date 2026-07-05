@@ -126,6 +126,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.workflow_kind, "tool_use")
         self.assertEqual(args.workflow_phase, "run")
 
+        args = parser.parse_args(["--workflow-kind", "tool_use_eval", "--workflow-phase", "run"])
+        self.assertEqual(args.workflow_kind, "tool_use_eval")
+        self.assertEqual(args.workflow_phase, "run")
+
     def test_build_parser_parses_gateway_flags(self) -> None:
         parser = build_parser()
 
@@ -464,6 +468,17 @@ class CliTests(unittest.TestCase):
 
         with patch("navi_agent.cli._print_tool_use_status", return_value=0) as report_mock:
             with patch("sys.argv", ["navi-agent", "--workflow-kind", "tool_use", "--workflow-phase", "report"]):
+                self.assertEqual(main(), 0)
+        report_mock.assert_called_once_with()
+
+    def test_main_runs_unified_tool_use_eval_workflows(self) -> None:
+        with patch("navi_agent.cli._run_tool_use_llm_eval", return_value=0) as run_mock:
+            with patch("sys.argv", ["navi-agent", "--workflow-kind", "tool_use_eval", "--workflow-phase", "run"]):
+                self.assertEqual(main(), 0)
+        run_mock.assert_called_once_with()
+
+        with patch("navi_agent.cli._print_tool_use_eval_status", return_value=0) as report_mock:
+            with patch("sys.argv", ["navi-agent", "--workflow-kind", "tool_use_eval", "--workflow-phase", "report"]):
                 self.assertEqual(main(), 0)
         report_mock.assert_called_once_with()
 

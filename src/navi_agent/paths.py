@@ -77,3 +77,7 @@ def get_ifeval_reports_dir() -> Path:
 
 def get_tool_use_reports_dir() -> Path:
     return get_navi_home() / "tool-use-reports"
+
+
+def get_tool_use_eval_reports_dir() -> Path:
+    return get_navi_home() / "tool-use-eval-reports"

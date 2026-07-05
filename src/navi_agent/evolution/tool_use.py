@@ -9,16 +9,20 @@ from navi_agent.runtime import (
     AgentRuntime,
     ContextEngine,
     InMemorySessionStore,
-    ModelRequest,
-    ModelResponse,
+    PromptBuilder,
     ToolCall,
     ToolDefinition,
     ToolRegistry,
+    ModelResponse,
+    build_transport,
 )
 from navi_agent.runtime.tool_policy import SensitiveToolPolicy
+from navi_agent.config import ModelSettings, RuntimeSettings, load_config
+from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.telemetry import RuntimeTrace
 from navi_agent.telemetry import InMemoryTraceStore
 from navi_agent.tooling import ToolResult
+from navi_agent.tools.defaults import build_default_tool_registry
 
 
 @dataclass(slots=True)
@@ -88,7 +92,13 @@ class ToolUseEvalCaseStore:
 
 
 class ToolUseEvaluator:
-    def evaluate(self, case: ToolUseEvalCase, trace: RuntimeTrace) -> ToolUseEvalResult:
+    def evaluate(
+        self,
+        case: ToolUseEvalCase,
+        trace: RuntimeTrace,
+        *,
+        state: dict[str, Any] | None = None,
+    ) -> ToolUseEvalResult:
         tool_calls = list(trace.tool_executions)
         tool_names = [execution.tool_name for execution in tool_calls]
         missing_tools = [tool for tool in case.required_tools if tool not in tool_names]
@@ -129,6 +139,9 @@ class ToolUseEvaluator:
         if not trace.final_response.strip():
             signals.append("empty_response")
 
+        state_signals = self._state_signals(case, state)
+        signals.extend(state_signals)
+
         score = self._score(signals)
         passed = score >= 1.0
         return ToolUseEvalResult(
@@ -154,6 +167,7 @@ class ToolUseEvaluator:
                 "error_count": non_approval_error_count,
                 "status": trace.status,
                 "grader": case.grader,
+                "state": state or {},
                 "signals": signals,
             },
         )
@@ -196,6 +210,25 @@ class ToolUseEvaluator:
             if not any(_args_match(execution.arguments, expected_args) for execution in matching_calls):
                 mismatches.append(tool_name)
         return mismatches
+
+    @staticmethod
+    def _state_signals(case: ToolUseEvalCase, state: dict[str, Any] | None) -> list[str]:
+        if case.grader != "state_contains":
+            return []
+        expected = case.expected_outcome.strip()
+        if not expected:
+            return ["state_missing_expected_outcome"]
+        if not state:
+            return ["state_missing"]
+        haystacks = []
+        for value in state.values():
+            if isinstance(value, list):
+                haystacks.extend(str(item) for item in value)
+            else:
+                haystacks.append(str(value))
+        if any(expected in haystack for haystack in haystacks):
+            return []
+        return ["state_mismatch"]
 
 
 def _args_match(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
@@ -249,10 +282,12 @@ class ToolUseWorkflowService:
 
     def _run_case(self, case: ToolUseEvalCase) -> ToolUseEvalResult:
         trace_store = InMemoryTraceStore()
+        shared_memory_store = InMemoryMemoryStore()
         transport = _ScriptedToolUseTransport(case)
         runtime = AgentRuntime(
             transport=transport,
-            tool_registry=_build_tool_registry(case),
+            prompt_builder=PromptBuilder(memory_store=shared_memory_store),
+            tool_registry=_build_tool_registry(case, memory_store=shared_memory_store),
             session_store=InMemorySessionStore(),
             trace_store=trace_store,
             context_engine=ContextEngine(),
@@ -274,7 +309,90 @@ class ToolUseWorkflowService:
                 summary="missing runtime trace",
                 metadata={"category": case.category, "source_inspiration": case.source_inspiration},
             )
-        return self._evaluator.evaluate(case, trace)
+        state = {
+            "memory": [
+                record.content for record in shared_memory_store.list_for_user("tool-use-eval")
+            ]
+        }
+        return self._evaluator.evaluate(case, trace, state=state)
+
+
+class ToolUseEvalWorkflowService:
+    def __init__(
+        self,
+        *,
+        case_store: ToolUseEvalCaseStore,
+        report_root: Path,
+        evaluator: ToolUseEvaluator | None = None,
+        model_settings: ModelSettings | None = None,
+        runtime_settings: RuntimeSettings | None = None,
+    ) -> None:
+        self._case_store = case_store
+        self._report_root = report_root
+        self._evaluator = evaluator or ToolUseEvaluator()
+        self._model_settings = model_settings
+        self._runtime_settings = runtime_settings
+
+    def run(self) -> ToolUseRunSummary:
+        cases = self._case_store.list_cases()
+        results = [self._run_case(case) for case in cases]
+        passed_count = sum(1 for result in results if result.passed)
+        failed_count = len(results) - passed_count
+        pass_rate = round(passed_count / len(results), 3) if results else 0.0
+        summary = ToolUseRunSummary(
+            count=len(results),
+            passed_count=passed_count,
+            failed_count=failed_count,
+            pass_rate=pass_rate,
+            results=results,
+        )
+        report_path = ToolUseRunWriter(self._report_root).write_run_report(
+            case_store=self._case_store,
+            summary=summary,
+        )
+        summary.report_path = report_path
+        return summary
+
+    def _run_case(self, case: ToolUseEvalCase) -> ToolUseEvalResult:
+        config = load_config()
+        model_settings = self._model_settings or ModelSettings.from_sources(config)
+        runtime_settings = self._runtime_settings or RuntimeSettings.from_sources(config)
+        shared_memory_store = InMemoryMemoryStore()
+        trace_store = InMemoryTraceStore()
+        max_iterations = case.max_iterations if case.max_iterations > 0 else runtime_settings.max_iterations
+        runtime = AgentRuntime(
+            transport=build_transport(model_settings),
+            session_store=InMemorySessionStore(),
+            prompt_builder=PromptBuilder(memory_store=shared_memory_store),
+            trace_store=trace_store,
+            tool_registry=build_default_tool_registry(
+                memory_store=shared_memory_store,
+            ),
+            context_engine=ContextEngine(),
+            max_iterations=max_iterations,
+        )
+        session_id = f"tool-use-eval:{case.id}"
+        runtime.run_conversation(
+            session_id=session_id,
+            user_id="tool-use-eval",
+            user_message=case.prompt,
+        )
+        trace = trace_store.get_latest_trace(session_id=session_id, user_id="tool-use-eval")
+        if trace is None:
+            return ToolUseEvalResult(
+                case_id=case.id,
+                level=case.level,
+                passed=False,
+                score=0.0,
+                summary="missing runtime trace",
+                metadata={"category": case.category, "source_inspiration": case.source_inspiration},
+            )
+        state = {
+            "memory": [
+                record.content for record in shared_memory_store.list_for_user("tool-use-eval")
+            ]
+        }
+        return self._evaluator.evaluate(case, trace, state=state)
 
 
 class ToolUseRunWriter:
@@ -377,17 +495,40 @@ class _ScriptedToolUseTransport:
         return ModelResponse(tool_calls=tool_calls)
 
 
-def _build_tool_registry(case: ToolUseEvalCase) -> ToolRegistry:
+def _build_tool_registry(
+    case: ToolUseEvalCase,
+    *,
+    memory_store: InMemoryMemoryStore | None = None,
+) -> ToolRegistry:
     tool_names = sorted(set(case.required_tools) | set(case.forbidden_tools) | set(case.expected_args))
-    definitions = [
-        ToolDefinition(
-            name=tool_name,
-            description=f"Fake tool-use eval tool: {tool_name}",
-            parameters={"type": "object", "properties": {}, "additionalProperties": True},
-            handler=_fake_tool_handler(tool_name),
+    definitions = []
+    for tool_name in tool_names:
+        if tool_name == "memory" and memory_store is not None:
+            definitions.append(
+                ToolDefinition(
+                    name="memory",
+                    description="Fake memory tool-use eval tool",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string"},
+                            "content": {"type": "string"},
+                        },
+                        "required": ["action"],
+                        "additionalProperties": False,
+                    },
+                    handler=_fake_memory_handler(case=case, memory_store=memory_store),
+                )
+            )
+            continue
+        definitions.append(
+            ToolDefinition(
+                name=tool_name,
+                description=f"Fake tool-use eval tool: {tool_name}",
+                parameters={"type": "object", "properties": {}, "additionalProperties": True},
+                handler=_fake_tool_handler(tool_name),
+            )
         )
-        for tool_name in tool_names
-    ]
     return ToolRegistry(
         definitions=definitions,
         policy=SensitiveToolPolicy(
@@ -410,5 +551,35 @@ def _fake_tool_handler(tool_name: str):
             ),
             structured_content={"arguments": kwargs},
         )
+
+    return handler
+
+
+def _fake_memory_handler(
+    *,
+    case: ToolUseEvalCase,
+    memory_store: InMemoryMemoryStore,
+):
+    def handler(*, context=None, action: str, content: str = "") -> ToolResult:
+        if context is None:
+            return ToolResult.error(name="memory", content="memory_error: missing tool context")
+        if action == "add":
+            memory_content = content.strip() or case.expected_outcome.strip() or case.prompt.strip()
+            if memory_content:
+                memory_store.add_for_user(context.user_id, memory_content)
+                return ToolResult.ok(
+                    name="memory",
+                    content="memory_stored",
+                    structured_content={"user_id": context.user_id, "content": memory_content},
+                )
+            return ToolResult.error(name="memory", content="memory_error: content is required for add")
+        if action == "list":
+            records = memory_store.list_for_user(context.user_id)
+            return ToolResult.ok(
+                name="memory",
+                content="\n".join(f"- {record.content}" for record in records) if records else "memory_empty",
+                structured_content={"records": [record.content for record in records]},
+            )
+        return ToolResult.error(name="memory", content=f"memory_error: unsupported action '{action}'")
 
     return handler
