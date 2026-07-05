@@ -7,7 +7,7 @@ from time import perf_counter
 
 from navi_agent.tooling import ToolContext
 
-from .context_engine import ContextEngine
+from .context_engine import ContextEngine, LLMContextSummarizer
 from .models import Message, RuntimeEvent, RuntimeResult
 from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
@@ -64,7 +64,7 @@ class AgentRuntime:
         self._trace_store = trace_store
         self._observers = list(observers or [])
         self._tool_result_renderer = tool_result_renderer or DefaultToolResultRenderer()
-        self._context_engine = context_engine or ContextEngine()
+        self._context_engine = context_engine or ContextEngine(summarizer=LLMContextSummarizer(transport))
         self._enabled_toolsets = enabled_toolsets
         self._disabled_toolsets = disabled_toolsets
         self._max_iterations = max_iterations
@@ -142,6 +142,7 @@ class AgentRuntime:
                             "protected_head_count": context_result.protected_head_count,
                             "protected_tail_count": context_result.protected_tail_count,
                             "latest_user_anchored": context_result.latest_user_anchored,
+                            "summary_status": context_result.summary_status,
                         },
                     )
                 )

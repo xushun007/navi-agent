@@ -7,7 +7,7 @@ from .approval import (
     DenyAllApprovalProvider,
     WorkspaceYoloApprovalProvider,
 )
-from .context_engine import ContextBuildResult, ContextEngine
+from .context_engine import ContextBuildResult, ContextEngine, ContextSummarizer, LLMContextSummarizer
 from .engine import AgentRuntime
 from .models import (
     ConversationState,
@@ -42,6 +42,8 @@ __all__ = [
     "CliApprovalProvider",
     "ContextBuildResult",
     "ContextEngine",
+    "ContextSummarizer",
+    "LLMContextSummarizer",
     "ConversationState",
     "DefaultToolResultRenderer",
     "DenyAllApprovalProvider",

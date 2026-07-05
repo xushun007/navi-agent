@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Protocol
 
 from .models import Message, ToolCall
+from .transports.base import ModelRequest, ModelTransport
 
 
 SUMMARY_PREFIX = "[Context Summary]"
@@ -22,6 +22,7 @@ class ContextBuildResult:
     protected_head_count: int = 0
     protected_tail_count: int = 0
     latest_user_anchored: bool = False
+    summary_status: str = "not_needed"
 
     @property
     def compressed(self) -> bool:
@@ -38,8 +39,7 @@ class ContextEngine:
         protect_first_messages: int = 3,
         tail_budget_ratio: float = 0.25,
         chars_per_token: int = 4,
-        max_summary_chars: int = 6_000,
-        max_item_chars: int = 500,
+        summarizer: ContextSummarizer | None = None,
     ) -> None:
         if context_limit_tokens <= 0:
             raise ValueError("context_limit_tokens must be positive")
@@ -59,8 +59,7 @@ class ContextEngine:
         self._tail_budget_tokens = max(1, int(self._threshold_tokens * tail_budget_ratio))
         self._protect_first_messages = protect_first_messages
         self._chars_per_token = chars_per_token
-        self._max_summary_chars = max_summary_chars
-        self._max_item_chars = max_item_chars
+        self._summarizer = summarizer
 
     def build(self, messages: list[Message]) -> ContextBuildResult:
         original = list(messages)
@@ -88,15 +87,30 @@ class ContextEngine:
                 protected_head_count=head_end,
                 protected_tail_count=max(0, len(original) - tail_start),
                 latest_user_anchored=latest_user_anchored,
+                summary_status="not_needed",
+            )
+
+        if self._summarizer is None:
+            return ContextBuildResult(
+                messages=original,
+                original_message_count=len(original),
+                estimated_tokens_before=estimated_before,
+                estimated_tokens_after=estimated_before,
+                threshold_tokens=self._threshold_tokens,
+                protected_head_count=compress_start,
+                protected_tail_count=max(0, len(original) - tail_start),
+                latest_user_anchored=latest_user_anchored,
+                summary_status="missing_summarizer",
             )
 
         middle = original[compress_start:tail_start]
+        summary_text = self._summarizer.summarize(
+            middle=middle,
+            latest_user_message=self._latest_user_message(original, start=head_end),
+        )
         summary = Message(
             role="system",
-            content=self._build_checkpoint_summary(
-                middle=middle,
-                latest_user_message=self._latest_user_message(original, start=head_end),
-            ),
+            content=self._normalize_summary(summary_text),
         )
         compacted = [
             *original[:compress_start],
@@ -115,6 +129,7 @@ class ContextEngine:
             protected_head_count=compress_start,
             protected_tail_count=max(0, len(original) - tail_start),
             latest_user_anchored=latest_user_anchored,
+            summary_status="llm",
         )
 
     def estimate_tokens(self, messages: list[Message]) -> int:
@@ -195,134 +210,16 @@ class ContextEngine:
             return scan
         return index
 
-    def _build_checkpoint_summary(self, *, middle: list[Message], latest_user_message: Message | None) -> str:
-        prior_summaries = [
-            self._summarize_existing_summary(message)
-            for message in middle
-            if self._is_context_summary(message)
-        ]
-        source_messages = [
-            message
-            for message in middle
-            if not self._is_context_summary(message)
-        ]
-        user_inputs = [message.content for message in source_messages if message.role == "user" and message.content.strip()]
-        assistant_actions = [
-            self._summarize_assistant(message)
-            for message in source_messages
-            if message.role == "assistant" and (message.content.strip() or message.tool_calls)
-        ]
-        tool_results = [
-            self._summarize_tool_result(message)
-            for message in source_messages
-            if message.role == "tool"
-        ]
-        constraints = self._extract_constraints(user_inputs)
-        references = self._extract_references(source_messages)
-
-        lines = [
-            SUMMARY_PREFIX,
-            "Older middle conversation turns were compacted into this checkpoint. Treat it as historical context, not as a new user request.",
-            "",
-            "## Prior Context Summary",
-            *self._bullet_lines(prior_summaries, empty="None."),
-            "",
-            "## Active Task",
-            self._truncate(latest_user_message.content if latest_user_message else "None."),
-            "",
-            "## User Inputs Preserved",
-            *self._bullet_lines(user_inputs, empty="None."),
-            "",
-            "## Completed Actions",
-            *self._bullet_lines(assistant_actions, empty="None."),
-            "",
-            "## Tool Results",
-            *self._bullet_lines(tool_results, empty="None."),
-            "",
-            "## Decisions and Constraints",
-            *self._bullet_lines(constraints, empty="None."),
-            "",
-            "## Open Items",
-            "Use the latest preserved user message below this summary as the source of truth. Historical asks above are stale unless the latest user message explicitly reactivates them.",
-            "",
-            "## Relevant Files and Commands",
-            *self._bullet_lines(references, empty="None."),
-            "",
-            "--- END OF CONTEXT SUMMARY — respond to the latest user message after this summary ---",
-        ]
-        summary = "\n".join(lines).strip()
-        if len(summary) <= self._max_summary_chars:
-            return summary
-        return summary[: self._max_summary_chars - 35].rstrip() + "\n...[summary truncated]"
-
     @staticmethod
     def _is_context_summary(message: Message) -> bool:
         return message.role == "system" and message.content.lstrip().startswith(SUMMARY_PREFIX)
 
-    def _summarize_existing_summary(self, message: Message) -> str:
-        content = message.content.replace(SUMMARY_PREFIX, "", 1).strip()
-        content = re.sub(r"--- END OF CONTEXT SUMMARY.*$", "", content, flags=re.DOTALL).strip()
-        return self._truncate(content)
-
-    def _summarize_assistant(self, message: Message) -> str:
-        parts = []
-        if message.content.strip():
-            parts.append(self._truncate(message.content))
-        if message.tool_calls:
-            tool_names = ", ".join(tool_call.name for tool_call in message.tool_calls)
-            parts.append(f"Called tool(s): {tool_names}")
-        return " — ".join(parts)
-
-    def _summarize_tool_result(self, message: Message) -> str:
-        label = f"tool_result:{message.tool_call_id}" if message.tool_call_id else "tool_result"
-        return f"{label}: {self._truncate(message.content)}"
-
-    def _extract_constraints(self, user_inputs: list[str]) -> list[str]:
-        markers = (
-            "must",
-            "should",
-            "prefer",
-            "不要",
-            "不能",
-            "需要",
-            "必须",
-            "简洁",
-            "标准",
-            "不要问",
-        )
-        return [
-            self._truncate(text)
-            for text in user_inputs
-            if any(marker in text for marker in markers)
-        ][:8]
-
-    def _extract_references(self, messages: list[Message]) -> list[str]:
-        found: list[str] = []
-        pattern = re.compile(r"([A-Za-z0-9_./-]+\.(?:py|md|json|jsonl|toml|yaml|yml|txt)|`[^`]+`)")
-        for message in messages:
-            text = message.content or ""
-            for match in pattern.findall(text):
-                item = match.strip("`")
-                if item and item not in found:
-                    found.append(item)
-                if len(found) >= 12:
-                    return found
-            for tool_call in message.tool_calls:
-                for item in self._tool_call_references(tool_call):
-                    if item not in found:
-                        found.append(item)
-                    if len(found) >= 12:
-                        return found
-        return found
-
     @staticmethod
-    def _tool_call_references(tool_call: ToolCall) -> list[str]:
-        references = []
-        for key in ("path", "file", "command", "cwd"):
-            value = tool_call.arguments.get(key)
-            if isinstance(value, str) and value.strip():
-                references.append(value.strip())
-        return references
+    def _normalize_summary(summary: str) -> str:
+        content = summary.strip()
+        if content.startswith(SUMMARY_PREFIX):
+            return content
+        return f"{SUMMARY_PREFIX}\n{content}"
 
     def _sanitize_tool_pairs(self, messages: list[Message]) -> list[Message]:
         assistant_call_ids = {
@@ -354,13 +251,103 @@ class ContextEngine:
                         )
         return result
 
-    def _bullet_lines(self, items: list[str], *, empty: str) -> list[str]:
-        if not items:
-            return [empty]
-        return [f"- {self._truncate(item)}" for item in items[:12]]
+class ContextSummarizer(Protocol):
+    def summarize(self, *, middle: list[Message], latest_user_message: Message | None) -> str: ...
 
-    def _truncate(self, text: str) -> str:
-        compact = " ".join(str(text or "").split())
-        if len(compact) <= self._max_item_chars:
-            return compact or "None."
-        return compact[: self._max_item_chars].rstrip() + "...<truncated>"
+
+class LLMContextSummarizer:
+    def __init__(self, transport: ModelTransport) -> None:
+        self._transport = transport
+
+    def summarize(self, *, middle: list[Message], latest_user_message: Message | None) -> str:
+        response = self._transport.generate(
+            ModelRequest(
+                messages=[
+                    Message(role="system", content=self._system_prompt()),
+                    Message(
+                        role="user",
+                        content=self._build_summary_request(
+                            middle=middle,
+                            latest_user_message=latest_user_message,
+                        ),
+                    ),
+                ],
+                tools=[],
+            )
+        )
+        summary = response.content.strip()
+        if not summary:
+            raise RuntimeError("context summarizer returned an empty summary")
+        return summary
+
+    @staticmethod
+    def _system_prompt() -> str:
+        return (
+            "You are a context compression component for an engineering agent. "
+            "Summarize the provided historical middle conversation so the next model call can continue coherently. "
+            "Do not answer the active user request. Do not invent facts. Preserve concrete requirements, decisions, file paths, commands, errors, test results, tool outcomes, and open questions. "
+            "If prior context summaries appear, merge them into one current summary instead of nesting or quoting them. "
+            "Write in the user's language when clear."
+        )
+
+    def _build_summary_request(self, *, middle: list[Message], latest_user_message: Message | None) -> str:
+        active_task = latest_user_message.content if latest_user_message else "None."
+        return "\n".join(
+            [
+                "Compress the historical middle conversation into this exact shape:",
+                "",
+                SUMMARY_PREFIX,
+                "## Current Goal",
+                "<the durable goal and active task context>",
+                "## User Requirements",
+                "<requirements and preferences that still matter>",
+                "## Decisions",
+                "<important decisions and rejected options>",
+                "## Completed Work",
+                "<work already completed, including commits or validations>",
+                "## Files Commands Errors",
+                "<specific files, commands, errors, test results, external references>",
+                "## Open Items",
+                "<what remains unresolved>",
+                "",
+                "Rules:",
+                "- Preserve meaning over wording.",
+                "- Keep the latest user request as active input, not as historical work.",
+                "- Mark stale historical requests as stale if superseded.",
+                "- Merge any existing context summary into this one; do not include nested [Context Summary] blocks.",
+                "- Output only the summary.",
+                "",
+                "Latest preserved user request after the summary:",
+                active_task,
+                "",
+                "Historical middle conversation:",
+                self._serialize_messages(middle),
+            ]
+        )
+
+    @staticmethod
+    def _serialize_messages(messages: list[Message]) -> str:
+        chunks = []
+        for index, message in enumerate(messages, start=1):
+            parts = [f"<message index={index} role={message.role}>"]
+            if message.tool_call_id:
+                parts.append(f"tool_call_id: {message.tool_call_id}")
+            if message.content:
+                parts.append(message.content)
+            if message.tool_calls:
+                parts.append("tool_calls:")
+                for tool_call in message.tool_calls:
+                    parts.append(
+                        json.dumps(
+                            {
+                                "id": tool_call.id,
+                                "name": tool_call.name,
+                                "arguments": tool_call.arguments,
+                            },
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    )
+            parts.append("</message>")
+            chunks.append("\n".join(parts))
+        return "\n\n".join(chunks)

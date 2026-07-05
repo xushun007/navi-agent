@@ -5,6 +5,7 @@ from navi_agent.runtime import (
     AgentRuntime,
     ContextEngine,
     InMemorySessionStore,
+    LLMContextSummarizer,
     Message,
     ModelRequest,
     ModelResponse,
@@ -132,7 +133,12 @@ class AgentRuntimeTests(unittest.TestCase):
         for index in range(6):
             session_store.append(session, Message(role="user", content=f"old user {index}"))
             session_store.append(session, Message(role="assistant", content=f"old assistant {index}"))
-        transport = FakeTransport([ModelResponse(content="done")])
+        transport = FakeTransport(
+            [
+                ModelResponse(content="[Context Summary]\nold turns summarized by llm"),
+                ModelResponse(content="done"),
+            ]
+        )
         observer = RecordingObserver()
         runtime = AgentRuntime(
             transport=transport,
@@ -143,6 +149,7 @@ class AgentRuntimeTests(unittest.TestCase):
                 compression_threshold_ratio=0.5,
                 protect_first_messages=1,
                 tail_budget_ratio=0.1,
+                summarizer=LLMContextSummarizer(transport),
             ),
             observers=[observer],
         )
@@ -154,12 +161,17 @@ class AgentRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "success")
-        self.assertLess(len(transport.calls[0].messages), len(result.messages))
-        self.assertTrue(any("[Context Summary]" in message.content for message in transport.calls[0].messages))
+        self.assertEqual(len(transport.calls), 2)
+        self.assertEqual(transport.calls[0].tools, [])
+        self.assertIn("Historical middle conversation", transport.calls[0].messages[-1].content)
+        self.assertLess(len(transport.calls[1].messages), len(result.messages))
+        self.assertTrue(any("[Context Summary]" in message.content for message in transport.calls[1].messages))
+        self.assertTrue(any("old turns summarized by llm" in message.content for message in transport.calls[1].messages))
         self.assertEqual(result.messages[-2].content, "new request")
         self.assertTrue(any(event.name == "context.compressed" for event in observer.events))
         compression_events = [event for event in observer.events if event.name == "context.compressed"]
         self.assertIn("estimated_tokens_before", compression_events[0].metadata)
+        self.assertEqual(compression_events[0].metadata["summary_status"], "llm")
 
     def test_runtime_injects_system_prompt_on_first_turn_only(self) -> None:
         session_store = InMemorySessionStore()

@@ -124,31 +124,34 @@ Boundary rules:
 
 ## Summary Strategy
 
-### Phase 1: Deterministic Checkpoint
+### LLM Summary
 
-The first implementation produces a deterministic structured summary:
+The production path uses an LLM summarizer. Rule-based extraction is not used as the normal summary mechanism because it loses semantic relationships and makes long conversations less coherent.
+
+The context engine is split into two responsibilities:
+
+- `ContextEngine`: token pressure detection, head/middle/tail boundary selection, latest user anchoring, and tool-pair integrity.
+- `ContextSummarizer`: semantic compression of the middle region into one checkpoint summary.
+
+Runtime wires `LLMContextSummarizer` to the same model transport used by the agent. The summarizer call is a separate model call with no tools.
+
+Required summary shape:
 
 - Active Task
-- User Inputs Preserved
-- Completed Actions
-- Tool Results
-- Decisions and Constraints
+- User Requirements
+- Decisions
+- Completed Work
+- Files Commands Errors
 - Open Items
-- Relevant Files and Commands
 
-This avoids introducing another model call before the architecture is stable.
-
-### Phase 2: LLM Summary
-
-After phase 1 is stable, replace deterministic checkpoint generation with an LLM summarizer using the same structure.
-
-LLM summary requirements:
+Requirements:
 
 - same language as the user when possible;
 - preserve concrete file paths, commands, errors, test results, decisions;
 - redact secrets;
 - do not treat historical asks as new instructions;
 - update previous summary iteratively when repeated compaction occurs.
+- merge existing `[Context Summary]` blocks rather than nesting them.
 
 ## Observability
 
@@ -160,13 +163,15 @@ When compression happens, runtime emits:
 - estimated tokens before and after;
 - compressed middle message count;
 - preserved head and tail counts;
-- whether latest user anchoring expanded the tail.
+- whether latest user anchoring expanded the tail;
+- summary status, such as `llm` or `missing_summarizer`.
 
 ## Failure Behavior
 
 - If token estimate is below threshold: no compression.
 - If boundaries leave no middle to compress: no compression.
-- If summary generation fails in future LLM mode: deterministic fallback summary.
+- If no summarizer is configured: no compression.
+- If summary generation fails: runtime fails fast instead of creating a lossy rule summary.
 - Full session history remains recoverable regardless of context view.
 
 ## Acceptance Criteria

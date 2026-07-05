@@ -3,6 +3,16 @@ import unittest
 from navi_agent.runtime import ContextEngine, Message, ToolCall
 
 
+class FakeSummarizer:
+    def __init__(self, summary: str = "[Context Summary]\nLLM merged historical context") -> None:
+        self.summary = summary
+        self.calls = []
+
+    def summarize(self, *, middle, latest_user_message):
+        self.calls.append({"middle": middle, "latest_user_message": latest_user_message})
+        return self.summary
+
+
 class ContextEngineTests(unittest.TestCase):
     def test_keeps_under_budget_context_unchanged(self) -> None:
         messages = [
@@ -34,6 +44,7 @@ class ContextEngineTests(unittest.TestCase):
             compression_threshold_ratio=0.5,
             protect_first_messages=2,
             tail_budget_ratio=0.2,
+            summarizer=FakeSummarizer("[Context Summary]\nmiddle user ask was completed semantically"),
         )
 
         result = engine.build(messages)
@@ -45,6 +56,7 @@ class ContextEngineTests(unittest.TestCase):
         self.assertEqual(result.messages[3].role, "system")
         self.assertIn("[Context Summary]", result.messages[3].content)
         self.assertIn("middle user ask", result.messages[3].content)
+        self.assertEqual(result.summary_status, "llm")
         self.assertEqual([message.content for message in result.messages[-2:]], ["final request", "final answer"])
 
     def test_latest_user_message_is_anchored_verbatim(self) -> None:
@@ -62,6 +74,7 @@ class ContextEngineTests(unittest.TestCase):
             compression_threshold_ratio=0.5,
             protect_first_messages=2,
             tail_budget_ratio=0.05,
+            summarizer=FakeSummarizer(),
         )
 
         result = engine.build(messages)
@@ -92,6 +105,7 @@ class ContextEngineTests(unittest.TestCase):
             compression_threshold_ratio=0.5,
             protect_first_messages=2,
             tail_budget_ratio=0.1,
+            summarizer=FakeSummarizer(),
         )
 
         result = engine.build(messages)
@@ -124,6 +138,7 @@ class ContextEngineTests(unittest.TestCase):
             compression_threshold_ratio=0.5,
             protect_first_messages=2,
             tail_budget_ratio=0.15,
+            summarizer=FakeSummarizer(),
         )
 
         result = engine.build(messages)
@@ -155,6 +170,7 @@ class ContextEngineTests(unittest.TestCase):
             compression_threshold_ratio=0.5,
             protect_first_messages=2,
             tail_budget_ratio=0.15,
+            summarizer=FakeSummarizer("[Context Summary]\n## Prior Context Summary\nprevious user requirement"),
         )
 
         result = engine.build(messages)
@@ -165,6 +181,29 @@ class ContextEngineTests(unittest.TestCase):
         self.assertIn("## Prior Context Summary", summaries[0].content)
         self.assertIn("previous user requirement", summaries[0].content)
         self.assertEqual(summaries[0].content.count("[Context Summary]"), 1)
+
+    def test_over_budget_context_without_summarizer_is_not_compressed(self) -> None:
+        messages = [
+            Message(role="system", content="system"),
+            Message(role="user", content="initial"),
+            Message(role="assistant", content="ok"),
+            Message(role="assistant", content="large middle output " + "x" * 800),
+            Message(role="user", content="latest request"),
+            Message(role="assistant", content="latest answer"),
+        ]
+        engine = ContextEngine(
+            context_limit_tokens=180,
+            reserved_output_tokens=20,
+            compression_threshold_ratio=0.5,
+            protect_first_messages=2,
+            tail_budget_ratio=0.15,
+        )
+
+        result = engine.build(messages)
+
+        self.assertFalse(result.compressed)
+        self.assertEqual(result.messages, messages)
+        self.assertEqual(result.summary_status, "missing_summarizer")
 
 
 if __name__ == "__main__":
