@@ -253,6 +253,66 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertEqual(app.calls[0].message, "hello")
         self.assertIn("Weixin reply send failed", "\n".join(logs.output))
 
+    def test_gateway_skips_duplicate_message_id(self) -> None:
+        app = FakeApp()
+
+        class DuplicateClient(FakeClient):
+            def get_updates(self, sync_buf=""):
+                message = ILinkMessage(
+                    message_id="m1",
+                    from_user_id="user-1",
+                    to_user_id="account-1",
+                    chat_id="user-1",
+                    chat_type="dm",
+                    text="hello",
+                    context_token="ctx-1",
+                )
+                return "next-sync", [message, message]
+
+        client = DuplicateClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+
+        with patch("navi_agent.gateway.weixin.local.save_sync_buf"):
+            with self.assertLogs("navi_agent.gateway.weixin.local", level="INFO") as logs:
+                gateway.tick("old-sync")
+
+        self.assertEqual(len(app.calls), 1)
+        self.assertEqual(len(client.sent), 1)
+        self.assertIn("Skipped duplicate Weixin message", "\n".join(logs.output))
+
+    def test_gateway_run_forever_backs_off_after_get_updates_error(self) -> None:
+        app = FakeApp()
+
+        class FlakyClient(FakeClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.calls = 0
+
+            def get_updates(self, sync_buf=""):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("temporary get_updates failure")
+                raise KeyboardInterrupt()
+
+        client = FlakyClient()
+        gateway = ILinkGateway(
+            app=app,
+            client=client,
+            account_id="account-1",
+            poll_interval_seconds=0.1,
+            error_backoff_seconds=0.2,
+        )
+
+        with patch("navi_agent.gateway.weixin.local.load_sync_buf", return_value="old-sync"):
+            with patch("navi_agent.gateway.weixin.local.sleep") as sleep_mock:
+                with self.assertLogs("navi_agent.gateway.weixin.local", level="ERROR") as logs:
+                    with self.assertRaises(KeyboardInterrupt):
+                        gateway.run_forever()
+
+        sleep_mock.assert_called_once_with(0.2)
+        self.assertEqual(client.calls, 2)
+        self.assertIn("Weixin iLink polling error; backing off", "\n".join(logs.output))
+
 
 class _ilink_server:
     def __enter__(self):

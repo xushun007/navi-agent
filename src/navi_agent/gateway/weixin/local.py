@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 from time import sleep
 
@@ -22,6 +22,7 @@ class ILinkGateway:
     allowed_users: set[str] | None = None
     pairing_store: WeixinPairingStore | None = None
     error_backoff_seconds: float = 5.0
+    seen_message_ids: set[str] = field(default_factory=set)
 
     def run_forever(self) -> None:
         sync_buf = load_sync_buf(self.account_id)
@@ -64,6 +65,15 @@ class ILinkGateway:
         return next_sync_buf
 
     def handle_message(self, message: ILinkMessage) -> None:
+        if message.message_id and message.message_id in self.seen_message_ids:
+            logger.info(
+                "Skipped duplicate Weixin message: message_id=%s user_id=%s",
+                message.message_id,
+                message.user_id,
+            )
+            return
+        if message.message_id:
+            self.seen_message_ids.add(message.message_id)
         logger.info(
             "Received Weixin text message: message_id=%s user_id=%s chat_type=%s text_length=%s",
             message.message_id,
