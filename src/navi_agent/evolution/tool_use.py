@@ -5,7 +5,20 @@ import json
 from pathlib import Path
 from typing import Any
 
+from navi_agent.runtime import (
+    AgentRuntime,
+    ContextEngine,
+    InMemorySessionStore,
+    ModelRequest,
+    ModelResponse,
+    ToolCall,
+    ToolDefinition,
+    ToolRegistry,
+)
+from navi_agent.runtime.tool_policy import SensitiveToolPolicy
 from navi_agent.telemetry import RuntimeTrace
+from navi_agent.telemetry import InMemoryTraceStore
+from navi_agent.tooling import ToolResult
 
 
 @dataclass(slots=True)
@@ -18,6 +31,7 @@ class ToolUseEvalCase:
     required_tools: list[str] = field(default_factory=list)
     forbidden_tools: list[str] = field(default_factory=list)
     expected_args: dict[str, dict[str, Any]] = field(default_factory=dict)
+    approval_required_tools: list[str] = field(default_factory=list)
     max_iterations: int = 3
     grader: str = "trace"
     expected_outcome: str = ""
@@ -56,6 +70,7 @@ class ToolUseEvalCaseStore:
                     required_tools=list(payload.get("required_tools") or []),
                     forbidden_tools=list(payload.get("forbidden_tools") or []),
                     expected_args=dict(payload.get("expected_args") or {}),
+                    approval_required_tools=list(payload.get("approval_required_tools") or []),
                     max_iterations=int(payload.get("max_iterations", 3)),
                     grader=str(payload.get("grader", "trace")),
                     expected_outcome=str(payload.get("expected_outcome", "")),
@@ -79,6 +94,20 @@ class ToolUseEvaluator:
         missing_tools = [tool for tool in case.required_tools if tool not in tool_names]
         forbidden_tools = [tool for tool in case.forbidden_tools if tool in tool_names]
         arg_mismatches = self._arg_mismatches(case, trace)
+        approval_tools = [
+            execution.tool_name for execution in trace.tool_executions if execution.approval_required
+        ]
+        missing_approvals = [
+            tool for tool in case.approval_required_tools if tool not in approval_tools
+        ]
+        unexpected_approvals = [
+            tool for tool in approval_tools if tool not in case.approval_required_tools
+        ]
+        non_approval_error_count = sum(
+            1
+            for execution in trace.tool_executions
+            if execution.status == "error" and not execution.approval_required
+        )
         signals: list[str] = []
 
         if trace.status != "success":
@@ -89,10 +118,14 @@ class ToolUseEvaluator:
             signals.append(f"forbidden_tools:{','.join(forbidden_tools)}")
         if arg_mismatches:
             signals.append(f"arg_mismatches:{','.join(arg_mismatches)}")
+        if missing_approvals:
+            signals.append(f"missing_approvals:{','.join(missing_approvals)}")
+        if unexpected_approvals:
+            signals.append(f"unexpected_approvals:{','.join(unexpected_approvals)}")
         if trace.total_iterations > case.max_iterations:
             signals.append(f"iterations:{trace.total_iterations}>{case.max_iterations}")
-        if trace.error_count:
-            signals.append(f"tool_errors:{trace.error_count}")
+        if non_approval_error_count:
+            signals.append(f"tool_errors:{non_approval_error_count}")
         if not trace.final_response.strip():
             signals.append("empty_response")
 
@@ -113,8 +146,12 @@ class ToolUseEvaluator:
                 "missing_tools": missing_tools,
                 "forbidden_tool_hits": forbidden_tools,
                 "arg_mismatches": arg_mismatches,
+                "approval_required_tools": list(case.approval_required_tools),
+                "approval_tools": approval_tools,
+                "missing_approvals": missing_approvals,
+                "unexpected_approvals": unexpected_approvals,
                 "total_iterations": trace.total_iterations,
-                "error_count": trace.error_count,
+                "error_count": non_approval_error_count,
                 "status": trace.status,
                 "grader": case.grader,
                 "signals": signals,
@@ -135,6 +172,10 @@ class ToolUseEvaluator:
                 score -= 0.5
             elif signal.startswith("arg_mismatches:"):
                 score -= 0.25
+            elif signal.startswith("missing_approvals:"):
+                score -= 0.35
+            elif signal.startswith("unexpected_approvals:"):
+                score -= 0.2
             elif signal.startswith("tool_errors:"):
                 score -= 0.25
             elif signal == "empty_response":
@@ -162,3 +203,212 @@ def _args_match(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
         if actual.get(key) != expected_value:
             return False
     return True
+
+
+@dataclass(slots=True)
+class ToolUseRunSummary:
+    count: int
+    passed_count: int
+    failed_count: int
+    pass_rate: float
+    results: list[ToolUseEvalResult]
+    report_path: Path | None = None
+
+
+class ToolUseWorkflowService:
+    def __init__(
+        self,
+        *,
+        case_store: ToolUseEvalCaseStore,
+        report_root: Path,
+        evaluator: ToolUseEvaluator | None = None,
+    ) -> None:
+        self._case_store = case_store
+        self._report_root = report_root
+        self._evaluator = evaluator or ToolUseEvaluator()
+
+    def run(self) -> ToolUseRunSummary:
+        cases = self._case_store.list_cases()
+        results = [self._run_case(case) for case in cases]
+        passed_count = sum(1 for result in results if result.passed)
+        failed_count = len(results) - passed_count
+        pass_rate = round(passed_count / len(results), 3) if results else 0.0
+        summary = ToolUseRunSummary(
+            count=len(results),
+            passed_count=passed_count,
+            failed_count=failed_count,
+            pass_rate=pass_rate,
+            results=results,
+        )
+        report_path = ToolUseRunWriter(self._report_root).write_run_report(
+            case_store=self._case_store,
+            summary=summary,
+        )
+        summary.report_path = report_path
+        return summary
+
+    def _run_case(self, case: ToolUseEvalCase) -> ToolUseEvalResult:
+        trace_store = InMemoryTraceStore()
+        transport = _ScriptedToolUseTransport(case)
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_registry=_build_tool_registry(case),
+            session_store=InMemorySessionStore(),
+            trace_store=trace_store,
+            context_engine=ContextEngine(),
+            max_iterations=case.max_iterations,
+        )
+        session_id = f"tool-use:{case.id}"
+        runtime.run_conversation(
+            session_id=session_id,
+            user_id="tool-use-eval",
+            user_message=case.prompt,
+        )
+        trace = trace_store.get_latest_trace(session_id=session_id, user_id="tool-use-eval")
+        if trace is None:
+            return ToolUseEvalResult(
+                case_id=case.id,
+                level=case.level,
+                passed=False,
+                score=0.0,
+                summary="missing runtime trace",
+                metadata={"category": case.category, "source_inspiration": case.source_inspiration},
+            )
+        return self._evaluator.evaluate(case, trace)
+
+
+class ToolUseRunWriter:
+    def __init__(self, report_root: Path) -> None:
+        self._report_root = report_root
+
+    def write_run_report(self, *, case_store: ToolUseEvalCaseStore, summary: ToolUseRunSummary) -> Path:
+        run_dir = self._new_run_dir()
+        payload = {
+            "case_path": str(case_store.path),
+            "count": summary.count,
+            "passed_count": summary.passed_count,
+            "failed_count": summary.failed_count,
+            "pass_rate": summary.pass_rate,
+            "results": [asdict(result) for result in summary.results],
+        }
+        (run_dir / "run.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        (run_dir / "REPORT.md").write_text(self._render_markdown(payload), encoding="utf-8")
+        return run_dir
+
+    def _new_run_dir(self) -> Path:
+        from datetime import datetime
+
+        self._report_root.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        run_dir = self._report_root / timestamp
+        suffix = 1
+        while run_dir.exists():
+            suffix += 1
+            run_dir = self._report_root / f"{timestamp}-{suffix}"
+        run_dir.mkdir(parents=True, exist_ok=False)
+        return run_dir
+
+    @staticmethod
+    def _render_markdown(payload: dict[str, Any]) -> str:
+        lines = [
+            "# Tool Use Eval Report",
+            "",
+            f"- case path: `{payload['case_path']}`",
+            f"- count: {payload['count']}",
+            f"- passed: {payload['passed_count']}",
+            f"- failed: {payload['failed_count']}",
+            f"- pass rate: {payload['pass_rate']}",
+            "",
+            "## Results",
+            "",
+        ]
+        for result in payload["results"]:
+            status = "pass" if result["passed"] else "fail"
+            lines.extend(
+                [
+                    f"- `{result['case_id']}` [{status}] score={result['score']}",
+                    f"  - level: {result['level']}",
+                    f"  - summary: {result['summary']}",
+                ]
+            )
+        return "\n".join(lines).strip() + "\n"
+
+
+class ToolUseRunStore:
+    def __init__(self, report_root: Path) -> None:
+        self._report_root = report_root
+
+    def get_latest(self) -> dict[str, Any] | None:
+        if not self._report_root.exists():
+            return None
+        run_dirs = [
+            path for path in self._report_root.iterdir() if path.is_dir() and (path / "run.json").exists()
+        ]
+        if not run_dirs:
+            return None
+        run_dirs.sort(key=lambda path: path.name, reverse=True)
+        payload = json.loads((run_dirs[0] / "run.json").read_text(encoding="utf-8"))
+        payload["report_path"] = str(run_dirs[0])
+        return payload
+
+
+class _ScriptedToolUseTransport:
+    def __init__(self, case: ToolUseEvalCase) -> None:
+        self._case = case
+        self._called = False
+
+    def generate(self, request: ModelRequest) -> ModelResponse:
+        if self._called:
+            return ModelResponse(content=f"Tool use eval completed for {self._case.id}.")
+        self._called = True
+        tool_calls = [
+            ToolCall(
+                id=f"tooluse-{index}",
+                name=tool_name,
+                arguments=dict(self._case.expected_args.get(tool_name) or {}),
+            )
+            for index, tool_name in enumerate(self._case.required_tools, start=1)
+        ]
+        if not tool_calls:
+            return ModelResponse(content=f"No tool required for {self._case.id}.")
+        return ModelResponse(tool_calls=tool_calls)
+
+
+def _build_tool_registry(case: ToolUseEvalCase) -> ToolRegistry:
+    tool_names = sorted(set(case.required_tools) | set(case.forbidden_tools) | set(case.expected_args))
+    definitions = [
+        ToolDefinition(
+            name=tool_name,
+            description=f"Fake tool-use eval tool: {tool_name}",
+            parameters={"type": "object", "properties": {}, "additionalProperties": True},
+            handler=_fake_tool_handler(tool_name),
+        )
+        for tool_name in tool_names
+    ]
+    return ToolRegistry(
+        definitions=definitions,
+        policy=SensitiveToolPolicy(
+            approval_required_tools={
+                tool_name: f"Tool use eval requires approval for {tool_name}"
+                for tool_name in case.approval_required_tools
+            }
+        ),
+    )
+
+
+def _fake_tool_handler(tool_name: str):
+    def handler(**kwargs) -> ToolResult:
+        return ToolResult.ok(
+            name=tool_name,
+            content=json.dumps(
+                {"tool": tool_name, "arguments": kwargs, "status": "ok"},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            structured_content={"arguments": kwargs},
+        )
+
+    return handler

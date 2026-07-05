@@ -32,3 +32,10 @@ Tool-use cases share one schema across levels:
 - `L2`: environment/state validation.
 
 The seed cases are not copied benchmark items. They are Navi-specific tasks inspired by BFCL, API-Bank, ToolBench, and tau-bench design patterns.
+
+Run:
+
+```bash
+uv run navi-agent --workflow-kind tool_use --workflow-phase run
+uv run navi-agent --workflow-kind tool_use --workflow-phase report
+```

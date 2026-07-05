@@ -22,6 +22,9 @@ from navi_agent.evolution import (
     IfevalWorkflowService,
     PromptOverlayStore,
     ReviewLoopService,
+    ToolUseEvalCaseStore,
+    ToolUseRunStore,
+    ToolUseWorkflowService,
 )
 from navi_agent.gateway.weixin import (
     ILinkClient,
@@ -36,6 +39,7 @@ from navi_agent.paths import get_ifeval_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
 from navi_agent.paths import get_state_db_path
+from navi_agent.paths import get_tool_use_reports_dir
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.runtime import ConversationState
 from navi_agent.runtime import SQLiteSessionStore
@@ -58,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-y", "--yolo", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
-    parser.add_argument("--workflow-kind", choices=["healthcheck", "ifeval"])
+    parser.add_argument("--workflow-kind", choices=["healthcheck", "ifeval", "tool_use"])
     parser.add_argument("--workflow-phase", choices=["run", "compare", "report", "review"])
     parser.add_argument("--workflow-name")
     parser.add_argument("--gateway", choices=["weixin"])
@@ -353,8 +357,50 @@ def _run_unified_workflow(args) -> int:
             return _review_ifeval_draft()
         print(f"unsupported ifeval workflow phase: {args.workflow_phase}")
         return 1
+    if args.workflow_kind == "tool_use":
+        if args.workflow_phase == "run":
+            return _run_tool_use_eval()
+        if args.workflow_phase == "report":
+            return _print_tool_use_status()
+        if args.workflow_phase in {"compare", "review"}:
+            print(f"tool_use {args.workflow_phase} phase is unsupported")
+            return 1
+        print(f"unsupported tool_use workflow phase: {args.workflow_phase}")
+        return 1
     print(f"unsupported workflow kind: {args.workflow_kind}")
     return 1
+
+
+def _run_tool_use_eval() -> int:
+    service = ToolUseWorkflowService(
+        case_store=ToolUseEvalCaseStore(get_eval_seed_path("tool_use_seed.jsonl")),
+        report_root=get_tool_use_reports_dir(),
+    )
+    summary = service.run()
+    print(f"tool_use_report_path: {summary.report_path}")
+    print(f"tool_use_count: {summary.count}")
+    print(f"tool_use_passed_count: {summary.passed_count}")
+    print(f"tool_use_failed_count: {summary.failed_count}")
+    print(f"tool_use_pass_rate: {summary.pass_rate}")
+    for result in summary.results:
+        status = "pass" if result.passed else "fail"
+        print(f"{result.case_id} [{status}] score={result.score} {result.summary}")
+    return 0
+
+
+def _print_tool_use_status() -> int:
+    latest = ToolUseRunStore(get_tool_use_reports_dir()).get_latest()
+    print(f"tool_use_report_root: {get_tool_use_reports_dir()}")
+    if latest is None:
+        print("tool_use_latest_report: none")
+        return 0
+    print(f"tool_use_latest_report_path: {latest['report_path']}")
+    print(f"tool_use_latest_case_path: {latest['case_path']}")
+    print(f"tool_use_latest_count: {latest['count']}")
+    print(f"tool_use_latest_passed_count: {latest['passed_count']}")
+    print(f"tool_use_latest_failed_count: {latest['failed_count']}")
+    print(f"tool_use_latest_pass_rate: {latest['pass_rate']}")
+    return 0
 
 
 def _list_gateway_pairings(gateway_name: str) -> int:

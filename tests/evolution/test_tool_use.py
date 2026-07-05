@@ -2,7 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from navi_agent.evolution import ToolUseEvalCase, ToolUseEvalCaseStore, ToolUseEvaluator
+from navi_agent.evolution import (
+    ToolUseEvalCase,
+    ToolUseEvalCaseStore,
+    ToolUseEvaluator,
+    ToolUseRunStore,
+    ToolUseWorkflowService,
+)
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -121,6 +127,24 @@ class ToolUseEvalTests(unittest.TestCase):
         self.assertIn("forbidden_tools:bash", result.metadata["signals"])
         self.assertIn("arg_mismatches:patch", result.metadata["signals"])
         self.assertIn("iterations:3>2", result.metadata["signals"])
+
+    def test_workflow_runs_seed_cases_and_writes_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report_root = Path(tmpdir) / "reports"
+            service = ToolUseWorkflowService(
+                case_store=ToolUseEvalCaseStore(Path("data/eval/tool_use_seed.jsonl")),
+                report_root=report_root,
+            )
+
+            summary = service.run()
+            latest = ToolUseRunStore(report_root).get_latest()
+
+        self.assertEqual(summary.count, 5)
+        self.assertEqual(summary.passed_count, 5)
+        self.assertEqual(summary.pass_rate, 1.0)
+        self.assertIsNotNone(summary.report_path)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest["count"], 5)
 
 
 if __name__ == "__main__":

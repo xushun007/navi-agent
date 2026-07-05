@@ -73,3 +73,7 @@ def get_ifeval_drafts_path() -> Path:
 
 def get_ifeval_reports_dir() -> Path:
     return get_navi_home() / "ifeval-reports"
+
+
+def get_tool_use_reports_dir() -> Path:
+    return get_navi_home() / "tool-use-reports"
