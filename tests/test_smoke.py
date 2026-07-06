@@ -19,14 +19,14 @@ class SmokeWorkflowTests(unittest.TestCase):
                 summary = service.run()
                 latest = SmokeRunStore(report_root).get_latest()
 
-        self.assertEqual(summary.count, 3)
-        self.assertEqual(summary.passed_count, 3)
+        self.assertEqual(summary.count, 4)
+        self.assertEqual(summary.passed_count, 4)
         self.assertEqual(summary.failed_count, 0)
         self.assertEqual(summary.pass_rate, 1.0)
         self.assertIsNotNone(summary.report_path)
         self.assertIsNotNone(latest)
-        self.assertEqual(latest["count"], 3)
-        self.assertEqual(latest["passed_count"], 3)
+        self.assertEqual(latest["count"], 4)
+        self.assertEqual(latest["passed_count"], 4)
 
 
 if __name__ == "__main__":

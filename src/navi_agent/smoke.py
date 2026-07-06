@@ -13,6 +13,7 @@ from navi_agent.runtime import (
     ContextEngine,
     DemoTransport,
     InMemorySessionStore,
+    Message,
     ModelResponse,
     PromptBuilder,
     ToolCall,
@@ -48,6 +49,7 @@ class SmokeWorkflowService:
             self._doctor_check(),
             self._demo_runtime_check(),
             self._tool_runtime_check(),
+            self._context_compression_check(),
         ]
         passed_count = sum(1 for result in results if result.passed)
         failed_count = len(results) - passed_count
@@ -139,6 +141,48 @@ class SmokeWorkflowService:
                 "tool_names": tool_names,
                 "trace_id": trace.trace_id if trace is not None else None,
                 "memory": [record.content for record in memory_store.list_for_user("smoke")],
+            },
+        )
+
+    def _context_compression_check(self) -> SmokeCheckResult:
+        class SmokeSummarizer:
+            def summarize(self, *, middle, latest_user_message):
+                return (
+                    "[Context Summary]\n"
+                    "middle conversation was compacted\n"
+                    f"latest user: {latest_user_message.content if latest_user_message else 'none'}"
+                )
+
+        messages = [
+            Message(role="system", content="system"),
+            Message(role="user", content="initial"),
+            Message(role="assistant", content="ok"),
+            Message(role="assistant", content="middle filler " + "x" * 800),
+            Message(role="user", content="latest request"),
+            Message(role="assistant", content="latest answer"),
+        ]
+        result = ContextEngine(
+            context_limit_tokens=180,
+            reserved_output_tokens=20,
+            compression_threshold_ratio=0.5,
+            protect_first_messages=2,
+            tail_budget_ratio=0.15,
+            summarizer=SmokeSummarizer(),
+        ).build(messages)
+        passed = result.compressed and result.summary_status == "llm" and any(
+            message.content.startswith("[Context Summary]") for message in result.messages
+        )
+        summary = "context compression ok" if passed else "context compression failed"
+        return SmokeCheckResult(
+            name="context_compression",
+            passed=passed,
+            summary=summary,
+            metadata={
+                "compressed": result.compressed,
+                "summary_status": result.summary_status,
+                "original_message_count": result.original_message_count,
+                "final_message_count": len(result.messages),
+                "latest_user_anchored": result.latest_user_anchored,
             },
         )
 
