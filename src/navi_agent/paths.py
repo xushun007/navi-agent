@@ -81,3 +81,7 @@ def get_tool_use_reports_dir() -> Path:
 
 def get_tool_use_eval_reports_dir() -> Path:
     return get_navi_home() / "tool-use-eval-reports"
+
+
+def get_smoke_reports_dir() -> Path:
+    return get_navi_home() / "smoke-reports"

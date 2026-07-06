@@ -27,6 +27,7 @@ from navi_agent.evolution import (
     ToolUseRunStore,
     ToolUseWorkflowService,
 )
+from navi_agent.smoke import SmokeRunStore, SmokeWorkflowService
 from navi_agent.gateway.weixin import (
     ILinkClient,
     ILinkGateway,
@@ -39,6 +40,7 @@ from navi_agent.paths import get_ifeval_drafts_path
 from navi_agent.paths import get_ifeval_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
+from navi_agent.paths import get_smoke_reports_dir
 from navi_agent.paths import get_state_db_path
 from navi_agent.paths import get_tool_use_eval_reports_dir
 from navi_agent.paths import get_tool_use_reports_dir
@@ -64,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-y", "--yolo", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
-    parser.add_argument("--workflow-kind", choices=["healthcheck", "ifeval", "tool_use", "tool_use_eval"])
+    parser.add_argument("--workflow-kind", choices=["healthcheck", "ifeval", "smoke", "tool_use", "tool_use_eval"])
     parser.add_argument("--workflow-phase", choices=["run", "compare", "report", "review"])
     parser.add_argument("--workflow-name")
     parser.add_argument("--gateway", choices=["weixin"])
@@ -359,6 +361,13 @@ def _run_unified_workflow(args) -> int:
             return _review_ifeval_draft()
         print(f"unsupported ifeval workflow phase: {args.workflow_phase}")
         return 1
+    if args.workflow_kind == "smoke":
+        if args.workflow_phase == "run":
+            return _run_smoke_workflow()
+        if args.workflow_phase == "report":
+            return _print_smoke_status()
+        print(f"unsupported smoke workflow phase: {args.workflow_phase}")
+        return 1
     if args.workflow_kind == "tool_use":
         if args.workflow_phase == "run":
             return _run_tool_use_eval()
@@ -426,6 +435,34 @@ def _run_tool_use_llm_eval() -> int:
     for result in summary.results:
         status = "pass" if result.passed else "fail"
         print(f"{result.case_id} [{status}] score={result.score} {result.summary}")
+    return 0
+
+
+def _run_smoke_workflow() -> int:
+    service = SmokeWorkflowService()
+    summary = service.run()
+    print(f"smoke_report_path: {summary.report_path}")
+    print(f"smoke_count: {summary.count}")
+    print(f"smoke_passed_count: {summary.passed_count}")
+    print(f"smoke_failed_count: {summary.failed_count}")
+    print(f"smoke_pass_rate: {summary.pass_rate}")
+    for result in summary.results:
+        status = "pass" if result.passed else "fail"
+        print(f"{result.name} [{status}] {result.summary}")
+    return 0
+
+
+def _print_smoke_status() -> int:
+    latest = SmokeRunStore().get_latest()
+    print(f"smoke_report_root: {get_smoke_reports_dir()}")
+    if latest is None:
+        print("smoke_latest_report: none")
+        return 0
+    print(f"smoke_latest_report_path: {latest['report_path']}")
+    print(f"smoke_latest_count: {latest['count']}")
+    print(f"smoke_latest_passed_count: {latest['passed_count']}")
+    print(f"smoke_latest_failed_count: {latest['failed_count']}")
+    print(f"smoke_latest_pass_rate: {latest['pass_rate']}")
     return 0
 
 

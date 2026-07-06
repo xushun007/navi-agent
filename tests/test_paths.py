@@ -13,6 +13,7 @@ from navi_agent.paths import (
     get_navi_home,
     get_prompt_overlay_path,
     get_prompt_overlay_snapshots_dir,
+    get_smoke_reports_dir,
     get_state_db_path,
     get_eval_case_store_path,
 )
@@ -37,6 +38,7 @@ class PathsTests(unittest.TestCase):
             self.assertEqual(get_prompt_overlay_path(), Path("/tmp/navi-home/evolution/prompt-overlay.md"))
             self.assertEqual(get_prompt_overlay_snapshots_dir(), Path("/tmp/navi-home/evolution/prompt-overlay-snapshots"))
             self.assertEqual(get_candidate_store_path(), Path("/tmp/navi-home/evolution/candidates.jsonl"))
+            self.assertEqual(get_smoke_reports_dir(), Path("/tmp/navi-home/smoke-reports"))
             self.assertEqual(
                 get_eval_case_store_path(),
                 Path("/tmp/navi-home/evolution/eval-cases.jsonl"),

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from navi_agent.evolution import (
@@ -19,9 +20,19 @@ class ToolUseEvalTests(unittest.TestCase):
 
         cases = store.list_cases()
 
-        self.assertGreaterEqual(len(cases), 5)
+        self.assertGreaterEqual(len(cases), 10)
         self.assertEqual({case.level for case in cases}, {"L0", "L1", "L2"})
         self.assertTrue(all(case.source_inspiration for case in cases))
+        self.assertTrue(
+            {
+                "tooluse_l0_todo_add_001",
+                "tooluse_l0_todo_list_pending_001",
+                "tooluse_l1_todo_add_in_progress_001",
+                "tooluse_l1_todo_list_completed_001",
+                "tooluse_l1_code_executor_approval_001",
+                "tooluse_l2_memory_preference_state_001",
+            }.issubset({case.id for case in cases})
+        )
 
     def test_store_round_trips_cases(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -140,12 +151,12 @@ class ToolUseEvalTests(unittest.TestCase):
             summary = service.run()
             latest = ToolUseRunStore(report_root).get_latest()
 
-        self.assertEqual(summary.count, 5)
-        self.assertEqual(summary.passed_count, 5)
+        self.assertEqual(summary.count, len(ToolUseEvalCaseStore(Path("data/eval/tool_use_seed.jsonl")).list_cases()))
+        self.assertEqual(summary.passed_count, summary.count)
         self.assertEqual(summary.pass_rate, 1.0)
         self.assertIsNotNone(summary.report_path)
         self.assertIsNotNone(latest)
-        self.assertEqual(latest["count"], 5)
+        self.assertEqual(latest["count"], summary.count)
 
     def test_llm_workflow_uses_real_runner_interface(self) -> None:
         class FakeRuntime:
@@ -192,8 +203,8 @@ class ToolUseEvalTests(unittest.TestCase):
             report_root = Path(tmpdir) / "reports"
             ToolUseEvalCaseStore(case_path).write_cases([case])
 
-            with unittest.mock.patch("navi_agent.evolution.tool_use.AgentRuntime", FakeRuntime):
-                with unittest.mock.patch("navi_agent.evolution.tool_use.build_transport", return_value=object()):
+            with mock.patch("navi_agent.evolution.tool_use.AgentRuntime", FakeRuntime):
+                with mock.patch("navi_agent.evolution.tool_use.build_transport", return_value=object()):
                     service = ToolUseEvalWorkflowService(
                         case_store=ToolUseEvalCaseStore(case_path),
                         report_root=report_root,
