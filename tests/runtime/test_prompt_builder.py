@@ -22,7 +22,7 @@ class PromptBuilderTest(unittest.TestCase):
         session = ConversationState(session_id="s1", user_id="u1")
         msgs = self.builder.build_initial_messages(session, "hello")
         self.assertEqual(len(msgs), 2)
-        self.assertIn("Likes Python", msgs[0].content)
+        self.assertIn("[fact] Likes Python", msgs[0].content)
 
     def test_new_session_limits_memory_entries(self) -> None:
         for index in range(7):
@@ -32,10 +32,10 @@ class PromptBuilderTest(unittest.TestCase):
 
         msgs = builder.build_initial_messages(session, "hello")
 
-        self.assertIn("Memory 2", msgs[0].content)
-        self.assertIn("Memory 6", msgs[0].content)
-        self.assertNotIn("Memory 0", msgs[0].content)
-        self.assertNotIn("Memory 1", msgs[0].content)
+        self.assertIn("[fact] Memory 2", msgs[0].content)
+        self.assertIn("[fact] Memory 6", msgs[0].content)
+        self.assertNotIn("[fact] Memory 0", msgs[0].content)
+        self.assertNotIn("[fact] Memory 1", msgs[0].content)
 
     def test_new_session_without_system_or_memory(self) -> None:
         session = ConversationState(session_id="s1", user_id="u1")

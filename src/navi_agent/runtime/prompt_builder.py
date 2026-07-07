@@ -38,5 +38,5 @@ class PromptBuilder:
         if not records:
             return None
         lines = ["[Memory]"]
-        lines.extend(f"- {record.content}" for record in records)
+        lines.extend(f"- [{record.kind}] {record.content}" for record in records)
         return "\n".join(lines)

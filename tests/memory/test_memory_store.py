@@ -7,14 +7,14 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
     def test_list_for_user_filters_records(self) -> None:
         store = InMemoryMemoryStore(
             records=[
-                MemoryRecord(id="m1", user_id="u1", content="Likes Python"),
-                MemoryRecord(id="m2", user_id="u2", content="Likes Go"),
+                MemoryRecord(id="m1", user_id="u1", kind="fact", content="Likes Python"),
+                MemoryRecord(id="m2", user_id="u2", kind="fact", content="Likes Go"),
             ]
         )
 
         records = store.list_for_user("u1")
 
-        self.assertEqual(records, [MemoryRecord(id="m1", user_id="u1", content="Likes Python")])
+        self.assertEqual(records, [MemoryRecord(id="m1", user_id="u1", kind="fact", content="Likes Python")])
 
     def test_add_for_user_appends_record(self) -> None:
         store = InMemoryMemoryStore()
@@ -23,7 +23,14 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
 
         self.assertEqual(
             store.list_for_user("u1"),
-            [MemoryRecord(id=store.list_for_user("u1")[0].id, user_id="u1", content="Prefers CLI tools")],
+            [
+                MemoryRecord(
+                    id=store.list_for_user("u1")[0].id,
+                    user_id="u1",
+                    kind="fact",
+                    content="Prefers CLI tools",
+                )
+            ],
         )
 
     def test_update_and_remove_record(self) -> None:

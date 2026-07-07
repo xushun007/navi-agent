@@ -26,6 +26,7 @@ class MemoryTool(BaseTool):
             "properties": {
                 "action": {"type": "string", "enum": ["add", "list", "update", "remove"]},
                 "id": {"type": "string"},
+                "kind": {"type": "string", "enum": ["fact", "preference", "task"]},
                 "content": {"type": "string"},
             },
             "required": ["action"],
@@ -36,17 +37,20 @@ class MemoryTool(BaseTool):
             raise ValueError("Memory tool requires tool context")
         action = str(kwargs["action"])
         if action == "add":
+            kind = str(kwargs.get("kind", "fact")).strip().lower()
+            if kind not in {"fact", "preference", "task"}:
+                kind = "fact"
             content = str(kwargs.get("content", "")).strip()
             if not content:
                 return ToolResult.error(
                     name=self.name,
                     content="memory_error: content is required for add",
                 )
-            record = self._memory_store.add_for_user(context.user_id, content)
+            record = self._memory_store.add_for_user(context.user_id, content, kind=kind)
             return ToolResult.ok(
                 name=self.name,
                 content="memory_stored",
-                structured_content={"user_id": record.user_id, "content": record.content},
+                structured_content={"user_id": record.user_id, "kind": record.kind, "content": record.content},
             )
         if action == "list":
             records = self._memory_store.list_for_user(context.user_id)
@@ -61,7 +65,7 @@ class MemoryTool(BaseTool):
                 content="\n".join(f"- {record.content}" for record in records),
                 structured_content={
                     "records": [
-                        {"id": record.id, "content": record.content} for record in records
+                        {"id": record.id, "kind": record.kind, "content": record.content} for record in records
                     ]
                 },
             )
@@ -81,7 +85,7 @@ class MemoryTool(BaseTool):
             return ToolResult.ok(
                 name=self.name,
                 content="memory_updated",
-                structured_content={"id": record.id, "content": record.content},
+                structured_content={"id": record.id, "kind": record.kind, "content": record.content},
             )
         if action == "remove":
             record_id = str(kwargs.get("id", "")).strip()

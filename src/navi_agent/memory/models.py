@@ -7,4 +7,5 @@ from dataclasses import dataclass
 class MemoryRecord:
     id: str
     user_id: str
+    kind: str
     content: str

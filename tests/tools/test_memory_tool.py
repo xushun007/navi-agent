@@ -13,6 +13,7 @@ class MemoryToolTests(unittest.TestCase):
         add_result = tool.invoke(
             context=ToolContext(session_id="s1", user_id="u1", iteration=1),
             action="add",
+            kind="preference",
             content="Likes short answers",
         )
         list_result = tool.invoke(
@@ -22,6 +23,7 @@ class MemoryToolTests(unittest.TestCase):
 
         self.assertIn("stored", add_result.content)
         self.assertEqual(add_result.structured_content["content"], "Likes short answers")
+        self.assertEqual(add_result.structured_content["kind"], "preference")
         self.assertIn("Likes short answers", list_result.content)
         self.assertEqual(list_result.structured_content["records"][0]["content"], "Likes short answers")
 
@@ -31,6 +33,7 @@ class MemoryToolTests(unittest.TestCase):
         add_result = tool.invoke(
             context=ToolContext(session_id="s1", user_id="u1", iteration=1),
             action="add",
+            kind="task",
             content="Old note",
         )
         record_id = add_result.structured_content["content"] and store.list_for_user("u1")[0].id
