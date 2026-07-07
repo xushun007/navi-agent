@@ -279,7 +279,7 @@ class AgentRuntime:
                     session,
                     Message(
                         role="tool",
-                        content=self._tool_result_renderer.render(tool_result),
+                        content=self._render_tool_message(tool_result),
                         tool_call_id=tool_result.tool_call_id,
                     ),
                 )
@@ -351,6 +351,12 @@ class AgentRuntime:
     def _emit_event(self, event: RuntimeEvent) -> None:
         for observer in self._observers:
             observer.on_event(event)
+
+    def _render_tool_message(self, tool_result) -> str:
+        rendered = self._tool_result_renderer.render(tool_result).strip()
+        if rendered:
+            return rendered
+        return f"{tool_result.name}: {tool_result.status}"
 
     def get_latest_trace(
         self,

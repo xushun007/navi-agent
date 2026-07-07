@@ -67,6 +67,11 @@ class RecordingToolResultRenderer:
         return f"rendered:{result.name}:{result.status}"
 
 
+class EmptyToolResultRenderer:
+    def render(self, result: ToolResult) -> str:
+        return "   "
+
+
 def ok_result(name: str, content: str, **kwargs) -> ToolResult:
     return ToolResult(tool_call_id="", name=name, content=content, **kwargs)
 
@@ -531,6 +536,31 @@ class AgentRuntimeTests(unittest.TestCase):
 
         self.assertEqual(renderer.results[0].structured_content["value"], "ping")
         self.assertEqual(result.messages[-2].content, "rendered:echo:success")
+
+    def test_runtime_falls_back_when_tool_renderer_returns_empty_text(self) -> None:
+        transport = FakeTransport(
+            [
+                ModelResponse(tool_calls=[ToolCall(id="tc1", name="echo", arguments={"value": "ping"})]),
+                ModelResponse(content="done"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_result_renderer=EmptyToolResultRenderer(),
+            tool_registry=ToolRegistry(
+                tools={
+                    "echo": lambda value: ToolResult.ok(
+                        "echo",
+                        "",
+                        structured_content={"value": value},
+                    )
+                }
+            ),
+        )
+
+        result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(result.messages[-2].content, "echo: success")
 
     def test_default_tool_result_renderer_exposes_artifacts(self) -> None:
         transport = FakeTransport(
