@@ -28,6 +28,20 @@ def _stamp_result(result: ToolResult, *, started_at: str, started_perf: float) -
     return result
 
 
+def _tool_failure_result(*, name: str, tool_call_id: str, message: str, exception: Exception | None = None) -> ToolResult:
+    structured_content: dict[str, object] = {"error": message}
+    metadata: dict[str, object] = {}
+    if exception is not None:
+        structured_content["error_type"] = exception.__class__.__name__
+        metadata["error_type"] = exception.__class__.__name__
+    return ToolResult.error(
+        name=name,
+        content=message,
+        structured_content=structured_content,
+        metadata=metadata,
+    ).bind(tool_call_id)
+
+
 class ToolExecutor:
     def __init__(
         self,
@@ -51,10 +65,11 @@ class ToolExecutor:
             if tool is None:
                 results.append(
                     _stamp_result(
-                        ToolResult.error(
+                        _tool_failure_result(
                             name=tool_call.name,
-                            content=f"Unknown tool: {tool_call.name}",
-                        ).bind(tool_call.id),
+                            tool_call_id=tool_call.id,
+                            message=f"Unknown tool: {tool_call.name}",
+                        ),
                         started_at=started_at,
                         started_perf=started_perf,
                     )
@@ -87,10 +102,12 @@ class ToolExecutor:
                             logger.exception("Tool execution failed: %s", tool_call.name)
                             results.append(
                                 _stamp_result(
-                                    ToolResult.error(
+                                    _tool_failure_result(
                                         name=tool_call.name,
-                                        content=f"Tool execution failed: {exc}",
-                                    ).bind(tool_call.id),
+                                        tool_call_id=tool_call.id,
+                                        message=f"Tool execution failed: {exc}",
+                                        exception=exc,
+                                    ),
                                     started_at=started_at,
                                     started_perf=started_perf,
                                 )
@@ -115,11 +132,11 @@ class ToolExecutor:
                     continue
                 results.append(
                     _stamp_result(
-                        ToolResult.error(
+                        _tool_failure_result(
                             name=tool_call.name,
-                            content=decision.reason or f"Tool blocked: {tool_call.name}",
-                            metadata=decision.metadata,
-                        ).bind(tool_call.id),
+                            tool_call_id=tool_call.id,
+                            message=decision.reason or f"Tool blocked: {tool_call.name}",
+                        ),
                         started_at=started_at,
                         started_perf=started_perf,
                     )
@@ -139,10 +156,12 @@ class ToolExecutor:
                 logger.exception("Tool execution failed: %s", tool_call.name)
                 results.append(
                     _stamp_result(
-                        ToolResult.error(
+                        _tool_failure_result(
                             name=tool_call.name,
-                            content=f"Tool execution failed: {exc}",
-                        ).bind(tool_call.id),
+                            tool_call_id=tool_call.id,
+                            message=f"Tool execution failed: {exc}",
+                            exception=exc,
+                        ),
                         started_at=started_at,
                         started_perf=started_perf,
                     )
