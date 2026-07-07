@@ -103,6 +103,20 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertEqual(request_body["msg"]["context_token"], "ctx-1")
         self.assertEqual(request_body["msg"]["item_list"][0]["text_item"]["text"], "reply")
 
+    def test_client_retries_retryable_http_status(self) -> None:
+        with _retrying_ilink_server() as server:
+            client = ILinkClient(
+                token="token",
+                account_id="account-1",
+                base_url=server.base_url,
+            )
+
+            sync_buf, messages = client.get_updates("old-sync")
+
+        self.assertEqual(sync_buf, "next-sync")
+        self.assertEqual(messages, [])
+        self.assertEqual(len(server.requests), 2)
+
     def test_gateway_tick_dispatches_to_app_and_sends_reply(self) -> None:
         app = FakeApp()
         client = FakeClient()
@@ -343,6 +357,53 @@ class _ilink_server:
                             }
                         ],
                     }
+                else:
+                    response = {"ret": 0}
+                data = json.dumps(response).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, format, *args):
+                return
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        host, port = self.server.server_address
+        self.base_url = f"http://{host}:{port}"
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+
+class _retrying_ilink_server:
+    def __enter__(self):
+        self.requests = []
+        self.count = 0
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                content_length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                outer.requests.append({"path": self.path, "body": body})
+                outer.count += 1
+                if outer.count == 1:
+                    data = json.dumps({"ret": 0, "errmsg": "temporary"}).encode("utf-8")
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                if self.path.endswith("/getupdates"):
+                    response = {"ret": 0, "get_updates_buf": "next-sync", "msgs": []}
                 else:
                     response = {"ret": 0}
                 data = json.dumps(response).encode("utf-8")

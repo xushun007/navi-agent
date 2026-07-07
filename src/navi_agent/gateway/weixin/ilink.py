@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from http.client import HTTPConnection, HTTPSConnection
 import json
 import logging
+import socket
 from time import time
+from time import sleep
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -20,6 +22,7 @@ ILINK_APP_CLIENT_VERSION = (2 << 16) | (2 << 8) | 0
 
 EP_GET_UPDATES = "ilink/bot/getupdates"
 EP_SEND_MESSAGE = "ilink/bot/sendmessage"
+RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 ITEM_TEXT = 1
 ITEM_VOICE = 3
@@ -143,6 +146,34 @@ class ILinkClient:
         *,
         timeout_seconds: float,
     ) -> dict[str, Any]:
+        last_error: BaseException | None = None
+        for attempt in range(1, 4):
+            try:
+                return self._post_once(endpoint, payload, timeout_seconds=timeout_seconds)
+            except BaseException as exc:
+                last_error = exc
+                if not _is_retryable_error(exc) or attempt >= 3:
+                    raise
+                delay = _retry_delay(attempt)
+                logger.warning(
+                    "iLink request retryable failure: endpoint=%s attempt=%s delay=%.2fs error=%s",
+                    endpoint,
+                    attempt,
+                    delay,
+                    exc,
+                )
+                sleep(delay)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(f"iLink POST {endpoint} failed without raising an exception")
+
+    def _post_once(
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> dict[str, Any]:
         body = _json_dumps({**payload, "base_info": {"channel_version": CHANNEL_VERSION}})
         parsed = urlparse(self._base_url)
         if parsed.scheme == "http":
@@ -256,3 +287,22 @@ def _json_dumps(payload: dict[str, Any]) -> str:
 
 def _sync_buf_path(account_id: str):
     return get_navi_home() / "weixin" / "accounts" / f"{account_id}.sync.json"
+
+
+def _retry_delay(attempt: int) -> float:
+    return min(4.0, 0.5 * (2 ** max(0, attempt - 1)))
+
+
+def _is_retryable_error(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout, ConnectionError, OSError)):
+        return True
+    message = str(exc).lower()
+    if "timed out" in message or "timeout" in message:
+        return True
+    if "connection reset" in message or "connection aborted" in message or "connection refused" in message:
+        return True
+    if "http " in message:
+        for status in RETRYABLE_HTTP_STATUSES:
+            if f"http {status}" in message:
+                return True
+    return False
