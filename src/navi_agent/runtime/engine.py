@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from collections.abc import Sequence
+import socket
 from time import perf_counter
 
 from navi_agent.tooling import ToolContext
@@ -40,6 +41,27 @@ def _pop_trace_timing(metadata: dict[str, object]) -> tuple[dict[str, object], s
     if not isinstance(duration_ms, int):
         duration_ms = 0
     return metadata, started_at, completed_at, duration_ms
+
+
+def _classify_error(exc: BaseException) -> dict[str, object]:
+    http_status = getattr(exc, "status_code", None)
+    retryable = False
+    error_category = "fatal"
+    if isinstance(http_status, int) and http_status in {429, 500, 502, 503, 504}:
+        retryable = True
+        error_category = "retryable"
+    else:
+        text = str(exc).lower()
+        if isinstance(exc, (TimeoutError, socket.timeout, ConnectionError, OSError)) or "timeout" in text or "timed out" in text:
+            retryable = True
+            error_category = "retryable"
+    return {
+        "error_category": error_category,
+        "error_type": exc.__class__.__name__,
+        "error_message": str(exc),
+        "retryable": retryable,
+        "http_status": http_status if isinstance(http_status, int) else None,
+    }
 
 
 class AgentRuntime:
@@ -146,15 +168,49 @@ class AgentRuntime:
                         },
                     )
                 )
-            response = self._transport.generate(
-                ModelRequest(
-                    messages=context_result.messages,
-                    tools=self._tool_registry.schemas(
-                        enabled_toolsets=self._enabled_toolsets,
-                        disabled_toolsets=self._disabled_toolsets,
-                    ),
+            try:
+                response = self._transport.generate(
+                    ModelRequest(
+                        messages=context_result.messages,
+                        tools=self._tool_registry.schemas(
+                            enabled_toolsets=self._enabled_toolsets,
+                            disabled_toolsets=self._disabled_toolsets,
+                        ),
+                    )
                 )
-            )
+            except BaseException as exc:
+                error_info = _classify_error(exc)
+                logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)
+                result = RuntimeResult(
+                    session_id=session.session_id,
+                    status="failed",
+                    final_response="",
+                    messages=self._session_store.snapshot(session),
+                    tool_results=tool_results,
+                )
+                self._record_trace(
+                    session_id=session.session_id,
+                    user_id=user_id,
+                    user_message=user_message,
+                    system_prompt=system_prompt,
+                    result=result,
+                    model_calls=model_calls,
+                    tool_executions=tool_executions,
+                    started_at=run_started_at,
+                    duration_ms=_duration_ms(run_started_perf),
+                    error_info=error_info,
+                    attempt_count=iteration_number,
+                )
+                self._emit_event(
+                    RuntimeEvent(
+                        name="runtime.completed",
+                        session_id=session.session_id,
+                        user_id=user_id,
+                        iteration=iteration_number,
+                        metadata={"status": result.status, **error_info},
+                    )
+                )
+                return result
             self._emit_event(
                 RuntimeEvent(
                     name="model.responded",
@@ -258,6 +314,21 @@ class AgentRuntime:
                         approval_required=bool(
                             tool_result.structured_content.get("approval_required")
                         ),
+                        error_category=tool_metadata.get("error_category")
+                        if isinstance(tool_metadata.get("error_category"), str)
+                        else None,
+                        error_type=tool_metadata.get("error_type")
+                        if isinstance(tool_metadata.get("error_type"), str)
+                        else None,
+                        error_message=tool_metadata.get("error_message")
+                        if isinstance(tool_metadata.get("error_message"), str)
+                        else None,
+                        retryable=tool_metadata.get("retryable")
+                        if isinstance(tool_metadata.get("retryable"), bool)
+                        else None,
+                        http_status=tool_metadata.get("http_status")
+                        if isinstance(tool_metadata.get("http_status"), int)
+                        else None,
                         started_at=tool_started_at,
                         completed_at=tool_completed_at,
                         duration_ms=tool_duration_ms,
@@ -325,9 +396,12 @@ class AgentRuntime:
         tool_executions: list[ToolExecutionTrace],
         started_at: str,
         duration_ms: int,
+        error_info: dict[str, object] | None = None,
+        attempt_count: int = 0,
     ) -> None:
         if self._trace_store is None:
             return
+        error_info = error_info or {}
         self._trace_store.record(
             RuntimeTrace(
                 session_id=session_id,
@@ -342,6 +416,12 @@ class AgentRuntime:
                 total_iterations=len(model_calls),
                 approval_count=sum(1 for item in tool_executions if item.approval_required),
                 error_count=sum(1 for item in tool_executions if item.status == "error"),
+                error_category=error_info.get("error_category") if isinstance(error_info.get("error_category"), str) else None,
+                error_type=error_info.get("error_type") if isinstance(error_info.get("error_type"), str) else None,
+                error_message=error_info.get("error_message") if isinstance(error_info.get("error_message"), str) else None,
+                retryable=error_info.get("retryable") if isinstance(error_info.get("retryable"), bool) else None,
+                http_status=error_info.get("http_status") if isinstance(error_info.get("http_status"), int) else None,
+                attempt_count=attempt_count,
                 started_at=started_at,
                 completed_at=_utc_now_iso(),
                 duration_ms=duration_ms,

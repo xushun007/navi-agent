@@ -27,6 +27,11 @@ class ToolExecutionTrace:
     metadata: dict[str, Any] = field(default_factory=dict)
     structured_content: dict[str, Any] = field(default_factory=dict)
     approval_required: bool = False
+    error_category: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    retryable: bool | None = None
+    http_status: int | None = None
     started_at: str | None = None
     completed_at: str | None = None
     duration_ms: int = 0
@@ -47,6 +52,12 @@ class RuntimeTrace:
     total_iterations: int = 0
     approval_count: int = 0
     error_count: int = 0
+    error_category: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    retryable: bool | None = None
+    http_status: int | None = None
+    attempt_count: int = 0
     started_at: str | None = None
     completed_at: str | None = None
     duration_ms: int = 0
