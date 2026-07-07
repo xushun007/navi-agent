@@ -6,8 +6,11 @@ from .models import ConversationState, Message
 
 
 class PromptBuilder:
-    def __init__(self, memory_store: MemoryStore | None = None) -> None:
+    def __init__(self, memory_store: MemoryStore | None = None, memory_limit: int = 5) -> None:
+        if memory_limit <= 0:
+            raise ValueError("memory_limit must be positive")
         self._memory_store = memory_store
+        self._memory_limit = memory_limit
 
     def build_initial_messages(
         self,
@@ -31,7 +34,7 @@ class PromptBuilder:
     def _build_memory_block(self, user_id: str) -> str | None:
         if self._memory_store is None:
             return None
-        records = self._memory_store.list_for_user(user_id)
+        records = self._memory_store.list_for_user(user_id)[-self._memory_limit :]
         if not records:
             return None
         lines = ["[Memory]"]

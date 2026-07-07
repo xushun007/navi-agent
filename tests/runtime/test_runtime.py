@@ -222,7 +222,7 @@ class AgentRuntimeTests(unittest.TestCase):
         transport = FakeTransport([ModelResponse(content="done")])
         prompt_builder = PromptBuilder(
             memory_store=InMemoryMemoryStore(
-                records=[MemoryRecord(user_id="u1", content="Prefers concise replies")]
+                records=[MemoryRecord(id="m1", user_id="u1", content="Prefers concise replies")]
             )
         )
         runtime = AgentRuntime(
