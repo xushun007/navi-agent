@@ -24,7 +24,8 @@ class MemoryTool(BaseTool):
         return {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["add", "list"]},
+                "action": {"type": "string", "enum": ["add", "list", "update", "remove"]},
+                "id": {"type": "string"},
                 "content": {"type": "string"},
             },
             "required": ["action"],
@@ -58,7 +59,43 @@ class MemoryTool(BaseTool):
             return ToolResult.ok(
                 name=self.name,
                 content="\n".join(f"- {record.content}" for record in records),
-                structured_content={"records": [record.content for record in records]},
+                structured_content={
+                    "records": [
+                        {"id": record.id, "content": record.content} for record in records
+                    ]
+                },
+            )
+        if action == "update":
+            record_id = str(kwargs.get("id", "")).strip()
+            content = str(kwargs.get("content", "")).strip()
+            if not record_id:
+                return ToolResult.error(name=self.name, content="memory_error: id is required for update")
+            if not content:
+                return ToolResult.error(name=self.name, content="memory_error: content is required for update")
+            record = self._memory_store.update_for_user(context.user_id, record_id, content)
+            if record is None:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"memory_error: item not found: {record_id}",
+                )
+            return ToolResult.ok(
+                name=self.name,
+                content="memory_updated",
+                structured_content={"id": record.id, "content": record.content},
+            )
+        if action == "remove":
+            record_id = str(kwargs.get("id", "")).strip()
+            if not record_id:
+                return ToolResult.error(name=self.name, content="memory_error: id is required for remove")
+            if not self._memory_store.remove_for_user(context.user_id, record_id):
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"memory_error: item not found: {record_id}",
+                )
+            return ToolResult.ok(
+                name=self.name,
+                content="memory_removed",
+                structured_content={"id": record_id},
             )
         return ToolResult.error(
             name=self.name,

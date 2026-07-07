@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from .models import MemoryRecord
 
 
@@ -11,6 +13,26 @@ class InMemoryMemoryStore:
         return [record for record in self._records if record.user_id == user_id]
 
     def add_for_user(self, user_id: str, content: str) -> MemoryRecord:
-        record = MemoryRecord(user_id=user_id, content=content)
+        record = MemoryRecord(id=uuid.uuid4().hex[:12], user_id=user_id, content=content)
         self._records.append(record)
         return record
+
+    def get_for_user(self, user_id: str, record_id: str) -> MemoryRecord | None:
+        for record in self._records:
+            if record.user_id == user_id and record.id == record_id:
+                return record
+        return None
+
+    def update_for_user(self, user_id: str, record_id: str, content: str) -> MemoryRecord | None:
+        record = self.get_for_user(user_id, record_id)
+        if record is None:
+            return None
+        record.content = content
+        return record
+
+    def remove_for_user(self, user_id: str, record_id: str) -> bool:
+        for index, record in enumerate(self._records):
+            if record.user_id == user_id and record.id == record_id:
+                self._records.pop(index)
+                return True
+        return False
