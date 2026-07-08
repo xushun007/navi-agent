@@ -117,6 +117,16 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertEqual(messages, [])
         self.assertEqual(len(server.requests), 2)
 
+    def test_client_marks_empty_send_text_as_fatal(self) -> None:
+        client = ILinkClient(token="token", account_id="account-1", base_url="http://127.0.0.1")
+
+        result = client.send_text(to_user_id="user-1", text="   ")
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_category, "fatal")
+        self.assertEqual(result.error_type, "ValueError")
+        self.assertFalse(result.retryable)
+
     def test_gateway_tick_dispatches_to_app_and_sends_reply(self) -> None:
         app = FakeApp()
         client = FakeClient()

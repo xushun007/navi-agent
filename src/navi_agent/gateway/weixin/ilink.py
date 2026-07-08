@@ -57,6 +57,10 @@ class ILinkSendResult:
     success: bool
     response: dict[str, Any]
     error: str | None = None
+    error_category: str | None = None
+    error_type: str | None = None
+    retryable: bool | None = None
+    http_status: int | None = None
 
 
 class ILinkClient:
@@ -104,7 +108,14 @@ class ILinkClient:
         context_token: str | None = None,
     ) -> ILinkSendResult:
         if not text.strip():
-            return ILinkSendResult(success=False, response={}, error="text is empty")
+            return ILinkSendResult(
+                success=False,
+                response={},
+                error="text is empty",
+                error_category="fatal",
+                error_type="ValueError",
+                retryable=False,
+            )
         message: dict[str, Any] = {
             "from_user_id": "",
             "to_user_id": to_user_id,
@@ -123,10 +134,15 @@ class ILinkClient:
         ret = response.get("ret", 0)
         errcode = response.get("errcode", 0)
         success = ret in (0, None) and errcode in (0, None)
+        error_message = None if success else str(response.get("errmsg") or response)
         result = ILinkSendResult(
             success=success,
             response=response,
-            error=None if success else str(response.get("errmsg") or response),
+            error=error_message,
+            error_category=None if success else "fatal",
+            error_type=None if success else "ILinkResponseError",
+            retryable=False if not success else None,
+            http_status=None,
         )
         if result.success:
             logger.info("Sent iLink text reply: to_user_id=%s", to_user_id)
@@ -202,7 +218,11 @@ class ILinkClient:
         finally:
             connection.close()
         if response.status < 200 or response.status >= 300:
-            raise RuntimeError(f"iLink POST {endpoint} HTTP {response.status}: {raw[:200]}")
+            raise _ILinkHTTPError(
+                endpoint=endpoint,
+                status=response.status,
+                message=f"iLink POST {endpoint} HTTP {response.status}: {raw[:200]}",
+            )
         data = json.loads(raw or "{}")
         return data if isinstance(data, dict) else {}
 
@@ -294,6 +314,8 @@ def _retry_delay(attempt: int) -> float:
 
 
 def _is_retryable_error(exc: BaseException) -> bool:
+    if isinstance(exc, _ILinkHTTPError):
+        return exc.status in RETRYABLE_HTTP_STATUSES
     if isinstance(exc, (TimeoutError, socket.timeout, ConnectionError, OSError)):
         return True
     message = str(exc).lower()
@@ -306,3 +328,11 @@ def _is_retryable_error(exc: BaseException) -> bool:
             if f"http {status}" in message:
                 return True
     return False
+
+
+class _ILinkHTTPError(RuntimeError):
+    def __init__(self, *, endpoint: str, status: int, message: str) -> None:
+        super().__init__(message)
+        self.endpoint = endpoint
+        self.status = status
+        self.message = message
