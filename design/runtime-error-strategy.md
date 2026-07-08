@@ -96,6 +96,26 @@ Each failed call should expose:
 
 The trace should keep retry metadata so offline evals can see whether failures were transient or real regressions.
 
+## Unified Trace Contract
+
+The same error shape should be used across runtime, gateway, and telemetry:
+
+```text
+error_category: retryable | fatal | blocked
+error_type: str | None
+error_message: str | None
+retryable: bool | None
+http_status: int | None
+attempt_count: int
+```
+
+Rules:
+
+- runtime records the final model or tool error with this shape;
+- gateway records network failures with the same shape when it can classify them;
+- telemetry should serialize the fields without interpretation;
+- evaluators can rely on these fields for failure counting and regression checks.
+
 ## Implementation Plan
 
 1. Add a small error classifier for transport-layer failures.
