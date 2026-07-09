@@ -58,15 +58,16 @@ class MemoryTool(BaseTool):
                 return ToolResult.ok(
                     name=self.name,
                     content="memory_empty",
-                    structured_content={"records": []},
+                    structured_content={"records": [], "record_count": 0},
                 )
             return ToolResult.ok(
                 name=self.name,
-                content="\n".join(f"- {record.content}" for record in records),
+                content="\n".join(f"- [{record.kind}] {record.id}: {record.content}" for record in records),
                 structured_content={
                     "records": [
                         {"id": record.id, "kind": record.kind, "content": record.content} for record in records
-                    ]
+                    ],
+                    "record_count": len(records),
                 },
             )
         if action == "update":

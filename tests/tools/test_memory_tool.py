@@ -25,7 +25,9 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(add_result.structured_content["content"], "Likes short answers")
         self.assertEqual(add_result.structured_content["kind"], "preference")
         self.assertIn("Likes short answers", list_result.content)
+        self.assertIn("[preference]", list_result.content)
         self.assertEqual(list_result.structured_content["records"][0]["content"], "Likes short answers")
+        self.assertEqual(list_result.structured_content["record_count"], 1)
 
     def test_updates_and_removes_records(self) -> None:
         store = InMemoryMemoryStore()
