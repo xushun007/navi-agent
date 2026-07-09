@@ -22,11 +22,12 @@ class BuildApplicationTests(unittest.TestCase):
         with patch("navi_agent.bootstrap.build_runtime", return_value=fake_runtime) as build_runtime_mock:
             build_application(default_system_prompt="system", approval_provider=provider)
 
-        build_runtime_mock.assert_called_once_with(
-            model_settings=None,
-            runtime_settings=None,
-            approval_provider=provider,
-        )
+        build_runtime_mock.assert_called_once()
+        _, kwargs = build_runtime_mock.call_args
+        self.assertEqual(kwargs["model_settings"], None)
+        self.assertEqual(kwargs["runtime_settings"], None)
+        self.assertIs(kwargs["approval_provider"], provider)
+        self.assertIsNotNone(kwargs["skill_store"])
 
 
 if __name__ == "__main__":

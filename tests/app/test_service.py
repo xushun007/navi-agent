@@ -88,6 +88,22 @@ class FakePromptOverlayStore:
         return self.text
 
 
+class FakeSkillStore:
+    def __init__(self) -> None:
+        self.items = {}
+
+    def create(self, *, name, content):
+        self.items[name] = content
+        return type(
+            "FakeSkillRecord",
+            (),
+            {
+                "name": name,
+                "content": content,
+            },
+        )()
+
+
 class ApplicationServiceTests(unittest.TestCase):
     def test_handle_uses_existing_session_id(self) -> None:
         runtime = FakeRuntime()
@@ -391,7 +407,32 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(updated.review_note, "applied")
         self.assertEqual(overlay_store.text, f"overlay for {candidate.candidate_id}")
 
-    def test_apply_non_prompt_candidate_is_rejected(self) -> None:
+    def test_apply_skill_candidate_uses_skill_store(self) -> None:
+        skill_store = FakeSkillStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=FakeCandidateStore(),
+            skill_store=skill_store,
+        )
+        candidate = EvolutionCandidate(
+            target="skill",
+            summary="Create skill",
+            rationale="Reusable procedure",
+            metadata={
+                "skill_name": "readme-summary",
+                "skill_content": "# README Summary\n",
+            },
+        )
+        service.add_candidate(candidate)
+
+        updated = service.apply_candidate(candidate.candidate_id)
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "applied")
+        self.assertEqual(updated.review_note, "applied skill readme-summary")
+        self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
+
+    def test_apply_unsupported_candidate_is_rejected(self) -> None:
         overlay_store = FakePromptOverlayStore()
         service = ApplicationService(
             runtime=FakeRuntime(),

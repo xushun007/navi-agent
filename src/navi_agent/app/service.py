@@ -6,10 +6,12 @@ from uuid import uuid4
 from navi_agent.evolution import (
     CandidateStore,
     EvolutionCandidate,
+    EvolutionEngine,
     SimpleEvaluator,
     PromptOverlayStore,
     EvalCase,
     EvalCaseStore,
+    FileSkillStore,
 )
 from navi_agent.runtime import AgentRuntime, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
@@ -39,13 +41,16 @@ class ApplicationService:
         candidate_store: CandidateStore | None = None,
         eval_case_store: EvalCaseStore | None = None,
         prompt_overlay_store: PromptOverlayStore | None = None,
+        skill_store: FileSkillStore | None = None,
     ) -> None:
         self._runtime = runtime
         self._default_system_prompt = default_system_prompt
         self._candidate_store = candidate_store
         self._eval_case_store = eval_case_store
         self._prompt_overlay_store = prompt_overlay_store
+        self._skill_store = skill_store
         self._evaluator = SimpleEvaluator()
+        self._evolution_engine = EvolutionEngine()
 
     def handle(self, request: AppRequest) -> RuntimeResult:
         session_id = request.session_id or self._new_session_id()
@@ -144,15 +149,28 @@ class ApplicationService:
         candidate = self.get_candidate(candidate_id)
         if candidate is None:
             return None
-        if candidate.target != "prompt":
+        if candidate.target == "prompt":
+            if self._prompt_overlay_store is None:
+                return None
+            self._prompt_overlay_store.append_candidate(candidate)
+            note = review_note or "applied prompt overlay"
+        elif candidate.target == "skill":
+            if self._skill_store is None:
+                return None
+            candidate.status = "accepted"
+            skill = self._evolution_engine.apply_skill_candidate(
+                candidate,
+                skill_store=self._skill_store,
+            )
+            if skill is None:
+                return None
+            note = review_note or f"applied skill {skill.name}"
+        else:
             return None
-        if self._prompt_overlay_store is None:
-            return None
-        self._prompt_overlay_store.append_candidate(candidate)
         return self.update_candidate_status(
             candidate_id,
             "applied",
-            review_note=review_note or "applied prompt overlay",
+            review_note=note,
         )
 
     def list_candidates(

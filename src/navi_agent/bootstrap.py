@@ -28,6 +28,7 @@ def build_runtime(
     model_settings: ModelSettings | None = None,
     runtime_settings: RuntimeSettings | None = None,
     approval_provider: ApprovalProvider | None = None,
+    skill_store: FileSkillStore | None = None,
 ) -> AgentRuntime:
     config = load_config()
     model_settings = model_settings or ModelSettings.from_sources(config)
@@ -41,7 +42,7 @@ def build_runtime(
     transport = build_transport(model_settings)
     session_store = SQLiteSessionStore(get_state_db_path())
     memory_store = InMemoryMemoryStore()
-    skill_store = FileSkillStore(get_skills_dir())
+    skill_store = skill_store or FileSkillStore(get_skills_dir())
     trace_store = _build_trace_store(config)
 
     return AgentRuntime(
@@ -63,10 +64,12 @@ def build_application(
     default_system_prompt: str | None = None,
     approval_provider: ApprovalProvider | None = None,
 ) -> ApplicationService:
+    skill_store = FileSkillStore(get_skills_dir())
     runtime = build_runtime(
         model_settings=model_settings,
         runtime_settings=runtime_settings,
         approval_provider=approval_provider,
+        skill_store=skill_store,
     )
     prompt_overlay_store = PromptOverlayStore(
         get_prompt_overlay_path(),
@@ -84,6 +87,7 @@ def build_application(
         candidate_store=JsonlCandidateStore(get_candidate_store_path()),
         eval_case_store=JsonlEvalCaseStore(get_eval_case_store_path()),
         prompt_overlay_store=prompt_overlay_store,
+        skill_store=skill_store,
     )
 
 
