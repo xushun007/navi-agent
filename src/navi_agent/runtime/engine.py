@@ -64,6 +64,64 @@ def _classify_error(exc: BaseException) -> dict[str, object]:
     }
 
 
+def _classify_tool_error(
+    *,
+    tool_result,
+    tool_metadata: dict[str, object],
+) -> dict[str, object]:
+    if tool_result.status != "error":
+        return {
+            "error_category": None,
+            "error_type": None,
+            "error_message": None,
+            "retryable": None,
+            "http_status": None,
+        }
+    error_type = tool_metadata.get("error_type")
+    error_message = tool_metadata.get("error_message")
+    http_status = tool_metadata.get("http_status")
+    retryable = tool_metadata.get("retryable")
+    error_category = tool_metadata.get("error_category")
+
+    if isinstance(tool_result.structured_content.get("approval_required"), bool) and tool_result.structured_content.get("approval_required"):
+        return {
+            "error_category": "blocked",
+            "error_type": error_type if isinstance(error_type, str) else "ApprovalDenied",
+            "error_message": error_message if isinstance(error_message, str) else tool_result.content,
+            "retryable": False,
+            "http_status": http_status if isinstance(http_status, int) else None,
+        }
+
+    structured_timeout = tool_result.structured_content.get("timed_out") is True
+    content = tool_result.content.lower()
+    timeout_text = "timed out" in content or "timeout" in content
+    if structured_timeout or timeout_text:
+        return {
+            "error_category": "retryable",
+            "error_type": error_type if isinstance(error_type, str) else "TimeoutError",
+            "error_message": error_message if isinstance(error_message, str) else tool_result.content,
+            "retryable": True,
+            "http_status": http_status if isinstance(http_status, int) else None,
+        }
+
+    if isinstance(error_category, str):
+        return {
+            "error_category": error_category,
+            "error_type": error_type if isinstance(error_type, str) else None,
+            "error_message": error_message if isinstance(error_message, str) else tool_result.content,
+            "retryable": retryable if isinstance(retryable, bool) else None,
+            "http_status": http_status if isinstance(http_status, int) else None,
+        }
+
+    return {
+        "error_category": "fatal",
+        "error_type": error_type if isinstance(error_type, str) else None,
+        "error_message": error_message if isinstance(error_message, str) else tool_result.content,
+        "retryable": retryable if isinstance(retryable, bool) else False,
+        "http_status": http_status if isinstance(http_status, int) else None,
+    }
+
+
 class AgentRuntime:
     def __init__(
         self,
@@ -314,21 +372,7 @@ class AgentRuntime:
                         approval_required=bool(
                             tool_result.structured_content.get("approval_required")
                         ),
-                        error_category=tool_metadata.get("error_category")
-                        if isinstance(tool_metadata.get("error_category"), str)
-                        else None,
-                        error_type=tool_metadata.get("error_type")
-                        if isinstance(tool_metadata.get("error_type"), str)
-                        else None,
-                        error_message=tool_metadata.get("error_message")
-                        if isinstance(tool_metadata.get("error_message"), str)
-                        else None,
-                        retryable=tool_metadata.get("retryable")
-                        if isinstance(tool_metadata.get("retryable"), bool)
-                        else None,
-                        http_status=tool_metadata.get("http_status")
-                        if isinstance(tool_metadata.get("http_status"), int)
-                        else None,
+                        **_classify_tool_error(tool_result=tool_result, tool_metadata=tool_metadata),
                         started_at=tool_started_at,
                         completed_at=tool_completed_at,
                         duration_ms=tool_duration_ms,

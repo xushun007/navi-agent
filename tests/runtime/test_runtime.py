@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from navi_agent.tooling import ToolDecision
 from navi_agent.runtime import (
@@ -20,7 +22,7 @@ from navi_agent.runtime import (
     ToolsetDefinition,
 )
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
-from navi_agent.tools import MemoryTool
+from navi_agent.tools import BashTool, MemoryTool
 from navi_agent.telemetry import InMemoryTraceStore
 
 
@@ -435,6 +437,32 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.final_response, "recovered")
         self.assertEqual(result.tool_results[0].status, "error")
         self.assertIn("boom", result.messages[-2].content)
+
+    def test_runtime_classifies_tool_timeout_in_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            transport = FakeTransport(
+                [
+                    ModelResponse(tool_calls=[ToolCall(id="tc1", name="bash", arguments={"command": "python -c 'import time; time.sleep(2)'"})]),
+                ]
+            )
+            trace_store = InMemoryTraceStore()
+            runtime = AgentRuntime(
+                transport=transport,
+                trace_store=trace_store,
+                tool_registry=ToolRegistry(
+                    registered_tools=[
+                        ("terminal", BashTool(root=Path(tmpdir), default_timeout_seconds=1, max_timeout_seconds=1))
+                    ]
+                ),
+                max_iterations=1,
+            )
+
+            result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(result.status, "iteration_limit_exceeded")
+        self.assertEqual(trace_store.traces[0].tool_executions[0].error_category, "retryable")
+        self.assertEqual(trace_store.traces[0].tool_executions[0].error_type, "TimeoutError")
+        self.assertTrue(trace_store.traces[0].tool_executions[0].retryable)
 
     def test_runtime_limits_exposed_tools_by_enabled_toolsets(self) -> None:
         transport = FakeTransport([ModelResponse(content="done")])
