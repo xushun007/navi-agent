@@ -13,6 +13,12 @@ class TraceSerializerTests(unittest.TestCase):
             system_prompt="system",
             final_response="done",
             status="success",
+            error_category="retryable",
+            error_type="RateLimitError",
+            error_message="rate limit",
+            retryable=True,
+            http_status=429,
+            attempt_count=2,
             model_calls=[ModelCallTrace(iteration=1, response_content="done")],
             tool_executions=[
                 ToolExecutionTrace(
@@ -21,6 +27,11 @@ class TraceSerializerTests(unittest.TestCase):
                     tool_name="echo",
                     status="success",
                     content="pong",
+                    error_category="fatal",
+                    error_type="ValueError",
+                    error_message="bad input",
+                    retryable=False,
+                    http_status=400,
                 )
             ],
         )
@@ -31,6 +42,9 @@ class TraceSerializerTests(unittest.TestCase):
         self.assertIn("trace_id", payload)
         self.assertEqual(payload["model_calls"][0]["response_content"], "done")
         self.assertEqual(payload["tool_executions"][0]["tool_name"], "echo")
+        self.assertEqual(payload["error_category"], "retryable")
+        self.assertEqual(payload["http_status"], 429)
+        self.assertEqual(payload["tool_executions"][0]["error_type"], "ValueError")
 
     def test_to_json_round_trips(self) -> None:
         trace = RuntimeTrace(

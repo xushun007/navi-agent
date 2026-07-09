@@ -82,6 +82,12 @@ class LangfuseTraceExporterTests(unittest.TestCase):
             total_iterations=1,
             approval_count=1,
             error_count=0,
+            error_category="retryable",
+            error_type="RateLimitError",
+            error_message="rate limit",
+            retryable=True,
+            http_status=429,
+            attempt_count=2,
             started_at="2026-06-10T10:00:00.000+00:00",
             completed_at="2026-06-10T10:00:00.030+00:00",
             duration_ms=30,
@@ -92,12 +98,15 @@ class LangfuseTraceExporterTests(unittest.TestCase):
         self.assertEqual(client.trace_calls[0]["trace_context"]["trace_id"], "trace-1")
         self.assertEqual(client.trace_calls[0]["as_type"], "agent")
         self.assertEqual(client.trace_calls[0]["metadata"]["approval_count"], 1)
+        self.assertEqual(client.trace_calls[0]["metadata"]["error_category"], "retryable")
+        self.assertEqual(client.trace_calls[0]["metadata"]["http_status"], 429)
         self.assertEqual(client.trace_calls[0]["metadata"]["duration_ms"], 30)
         self.assertEqual(client.traces[0].observations[0]["kwargs"]["name"], "model.iteration.1")
         self.assertEqual(client.traces[0].observations[0]["kwargs"]["metadata"]["duration_ms"], 10)
         self.assertEqual(client.traces[0].observations[0]["kwargs"]["as_type"], "generation")
         self.assertEqual(client.traces[0].observations[1]["kwargs"]["name"], "tool.echo")
         self.assertEqual(client.traces[0].observations[1]["kwargs"]["metadata"]["duration_ms"], 5)
+        self.assertIsNone(client.traces[0].observations[1]["kwargs"]["metadata"]["error_type"])
         self.assertEqual(client.traces[0].observations[1]["kwargs"]["as_type"], "tool")
         self.assertEqual(client.traces[0].events[0]["name"], "approval.echo")
         self.assertEqual(client.traces[0].end_count, 1)
