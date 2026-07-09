@@ -66,6 +66,47 @@ def test_does_not_apply_pending_skill_candidate(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
+def test_search_returns_relevant_skills(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="readme-summary",
+        content="\n".join(
+            [
+                "---",
+                "description: Summarize README files and run tests",
+                "---",
+                "Use read_file before bash.",
+            ]
+        ),
+    )
+    store.create(
+        name="wechat-pairing",
+        content="\n".join(
+            [
+                "---",
+                "description: Handle Weixin pairing code flow",
+                "---",
+                "Use gateway traces.",
+            ]
+        ),
+    )
+
+    records = store.search("Please summarize README and test it")
+
+    assert [record.name for record in records] == ["readme-summary"]
+
+
+def test_search_limit_must_be_positive(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+
+    try:
+        store.search("readme", limit=0)
+    except ValueError as error:
+        assert str(error) == "limit must be positive"
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def _tool_trace(status: str = "success") -> RuntimeTrace:
     return RuntimeTrace(
         session_id="session-1",

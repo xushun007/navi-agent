@@ -49,6 +49,38 @@ class FileSkillStore:
             path=skill_path,
         )
 
+    def list(self) -> list[SkillRecord]:
+        if not self._root.exists():
+            return []
+        records = []
+        for skill_path in sorted(self._root.glob("*/SKILL.md")):
+            content = skill_path.read_text(encoding="utf-8")
+            records.append(
+                SkillRecord(
+                    name=skill_path.parent.name,
+                    description=_extract_description(content),
+                    content=content,
+                    path=skill_path,
+                )
+            )
+        return records
+
+    def search(self, query: str, *, limit: int = 3) -> list[SkillRecord]:
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        query_terms = set(_tokenize(query))
+        if not query_terms:
+            return []
+
+        scored: list[tuple[int, SkillRecord]] = []
+        for record in self.list():
+            searchable = " ".join([record.name, record.description, record.content])
+            score = len(query_terms.intersection(_tokenize(searchable)))
+            if score > 0:
+                scored.append((score, record))
+        scored.sort(key=lambda item: (-item[0], item[1].name))
+        return [record for _, record in scored[:limit]]
+
 
 class EvolutionEngine:
     def propose_skill_candidate(self, trace: RuntimeTrace) -> EvolutionCandidate | None:
@@ -138,6 +170,10 @@ def _slugify(value: str) -> str:
     lowered = value.strip().lower()
     lowered = re.sub(r"[^a-z0-9]+", "-", lowered)
     return lowered.strip("-")
+
+
+def _tokenize(value: str) -> list[str]:
+    return [token for token in re.findall(r"[a-z0-9]+", value.lower()) if len(token) > 2]
 
 
 def _normalize_skill_name(name: str) -> str:
