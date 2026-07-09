@@ -58,22 +58,6 @@ class CodeExecutorToolTests(unittest.TestCase):
         self.assertEqual(len(result.structured_content["steps"]), 1)
         self.assertEqual(result.structured_content["steps"][0]["structured_content"]["exit_code"], 1)
 
-    def test_can_continue_after_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tool = CodeExecutorTool(root=Path(tmpdir), default_timeout_seconds=5)
-            result = tool.invoke(
-                task="continue after failure",
-                stop_on_failure=False,
-                steps=[
-                    {"action": "run", "command": "false"},
-                    {"action": "run", "command": "printf 'still-runs'"},
-                ],
-            )
-
-        self.assertEqual(result.status, "error")
-        self.assertEqual(len(result.structured_content["steps"]), 2)
-        self.assertIn("still-runs", result.content)
-
     def test_rejects_unknown_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tool = CodeExecutorTool(root=Path(tmpdir))

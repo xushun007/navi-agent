@@ -71,7 +71,6 @@ class CodeExecutorTool(WorkspaceTool):
                     },
                     "minItems": 1,
                 },
-                "stop_on_failure": {"type": "boolean"},
             },
             "required": ["task", "steps"],
         }
@@ -91,7 +90,6 @@ class CodeExecutorTool(WorkspaceTool):
                 structured_content={"task": task, "step_count": len(raw_steps), "max_steps": self._max_steps},
             )
 
-        stop_on_failure = bool(kwargs.get("stop_on_failure", True))
         steps = []
         changed_files: list[str] = []
         commands_run: list[str] = []
@@ -102,9 +100,7 @@ class CodeExecutorTool(WorkspaceTool):
             if error is not None:
                 overall_success = False
                 steps.append({"index": index, "status": "error", "content": error})
-                if stop_on_failure:
-                    break
-                continue
+                break
 
             action = normalized.pop("action")
             result = self._tools[action].invoke(context=context, **normalized)
@@ -125,8 +121,7 @@ class CodeExecutorTool(WorkspaceTool):
             steps.append(step)
             if result.status != "success":
                 overall_success = False
-                if stop_on_failure:
-                    break
+                break
 
         content = self._render_summary(
             task=task,
@@ -142,7 +137,6 @@ class CodeExecutorTool(WorkspaceTool):
             structured_content={
                 "task": task,
                 "success": overall_success,
-                "stop_on_failure": stop_on_failure,
                 "changed_files": changed_files,
                 "commands_run": commands_run,
                 "steps": steps,
@@ -194,7 +188,7 @@ class CodeExecutorTool(WorkspaceTool):
     ) -> str:
         lines = [
             f"task: {task}",
-            f"success: {'yes' if success else 'no'}",
+            f"status: {'success' if success else 'error'}",
             f"steps: {len(steps)}",
         ]
         if changed_files:
