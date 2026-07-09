@@ -7,6 +7,7 @@ from .seed import EvalSeed, EvalSeedReportRecord, EvalSeedReportStore, EvalSeedR
 from .prompt_overlay import PromptOverlayEntry, PromptOverlayStore
 from .report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
 from .review import ReviewLoopService, ReviewLoopSummary
+from .skills import EvolutionEngine, FileSkillStore, SkillRecord
 from .tool_use import (
     ToolUseEvalCase,
     ToolUseEvalCaseStore,
@@ -27,7 +28,9 @@ __all__ = [
     "EvolutionReportRecord",
     "EvolutionReportStore",
     "EvolutionCandidate",
+    "EvolutionEngine",
     "EvolutionReportWriter",
+    "FileSkillStore",
     "IfevalEvaluationResult",
     "IfevalEvaluator",
     "IfevalInstructionResult",
@@ -53,6 +56,7 @@ __all__ = [
     "IfevalWorkflowResult",
     "IfevalWorkflowService",
     "SimpleEvaluator",
+    "SkillRecord",
     "EvalCase",
     "EvalCaseStore",
     "ToolUseEvalCase",
