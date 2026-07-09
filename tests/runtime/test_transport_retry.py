@@ -94,6 +94,22 @@ class TransportRetryTests(unittest.TestCase):
 
         self.assertEqual(fake_client.chat.completions.calls, 1)
 
+    def test_generate_does_not_swallow_keyboard_interrupt(self) -> None:
+        fake_client = _FakeClient([KeyboardInterrupt()])
+        transport = OpenAICompatibleTransport(
+            model="test-model",
+            api_key="test-key",
+            client=fake_client,
+            max_retries=2,
+            base_backoff_seconds=0.0,
+            max_backoff_seconds=0.0,
+        )
+
+        with self.assertRaises(KeyboardInterrupt):
+            transport.generate(ModelRequest(messages=[Message(role="user", content="hi")]))
+
+        self.assertEqual(fake_client.chat.completions.calls, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

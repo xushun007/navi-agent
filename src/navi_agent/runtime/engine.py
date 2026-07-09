@@ -43,7 +43,7 @@ def _pop_trace_timing(metadata: dict[str, object]) -> tuple[dict[str, object], s
     return metadata, started_at, completed_at, duration_ms
 
 
-def _classify_error(exc: BaseException) -> dict[str, object]:
+def _classify_error(exc: Exception) -> dict[str, object]:
     http_status = getattr(exc, "status_code", None)
     retryable = False
     error_category = "fatal"
@@ -236,7 +236,7 @@ class AgentRuntime:
                         ),
                     )
                 )
-            except BaseException as exc:
+            except Exception as exc:
                 error_info = _classify_error(exc)
                 logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)
                 result = RuntimeResult(

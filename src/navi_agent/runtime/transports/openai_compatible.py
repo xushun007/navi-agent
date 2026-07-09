@@ -41,7 +41,7 @@ class OpenAICompatibleTransport:
         self._max_backoff_seconds = max_backoff_seconds
 
     def generate(self, request: ModelRequest) -> ModelResponse:
-        last_error: BaseException | None = None
+        last_error: Exception | None = None
         for attempt in range(1, self._max_retries + 2):
             try:
                 response = self._client.chat.completions.create(
@@ -50,7 +50,7 @@ class OpenAICompatibleTransport:
                     tools=[self._serialize_tool(tool) for tool in request.tools] or None,
                 )
                 return self._to_model_response(response)
-            except BaseException as exc:
+            except Exception as exc:
                 last_error = exc
                 if attempt > self._max_retries or not _is_retryable_error(exc):
                     raise
@@ -152,7 +152,7 @@ def _retry_delay(*, attempt: int, base_seconds: float, max_seconds: float) -> fl
     return delay + jitter
 
 
-def _is_retryable_error(exc: BaseException) -> bool:
+def _is_retryable_error(exc: Exception) -> bool:
     if isinstance(exc, (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError)):
         return True
     if isinstance(exc, APIStatusError):

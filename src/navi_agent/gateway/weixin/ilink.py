@@ -162,11 +162,11 @@ class ILinkClient:
         *,
         timeout_seconds: float,
     ) -> dict[str, Any]:
-        last_error: BaseException | None = None
+        last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
                 return self._post_once(endpoint, payload, timeout_seconds=timeout_seconds)
-            except BaseException as exc:
+            except Exception as exc:
                 last_error = exc
                 if not _is_retryable_error(exc) or attempt >= 3:
                     raise
@@ -313,7 +313,7 @@ def _retry_delay(attempt: int) -> float:
     return min(4.0, 0.5 * (2 ** max(0, attempt - 1)))
 
 
-def _is_retryable_error(exc: BaseException) -> bool:
+def _is_retryable_error(exc: Exception) -> bool:
     if isinstance(exc, _ILinkHTTPError):
         return exc.status in RETRYABLE_HTTP_STATUSES
     if isinstance(exc, (TimeoutError, socket.timeout, ConnectionError, OSError)):

@@ -36,6 +36,11 @@ class FakeTransport:
         return self._responses.pop(0)
 
 
+class InterruptingTransport:
+    def generate(self, request: ModelRequest):
+        raise KeyboardInterrupt()
+
+
 class TrackingPromptBuilder(PromptBuilder):
     def __init__(self) -> None:
         super().__init__()
@@ -437,6 +442,18 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.final_response, "recovered")
         self.assertEqual(result.tool_results[0].status, "error")
         self.assertIn("boom", result.messages[-2].content)
+
+    def test_runtime_does_not_swallow_keyboard_interrupt(self) -> None:
+        trace_store = InMemoryTraceStore()
+        runtime = AgentRuntime(
+            transport=InterruptingTransport(),
+            trace_store=trace_store,
+        )
+
+        with self.assertRaises(KeyboardInterrupt):
+            runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(trace_store.traces, [])
 
     def test_runtime_classifies_tool_timeout_in_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
