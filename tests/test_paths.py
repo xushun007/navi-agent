@@ -15,6 +15,7 @@ from navi_agent.paths import (
     get_prompt_overlay_snapshots_dir,
     get_smoke_reports_dir,
     get_state_db_path,
+    get_trace_store_path,
     get_eval_case_store_path,
 )
 
@@ -32,6 +33,7 @@ class PathsTests(unittest.TestCase):
         with patch.dict(os.environ, {"NAVI_HOME": "/tmp/navi-home"}, clear=True):
             self.assertEqual(get_logs_dir(), Path("/tmp/navi-home/logs"))
             self.assertEqual(get_app_log_path(), Path("/tmp/navi-home/logs/navi-agent.log"))
+            self.assertEqual(get_trace_store_path(), Path("/tmp/navi-home/logs/traces.jsonl"))
             self.assertEqual(get_config_path(), Path("/tmp/navi-home/config.yaml"))
             self.assertEqual(get_evolution_dir(), Path("/tmp/navi-home/evolution"))
             self.assertEqual(get_evolution_reports_dir(), Path("/tmp/navi-home/logs/evolution"))

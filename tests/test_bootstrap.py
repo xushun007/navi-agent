@@ -6,7 +6,7 @@ from navi_agent.bootstrap import build_runtime
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings
 from navi_agent.runtime import ToolCall, ToolContext
 from navi_agent.runtime.approval import AutoApproveApprovalProvider
-from navi_agent.telemetry import CompositeTraceStore, InMemoryTraceStore
+from navi_agent.telemetry import CompositeTraceStore, JsonlTraceStore
 from navi_agent.evolution import JsonlCandidateStore, JsonlEvalCaseStore, PromptOverlayStore
 from navi_agent.bootstrap import build_application
 
@@ -105,7 +105,7 @@ class BootstrapTests(unittest.TestCase):
 
         self.assertIsInstance(runtime._trace_store, CompositeTraceStore)
 
-    def test_build_runtime_falls_back_to_in_memory_trace_store_when_exporter_init_fails(self) -> None:
+    def test_build_runtime_falls_back_to_jsonl_trace_store_when_exporter_init_fails(self) -> None:
         with patch("navi_agent.bootstrap.SQLiteSessionStore"):
             with patch("navi_agent.bootstrap.setup_logging"):
                 with patch(
@@ -121,7 +121,7 @@ class BootstrapTests(unittest.TestCase):
                             runtime_settings=RuntimeSettings(max_iterations=3),
                         )
 
-        self.assertIsInstance(runtime._trace_store, InMemoryTraceStore)
+        self.assertIsInstance(runtime._trace_store, JsonlTraceStore)
 
     def test_build_application_wires_evolution_stores(self) -> None:
         with patch("navi_agent.bootstrap.build_runtime") as build_runtime_mock:

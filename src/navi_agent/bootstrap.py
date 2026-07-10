@@ -14,11 +14,12 @@ from navi_agent.paths import (
     get_prompt_overlay_snapshots_dir,
     get_skills_dir,
     get_state_db_path,
+    get_trace_store_path,
     get_eval_case_store_path,
 )
 from navi_agent.runtime import AgentRuntime, PromptBuilder, SQLiteSessionStore, build_transport
 from navi_agent.runtime.approval import ApprovalProvider
-from navi_agent.telemetry import CompositeTraceStore, InMemoryTraceStore, LangfuseTraceExporter
+from navi_agent.telemetry import CompositeTraceStore, JsonlTraceStore, LangfuseTraceExporter
 from navi_agent.tools.defaults import build_default_tool_registry
 
 logger = logging.getLogger("navi_agent.bootstrap")
@@ -91,8 +92,8 @@ def build_application(
     )
 
 
-def _build_trace_store(config: dict) -> InMemoryTraceStore | CompositeTraceStore:
-    primary = InMemoryTraceStore()
+def _build_trace_store(config: dict) -> JsonlTraceStore | CompositeTraceStore:
+    primary = JsonlTraceStore(get_trace_store_path())
     settings = LangfuseSettings.from_sources(config)
     if not settings.enabled:
         return primary

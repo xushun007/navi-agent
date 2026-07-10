@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.evolution import EvalSeed, EvolutionCandidate
+from navi_agent.evolution import EvalSeed, EvolutionCandidate, SkillUsageRecord
 from navi_agent.evolution import EvalSeedStore
 from navi_agent.cli import _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult, WorkspaceYoloApprovalProvider
@@ -204,6 +204,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.review_skill)
         args = parser.parse_args(["--list-skills"])
         self.assertTrue(args.list_skills)
+        args = parser.parse_args(["--skill-status"])
+        self.assertTrue(args.skill_status)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -877,6 +879,32 @@ class CliTests(unittest.TestCase):
         self.assertIn("skills_dir: /tmp/skills", stdout.getvalue())
         self.assertIn("skill_count: 1", stdout.getvalue())
         self.assertIn("- readme-summary: Summarize README files", stdout.getvalue())
+
+    def test_main_prints_skill_status(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.get_skills_dir", return_value=Path("/tmp/skills")):
+            with patch("navi_agent.cli.get_trace_store_path", return_value=Path("/tmp/traces.jsonl")):
+                with patch("navi_agent.cli.SkillUsageService") as service_cls:
+                    service_cls.return_value.summarize.return_value = [
+                        SkillUsageRecord(
+                            name="readme-summary",
+                            description="Summarize README files",
+                            injected_count=2,
+                            last_injected_at="2026-07-11T11:00:00+00:00",
+                        )
+                    ]
+                    with patch("sys.argv", ["navi-agent", "--skill-status"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("skills_dir: /tmp/skills", stdout.getvalue())
+        self.assertIn("trace_store_path: /tmp/traces.jsonl", stdout.getvalue())
+        self.assertIn("skill_count: 1", stdout.getvalue())
+        self.assertIn("- readme-summary: Summarize README files", stdout.getvalue())
+        self.assertIn("injected_count: 2", stdout.getvalue())
+        self.assertIn("last_injected_at: 2026-07-11T11:00:00+00:00", stdout.getvalue())
 
 
 if __name__ == "__main__":
