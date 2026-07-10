@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from navi_agent.tooling import ToolDecision
+from navi_agent.evolution import FileSkillStore
 from navi_agent.runtime import (
     AgentRuntime,
     ContextEngine,
@@ -338,6 +339,35 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(trace.model_calls[0].started_at)
         self.assertIsNotNone(trace.model_calls[0].completed_at)
         self.assertGreaterEqual(trace.model_calls[0].duration_ms, 0)
+
+    def test_runtime_records_injected_skill_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_store = FileSkillStore(Path(tmpdir))
+            skill_store.create(
+                name="readme-summary",
+                content="\n".join(
+                    [
+                        "---",
+                        "description: Summarize README files",
+                        "---",
+                    ]
+                ),
+            )
+            transport = FakeTransport([ModelResponse(content="done")])
+            trace_store = InMemoryTraceStore()
+            runtime = AgentRuntime(
+                transport=transport,
+                trace_store=trace_store,
+                prompt_builder=PromptBuilder(skill_store=skill_store),
+            )
+
+            runtime.run_conversation(
+                session_id="s1",
+                user_id="u1",
+                user_message="summarize README",
+            )
+
+        self.assertEqual(trace_store.traces[0].injected_skill_names, ["readme-summary"])
 
     def test_runtime_emits_structured_events(self) -> None:
         transport = FakeTransport(

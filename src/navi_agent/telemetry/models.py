@@ -46,6 +46,7 @@ class RuntimeTrace:
     status: str
     trace_id: str = field(default_factory=lambda: uuid4().hex)
     system_prompt: str | None = None
+    injected_skill_names: list[str] = field(default_factory=list)
     tool_names: list[str] = field(default_factory=list)
     model_calls: list[ModelCallTrace] = field(default_factory=list)
     tool_executions: list[ToolExecutionTrace] = field(default_factory=list)

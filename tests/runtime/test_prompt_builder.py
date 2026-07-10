@@ -68,6 +68,28 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertEqual(len(msgs), 2)
         self.assertIn("[Skills]", msgs[0].content)
         self.assertIn("readme-summary: Summarize README files and run tests", msgs[0].content)
+        self.assertEqual(builder.last_injected_skill_names, ["readme-summary"])
+
+    def test_injected_skill_names_reset_between_builds(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            skill_store = FileSkillStore(Path(tmpdir))
+            skill_store.create(
+                name="readme-summary",
+                content="\n".join(
+                    [
+                        "---",
+                        "description: Summarize README files",
+                        "---",
+                    ]
+                ),
+            )
+            builder = PromptBuilder(skill_store=skill_store)
+            session = ConversationState(session_id="s1", user_id="u1")
+
+            builder.build_initial_messages(session, "summarize README")
+            builder.build_initial_messages(session, "unrelated")
+
+        self.assertEqual(builder.last_injected_skill_names, [])
 
     def test_existing_session_skips_system_and_memory(self) -> None:
         self.memory.add_for_user("u1", "Memory")

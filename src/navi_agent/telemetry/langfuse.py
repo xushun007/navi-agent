@@ -67,6 +67,7 @@ class LangfuseTraceExporter:
                 "user_id": trace.user_id,
                 "status": trace.status,
                 "system_prompt": trace.system_prompt,
+                "injected_skill_names": list(trace.injected_skill_names),
                 "tool_names": list(trace.tool_names),
                 "total_iterations": trace.total_iterations,
                 "approval_count": trace.approval_count,

@@ -173,6 +173,7 @@ class AgentRuntime:
             system_prompt=system_prompt,
         ):
             self._session_store.append(session, message)
+        injected_skill_names = self._prompt_builder.last_injected_skill_names
         tool_results = []
         model_calls: list[ModelCallTrace] = []
         tool_executions: list[ToolExecutionTrace] = []
@@ -251,6 +252,7 @@ class AgentRuntime:
                     user_id=user_id,
                     user_message=user_message,
                     system_prompt=system_prompt,
+                    injected_skill_names=injected_skill_names,
                     result=result,
                     model_calls=model_calls,
                     tool_executions=tool_executions,
@@ -315,6 +317,7 @@ class AgentRuntime:
                     user_id=user_id,
                     user_message=user_message,
                     system_prompt=system_prompt,
+                    injected_skill_names=injected_skill_names,
                     result=result,
                     model_calls=model_calls,
                     tool_executions=tool_executions,
@@ -412,6 +415,7 @@ class AgentRuntime:
             user_id=user_id,
             user_message=user_message,
             system_prompt=system_prompt,
+            injected_skill_names=injected_skill_names,
             result=result,
             model_calls=model_calls,
             tool_executions=tool_executions,
@@ -435,6 +439,7 @@ class AgentRuntime:
         user_id: str,
         user_message: str,
         system_prompt: str | None,
+        injected_skill_names: list[str],
         result: RuntimeResult,
         model_calls: list[ModelCallTrace],
         tool_executions: list[ToolExecutionTrace],
@@ -454,6 +459,7 @@ class AgentRuntime:
                 final_response=result.final_response,
                 status=result.status,
                 system_prompt=system_prompt,
+                injected_skill_names=list(injected_skill_names),
                 tool_names=[item.name for item in result.tool_results],
                 model_calls=list(model_calls),
                 tool_executions=list(tool_executions),

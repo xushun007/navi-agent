@@ -22,6 +22,11 @@ class PromptBuilder:
         self._memory_limit = memory_limit
         self._skill_store = skill_store
         self._skill_limit = skill_limit
+        self._last_injected_skill_names: list[str] = []
+
+    @property
+    def last_injected_skill_names(self) -> list[str]:
+        return list(self._last_injected_skill_names)
 
     def build_initial_messages(
         self,
@@ -29,6 +34,7 @@ class PromptBuilder:
         user_message: str,
         system_prompt: str | None = None,
     ) -> list[Message]:
+        self._last_injected_skill_names = []
         messages: list[Message] = []
         if not session.messages:
             system_parts = []
@@ -61,6 +67,7 @@ class PromptBuilder:
         records = self._skill_store.search(user_message, limit=self._skill_limit)
         if not records:
             return None
+        self._last_injected_skill_names = [record.name for record in records]
         lines = ["[Skills]", "Relevant reusable procedures:"]
         for record in records:
             lines.append(f"- {record.name}: {record.description}")

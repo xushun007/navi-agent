@@ -13,6 +13,7 @@ class TraceSerializerTests(unittest.TestCase):
             system_prompt="system",
             final_response="done",
             status="success",
+            injected_skill_names=["readme-summary"],
             error_category="retryable",
             error_type="RateLimitError",
             error_message="rate limit",
@@ -42,6 +43,7 @@ class TraceSerializerTests(unittest.TestCase):
         self.assertIn("trace_id", payload)
         self.assertEqual(payload["model_calls"][0]["response_content"], "done")
         self.assertEqual(payload["tool_executions"][0]["tool_name"], "echo")
+        self.assertEqual(payload["injected_skill_names"], ["readme-summary"])
         self.assertEqual(payload["error_category"], "retryable")
         self.assertEqual(payload["http_status"], 429)
         self.assertEqual(payload["tool_executions"][0]["error_type"], "ValueError")
