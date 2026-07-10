@@ -3,7 +3,7 @@ import unittest
 from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.evolution import EvolutionCandidate, EvalCase
 from navi_agent.runtime import RuntimeResult
-from navi_agent.telemetry import RuntimeTrace
+from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
 class FakeRuntime:
@@ -94,6 +94,19 @@ class FakeSkillStore:
 
     def create(self, *, name, content):
         self.items[name] = content
+        return type(
+            "FakeSkillRecord",
+            (),
+            {
+                "name": name,
+                "content": content,
+            },
+        )()
+
+    def get(self, name):
+        content = self.items.get(name)
+        if content is None:
+            return None
         return type(
             "FakeSkillRecord",
             (),
@@ -200,6 +213,79 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(candidate.metadata["trace_id"], "trace-1")
         self.assertEqual(candidate.metadata["session_id"], "s1")
 
+    def test_handle_auto_adds_skill_candidate_from_successful_tool_trace(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Summarize README and run tests",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="read_file",
+                    status="success",
+                )
+            ],
+        )
+        candidate_store = FakeCandidateStore()
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=candidate_store,
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+
+        skill_candidates = [
+            candidate for candidate in candidate_store.items if candidate.target == "skill"
+        ]
+        self.assertEqual(len(skill_candidates), 1)
+        self.assertEqual(skill_candidates[0].metadata["source_trace_id"], "trace-1")
+        self.assertEqual(
+            skill_candidates[0].metadata["skill_name"],
+            "learned-summarize-readme-and-run-tests",
+        )
+
+    def test_handle_skips_skill_candidate_when_skill_exists(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Summarize README and run tests",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="read_file",
+                    status="success",
+                )
+            ],
+        )
+        candidate_store = FakeCandidateStore()
+        skill_store = FakeSkillStore()
+        skill_store.create(
+            name="learned-summarize-readme-and-run-tests",
+            content="# Existing Skill\n",
+        )
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=candidate_store,
+            skill_store=skill_store,
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+
+        self.assertEqual(
+            [candidate.target for candidate in candidate_store.items],
+            [],
+        )
+
     def test_add_and_list_candidates_use_store(self) -> None:
         service = ApplicationService(
             runtime=FakeRuntime(),
@@ -284,6 +370,35 @@ class ApplicationServiceTests(unittest.TestCase):
         updated_older = service.get_candidate(older.candidate_id)
         self.assertIsNotNone(updated_older)
         self.assertEqual(updated_older.status, "pending")
+
+    def test_add_candidate_supersedes_older_skill_candidate_with_same_name(self) -> None:
+        store = FakeCandidateStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=store,
+        )
+        older = EvolutionCandidate(
+            target="skill",
+            summary="Old skill",
+            rationale="Reusable procedure",
+            metadata={"skill_name": "readme-summary"},
+        )
+        newer = EvolutionCandidate(
+            target="skill",
+            summary="New skill",
+            rationale="Reusable procedure",
+            metadata={"skill_name": "readme-summary"},
+        )
+
+        service.add_candidate(older)
+        service.add_candidate(newer)
+
+        updated_older = service.get_candidate(older.candidate_id)
+        updated_newer = service.get_candidate(newer.candidate_id)
+        self.assertIsNotNone(updated_older)
+        self.assertIsNotNone(updated_newer)
+        self.assertEqual(updated_older.status, "superseded")
+        self.assertEqual(updated_newer.status, "pending")
 
     def test_add_candidate_archives_validated_candidate_in_same_scope(self) -> None:
         store = FakeCandidateStore()

@@ -24,6 +24,7 @@ class AppRequest:
     session_id: str | None = None
     system_prompt: str | None = None
     auto_propose_eval_case: bool = True
+    auto_propose_skill: bool = True
 
 
 class ApplicationService:
@@ -64,10 +65,12 @@ class ApplicationService:
             user_message=request.message,
             system_prompt=system_prompt,
         )
-        if request.auto_propose_eval_case:
-            self._maybe_add_eval_case_candidate(
+        if request.auto_propose_eval_case or request.auto_propose_skill:
+            self._maybe_add_runtime_candidates(
                 session_id=result.session_id,
                 user_id=request.user_id,
+                auto_propose_eval_case=request.auto_propose_eval_case,
+                auto_propose_skill=request.auto_propose_skill,
             )
         return result
 
@@ -196,16 +199,27 @@ class ApplicationService:
             return []
         return self._eval_case_store.list_recent(limit=limit)
 
-    def _maybe_add_eval_case_candidate(self, *, session_id: str, user_id: str) -> None:
+    def _maybe_add_runtime_candidates(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        auto_propose_eval_case: bool,
+        auto_propose_skill: bool,
+    ) -> None:
         if self._candidate_store is None:
             return
         trace = self._runtime.get_latest_trace(session_id=session_id, user_id=user_id)
         if trace is None:
             return
-        candidate = self._evaluator.build_eval_case_candidate(trace)
-        if candidate is None:
-            return
-        self.add_candidate(candidate)
+        if auto_propose_eval_case:
+            candidate = self._evaluator.build_eval_case_candidate(trace)
+            if candidate is not None:
+                self.add_candidate(candidate)
+        if auto_propose_skill:
+            candidate = self._evolution_engine.propose_skill_candidate(trace)
+            if candidate is not None and not self._skill_exists(candidate):
+                self.add_candidate(candidate)
 
     def _find_superseded_candidates(
         self,
@@ -258,6 +272,10 @@ class ApplicationService:
     @staticmethod
     def _candidate_scope(candidate: EvolutionCandidate) -> tuple[str, str] | None:
         metadata = candidate.metadata or {}
+        if candidate.target == "skill":
+            skill_name = metadata.get("skill_name")
+            if isinstance(skill_name, str) and skill_name.strip():
+                return "skill", skill_name
         workflow_name = metadata.get("workflow_name")
         task_name = metadata.get("task_name")
         if not isinstance(workflow_name, str) or not workflow_name.strip():
@@ -265,6 +283,14 @@ class ApplicationService:
         if not isinstance(task_name, str) or not task_name.strip():
             return None
         return workflow_name, task_name
+
+    def _skill_exists(self, candidate: EvolutionCandidate) -> bool:
+        if self._skill_store is None:
+            return False
+        skill_name = (candidate.metadata or {}).get("skill_name")
+        if not isinstance(skill_name, str) or not skill_name.strip():
+            return False
+        return self._skill_store.get(skill_name) is not None
 
     @staticmethod
     def _new_session_id() -> str:
