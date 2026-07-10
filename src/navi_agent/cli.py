@@ -86,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-prompt-overlay-snapshots", action="store_true")
     parser.add_argument("--rollback-prompt-overlay")
     parser.add_argument("--review-eval-case", action="store_true")
+    parser.add_argument("--review-skill", action="store_true")
     return parser
 
 
@@ -107,6 +108,8 @@ def main() -> int:
         return _run_gateway(args)
     if args.review_eval_case:
         return _review_eval_case(system_prompt=args.system_prompt, yolo=args.yolo)
+    if args.review_skill:
+        return _review_skill(system_prompt=args.system_prompt, yolo=args.yolo)
     if args.eval_seed_status:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
@@ -205,6 +208,7 @@ def main() -> int:
         and not args.list_prompt_overlay_entries
         and not args.list_prompt_overlay_snapshots
         and not args.rollback_prompt_overlay
+        and not args.review_skill
         and not args.eval_seed_status
         and not args.list_eval_seeds
         and not args.eval_seed_report
@@ -812,6 +816,68 @@ def _review_eval_case(
                 candidate.candidate_id,
                 "rejected",
                 review_note="interactive review rejected",
+            )
+            if updated is None:
+                print(f"candidate not found: {candidate.candidate_id}")
+                return 1
+            print(f"candidate_status: {updated.status}")
+            return 0
+        print("please answer y or n")
+
+
+def _review_skill(
+    *,
+    system_prompt: str | None,
+    yolo: bool = False,
+) -> int:
+    app = build_application(
+        default_system_prompt=system_prompt,
+        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+    )
+    pending_candidates = [
+        candidate
+        for candidate in app.list_candidates(limit=50, status="pending")
+        if getattr(candidate, "target", None) == "skill"
+    ]
+    if not pending_candidates:
+        print("no pending skill candidate found")
+        return 1
+    candidate = pending_candidates[0]
+    metadata = getattr(candidate, "metadata", {}) or {}
+    print("skill review:")
+    print(f"candidate_id: {candidate.candidate_id}")
+    print(f"candidate_summary: {candidate.summary}")
+    if getattr(candidate, "rationale", ""):
+        print(f"candidate_rationale: {candidate.rationale}")
+    if metadata.get("skill_name"):
+        print(f"skill_name: {metadata['skill_name']}")
+    if metadata.get("source_session_id"):
+        print(f"source_session_id: {metadata['source_session_id']}")
+    if metadata.get("source_trace_id"):
+        print(f"source_trace_id: {metadata['source_trace_id']}")
+    if metadata.get("tool_names"):
+        print(f"tool_names: {','.join(metadata['tool_names'])}")
+    while True:
+        try:
+            answer = input("apply skill candidate? [y/N]: ").strip().lower()
+        except EOFError:
+            print("skill review cancelled")
+            return 1
+        if answer in {"y", "yes"}:
+            updated = app.apply_candidate(
+                candidate.candidate_id,
+                review_note="interactive skill review applied",
+            )
+            if updated is None:
+                print(f"candidate cannot be applied: {candidate.candidate_id}")
+                return 1
+            print(f"candidate_status: {updated.status}")
+            return 0
+        if answer in {"", "n", "no"}:
+            updated = app.update_candidate_status(
+                candidate.candidate_id,
+                "rejected",
+                review_note="interactive skill review rejected",
             )
             if updated is None:
                 print(f"candidate not found: {candidate.candidate_id}")

@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.evolution import EvalSeed
+from navi_agent.evolution import EvalSeed, EvolutionCandidate
 from navi_agent.evolution import EvalSeedStore
 from navi_agent.cli import _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult, WorkspaceYoloApprovalProvider
@@ -200,6 +200,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.rollback_prompt_overlay, "snapshot-1")
         args = parser.parse_args(["--review-eval-case"])
         self.assertTrue(args.review_eval_case)
+        args = parser.parse_args(["--review-skill"])
+        self.assertTrue(args.review_skill)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -795,6 +797,59 @@ class CliTests(unittest.TestCase):
         self.assertEqual(len(fake_app.calls), 1)
         self.assertEqual(fake_app.calls[0].session_id, "s1")
         self.assertEqual(fake_app.calls[0].message, "hello")
+
+    def test_main_reviews_and_applies_skill_candidate(self) -> None:
+        fake_app = FakeApp()
+        fake_app.saved_candidates.append(
+            EvolutionCandidate(
+                target="skill",
+                summary="Create README summary skill",
+                rationale="Successful tool trace",
+                candidate_id="skill-1",
+                metadata={
+                    "skill_name": "readme-summary",
+                    "source_session_id": "session-1",
+                    "source_trace_id": "trace-1",
+                    "tool_names": ["read_file", "bash"],
+                },
+            )
+        )
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("builtins.input", return_value="y"):
+                with patch("sys.argv", ["navi-agent", "--review-skill"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("skill review:", stdout.getvalue())
+        self.assertIn("skill_name: readme-summary", stdout.getvalue())
+        self.assertIn("candidate_status: applied", stdout.getvalue())
+        self.assertIs(fake_app.applied_candidate, fake_app.saved_candidates[0])
+
+    def test_main_reviews_and_rejects_skill_candidate(self) -> None:
+        fake_app = FakeApp()
+        fake_app.saved_candidates.append(
+            EvolutionCandidate(
+                target="skill",
+                summary="Create README summary skill",
+                rationale="Successful tool trace",
+                candidate_id="skill-1",
+                metadata={"skill_name": "readme-summary"},
+            )
+        )
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("builtins.input", return_value="n"):
+                with patch("sys.argv", ["navi-agent", "--review-skill"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("candidate_status: rejected", stdout.getvalue())
+        self.assertEqual(fake_app.saved_candidates[0].status, "rejected")
 
 
 if __name__ == "__main__":
