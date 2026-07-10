@@ -26,6 +26,7 @@ from navi_agent.evolution import (
     ToolUseEvalWorkflowService,
     ToolUseRunStore,
     ToolUseWorkflowService,
+    FileSkillStore,
 )
 from navi_agent.smoke import SmokeRunStore, SmokeWorkflowService
 from navi_agent.gateway.weixin import (
@@ -40,6 +41,7 @@ from navi_agent.paths import get_ifeval_drafts_path
 from navi_agent.paths import get_ifeval_reports_dir
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
+from navi_agent.paths import get_skills_dir
 from navi_agent.paths import get_smoke_reports_dir
 from navi_agent.paths import get_state_db_path
 from navi_agent.paths import get_tool_use_eval_reports_dir
@@ -87,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rollback-prompt-overlay")
     parser.add_argument("--review-eval-case", action="store_true")
     parser.add_argument("--review-skill", action="store_true")
+    parser.add_argument("--list-skills", action="store_true")
     return parser
 
 
@@ -110,6 +113,8 @@ def main() -> int:
         return _review_eval_case(system_prompt=args.system_prompt, yolo=args.yolo)
     if args.review_skill:
         return _review_skill(system_prompt=args.system_prompt, yolo=args.yolo)
+    if args.list_skills:
+        return _list_skills()
     if args.eval_seed_status:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
@@ -209,6 +214,7 @@ def main() -> int:
         and not args.list_prompt_overlay_snapshots
         and not args.rollback_prompt_overlay
         and not args.review_skill
+        and not args.list_skills
         and not args.eval_seed_status
         and not args.list_eval_seeds
         and not args.eval_seed_report
@@ -885,6 +891,19 @@ def _review_skill(
             print(f"candidate_status: {updated.status}")
             return 0
         print("please answer y or n")
+
+
+def _list_skills() -> int:
+    store = FileSkillStore(get_skills_dir())
+    records = store.list()
+    print(f"skills_dir: {get_skills_dir()}")
+    print(f"skill_count: {len(records)}")
+    if not records:
+        return 0
+    for record in records:
+        description = f": {record.description}" if record.description else ""
+        print(f"- {record.name}{description}")
+    return 0
 
 
 def _run_curator(

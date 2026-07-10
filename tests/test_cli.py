@@ -202,6 +202,8 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.review_eval_case)
         args = parser.parse_args(["--review-skill"])
         self.assertTrue(args.review_skill)
+        args = parser.parse_args(["--list-skills"])
+        self.assertTrue(args.list_skills)
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -850,6 +852,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_status: rejected", stdout.getvalue())
         self.assertEqual(fake_app.saved_candidates[0].status, "rejected")
+
+    def test_main_lists_skills(self) -> None:
+        stdout = io.StringIO()
+        records = [
+            type(
+                "SkillRecord",
+                (),
+                {
+                    "name": "readme-summary",
+                    "description": "Summarize README files",
+                },
+            )()
+        ]
+
+        with patch("navi_agent.cli.get_skills_dir", return_value=Path("/tmp/skills")):
+            with patch("navi_agent.cli.FileSkillStore") as store_cls:
+                store_cls.return_value.list.return_value = records
+                with patch("sys.argv", ["navi-agent", "--list-skills"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("skills_dir: /tmp/skills", stdout.getvalue())
+        self.assertIn("skill_count: 1", stdout.getvalue())
+        self.assertIn("- readme-summary: Summarize README files", stdout.getvalue())
 
 
 if __name__ == "__main__":
