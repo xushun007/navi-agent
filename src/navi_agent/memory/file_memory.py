@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-import json
+import re
 import uuid
-from dataclasses import asdict
 from pathlib import Path
 
 from .models import MemoryRecord
+
+_ENTRY_RE = re.compile(
+    r"^- \[(?P<kind>[a-z]+)\]\s+(?P<content>.*)\n"
+    r"  <!-- id:(?P<id>[^ ]+) user:(?P<user_id>[^ ]+) -->$",
+    re.MULTILINE,
+)
 
 
 class FileMemoryStore:
@@ -63,12 +68,16 @@ class FileMemoryStore:
         for path in [self._memory_path, self._user_path]:
             if not path.exists():
                 continue
-            with path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    records.append(MemoryRecord(**json.loads(line)))
+            text = path.read_text(encoding="utf-8")
+            for match in _ENTRY_RE.finditer(text):
+                records.append(
+                    MemoryRecord(
+                        id=match.group("id"),
+                        user_id=match.group("user_id"),
+                        kind=self._normalize_kind(match.group("kind")),
+                        content=match.group("content").strip(),
+                    )
+                )
         return records
 
     def _write_all(self, records: list[MemoryRecord]) -> None:
@@ -79,8 +88,11 @@ class FileMemoryStore:
         }
         for path, items in grouped.items():
             with path.open("w", encoding="utf-8") as handle:
+                handle.write(f"# {path.stem.title()}\n\n")
                 for record in items:
-                    handle.write(json.dumps(asdict(record), ensure_ascii=False, sort_keys=True))
+                    handle.write(f"- [{record.kind}] {self._single_line(record.content)}\n")
+                    handle.write(f"  <!-- id:{record.id} user:{record.user_id} -->\n")
+                if items:
                     handle.write("\n")
 
     @property
@@ -97,3 +109,7 @@ class FileMemoryStore:
         if kind not in {"fact", "preference", "task"}:
             return "fact"
         return kind
+
+    @staticmethod
+    def _single_line(content: str) -> str:
+        return " ".join(content.strip().split())

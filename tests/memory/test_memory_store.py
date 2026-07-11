@@ -89,9 +89,35 @@ class FileMemoryStoreTests(unittest.TestCase):
             memory_text = (root / "MEMORY.md").read_text(encoding="utf-8")
             user_text = (root / "USER.md").read_text(encoding="utf-8")
 
+        self.assertTrue(memory_text.startswith("# Memory"))
+        self.assertTrue(user_text.startswith("# User"))
+        self.assertIn("- [fact] Project uses uv", memory_text)
+        self.assertIn("- [preference] Likes short answers", user_text)
+        self.assertIn("<!-- id:", memory_text)
         self.assertIn("Project uses uv", memory_text)
         self.assertIn("Likes short answers", user_text)
         self.assertNotIn("Likes short answers", memory_text)
+
+    def test_reads_manually_edited_markdown_entries(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "MEMORY.md").write_text(
+                "\n".join(
+                    [
+                        "# Memory",
+                        "",
+                        "- [fact] Project uses uv",
+                        "  <!-- id:m1 user:u1 -->",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            records = FileMemoryStore(root).list_for_user("u1")
+
+        self.assertEqual(records, [MemoryRecord(id="m1", user_id="u1", kind="fact", content="Project uses uv")])
 
 
 if __name__ == "__main__":
