@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from navi_agent.telemetry import JsonlTraceStore, RuntimeTrace
+from navi_agent.telemetry import JsonlTraceStore, ModelCallTrace, RuntimeTrace, ToolExecutionTrace
 
 
 class JsonlTraceStoreTests(unittest.TestCase):
@@ -62,6 +62,37 @@ class JsonlTraceStoreTests(unittest.TestCase):
 
         self.assertIsNotNone(trace)
         self.assertEqual(trace.session_id, "s2")
+
+    def test_restores_nested_trace_objects(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            store = JsonlTraceStore(Path(tmpdir) / "traces.jsonl")
+            store.record(
+                RuntimeTrace(
+                    session_id="s1",
+                    user_id="u1",
+                    user_message="a",
+                    final_response="ok",
+                    status="success",
+                    model_calls=[
+                        ModelCallTrace(iteration=1, response_content="tool call"),
+                    ],
+                    tool_executions=[
+                        ToolExecutionTrace(
+                            iteration=1,
+                            tool_call_id="tc1",
+                            tool_name="read_file",
+                            status="success",
+                        )
+                    ],
+                )
+            )
+
+            trace = store.get_latest_trace(session_id="s1", user_id="u1")
+
+        self.assertIsNotNone(trace)
+        self.assertIsInstance(trace.model_calls[0], ModelCallTrace)
+        self.assertIsInstance(trace.tool_executions[0], ToolExecutionTrace)
+        self.assertEqual(trace.tool_executions[0].tool_name, "read_file")
 
 
 if __name__ == "__main__":

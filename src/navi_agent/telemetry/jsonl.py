@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .models import RuntimeTrace
+from .models import ModelCallTrace, RuntimeTrace, ToolExecutionTrace
 from .serializer import TraceSerializer
 
 
@@ -68,6 +68,19 @@ class JsonlTraceStore:
                 if not line:
                     continue
                 payload = json.loads(line)
-                payload.pop("schema_version", None)
-                traces.append(RuntimeTrace(**payload))
+                traces.append(_trace_from_payload(payload))
         return traces
+
+
+def _trace_from_payload(payload: dict) -> RuntimeTrace:
+    payload = dict(payload)
+    payload.pop("schema_version", None)
+    payload["model_calls"] = [
+        item if isinstance(item, ModelCallTrace) else ModelCallTrace(**item)
+        for item in payload.get("model_calls", [])
+    ]
+    payload["tool_executions"] = [
+        item if isinstance(item, ToolExecutionTrace) else ToolExecutionTrace(**item)
+        for item in payload.get("tool_executions", [])
+    ]
+    return RuntimeTrace(**payload)
