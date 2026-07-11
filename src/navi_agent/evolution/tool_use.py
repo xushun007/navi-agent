@@ -156,6 +156,7 @@ class ToolUseEvaluator:
                 "tool_names": tool_names,
                 "required_tools": list(case.required_tools),
                 "forbidden_tools": list(case.forbidden_tools),
+                "expected_args": dict(case.expected_args),
                 "missing_tools": missing_tools,
                 "forbidden_tool_hits": forbidden_tools,
                 "arg_mismatches": arg_mismatches,
@@ -245,6 +246,7 @@ class ToolUseRunSummary:
     failed_count: int
     pass_rate: float
     results: list[ToolUseEvalResult]
+    metrics: dict[str, float | int] = field(default_factory=dict)
     report_path: Path | None = None
 
 
@@ -263,16 +265,7 @@ class ToolUseWorkflowService:
     def run(self) -> ToolUseRunSummary:
         cases = self._case_store.list_cases()
         results = [self._run_case(case) for case in cases]
-        passed_count = sum(1 for result in results if result.passed)
-        failed_count = len(results) - passed_count
-        pass_rate = round(passed_count / len(results), 3) if results else 0.0
-        summary = ToolUseRunSummary(
-            count=len(results),
-            passed_count=passed_count,
-            failed_count=failed_count,
-            pass_rate=pass_rate,
-            results=results,
-        )
+        summary = _summarize_tool_use_results(results)
         report_path = ToolUseRunWriter(self._report_root).write_run_report(
             case_store=self._case_store,
             summary=summary,
@@ -336,16 +329,7 @@ class ToolUseEvalWorkflowService:
     def run(self) -> ToolUseRunSummary:
         cases = self._case_store.list_cases()
         results = [self._run_case(case) for case in cases]
-        passed_count = sum(1 for result in results if result.passed)
-        failed_count = len(results) - passed_count
-        pass_rate = round(passed_count / len(results), 3) if results else 0.0
-        summary = ToolUseRunSummary(
-            count=len(results),
-            passed_count=passed_count,
-            failed_count=failed_count,
-            pass_rate=pass_rate,
-            results=results,
-        )
+        summary = _summarize_tool_use_results(results)
         report_path = ToolUseRunWriter(self._report_root).write_run_report(
             case_store=self._case_store,
             summary=summary,
@@ -407,6 +391,7 @@ class ToolUseRunWriter:
             "passed_count": summary.passed_count,
             "failed_count": summary.failed_count,
             "pass_rate": summary.pass_rate,
+            "metrics": dict(summary.metrics),
             "results": [asdict(result) for result in summary.results],
         }
         (run_dir / "run.json").write_text(
@@ -440,9 +425,18 @@ class ToolUseRunWriter:
             f"- failed: {payload['failed_count']}",
             f"- pass rate: {payload['pass_rate']}",
             "",
-            "## Results",
+            "## Metrics",
             "",
         ]
+        for key, value in payload.get("metrics", {}).items():
+            lines.append(f"- {key}: {value}")
+        lines.extend(
+            [
+                "",
+                "## Results",
+                "",
+            ]
+        )
         for result in payload["results"]:
             status = "pass" if result["passed"] else "fail"
             lines.extend(
@@ -453,6 +447,84 @@ class ToolUseRunWriter:
                 ]
             )
         return "\n".join(lines).strip() + "\n"
+
+
+def _summarize_tool_use_results(results: list[ToolUseEvalResult]) -> ToolUseRunSummary:
+    passed_count = sum(1 for result in results if result.passed)
+    failed_count = len(results) - passed_count
+    pass_rate = round(passed_count / len(results), 3) if results else 0.0
+    return ToolUseRunSummary(
+        count=len(results),
+        passed_count=passed_count,
+        failed_count=failed_count,
+        pass_rate=pass_rate,
+        results=results,
+        metrics=_build_tool_use_metrics(results),
+    )
+
+
+def _build_tool_use_metrics(results: list[ToolUseEvalResult]) -> dict[str, float | int]:
+    if not results:
+        return {
+            "average_score": 0.0,
+            "tool_selection_accuracy": 0.0,
+            "required_tool_recall": 0.0,
+            "forbidden_tool_clean_rate": 0.0,
+            "arg_match_rate": 0.0,
+            "approval_policy_accuracy": 0.0,
+            "tool_error_count": 0,
+        }
+
+    required_total = 0
+    missing_total = 0
+    forbidden_total = 0
+    forbidden_hit_total = 0
+    expected_arg_total = 0
+    arg_mismatch_total = 0
+    tool_selection_clean_cases = 0
+    approval_clean_cases = 0
+    tool_error_count = 0
+
+    for result in results:
+        metadata = result.metadata
+        required_tools = list(metadata.get("required_tools") or [])
+        missing_tools = list(metadata.get("missing_tools") or [])
+        forbidden_tools = list(metadata.get("forbidden_tools") or [])
+        forbidden_hits = list(metadata.get("forbidden_tool_hits") or [])
+        arg_mismatches = list(metadata.get("arg_mismatches") or [])
+        missing_approvals = list(metadata.get("missing_approvals") or [])
+        unexpected_approvals = list(metadata.get("unexpected_approvals") or [])
+
+        required_total += len(required_tools)
+        missing_total += len(missing_tools)
+        forbidden_total += len(forbidden_tools)
+        forbidden_hit_total += len(forbidden_hits)
+        expected_args = metadata.get("expected_args")
+        if isinstance(expected_args, dict):
+            expected_arg_total += len(expected_args)
+        arg_mismatch_total += len(arg_mismatches)
+        tool_error_count += int(metadata.get("error_count") or 0)
+
+        if not missing_tools and not forbidden_hits:
+            tool_selection_clean_cases += 1
+        if not missing_approvals and not unexpected_approvals:
+            approval_clean_cases += 1
+
+    return {
+        "average_score": _ratio(sum(result.score for result in results), len(results)),
+        "tool_selection_accuracy": _ratio(tool_selection_clean_cases, len(results)),
+        "required_tool_recall": _ratio(required_total - missing_total, required_total),
+        "forbidden_tool_clean_rate": _ratio(forbidden_total - forbidden_hit_total, forbidden_total),
+        "arg_match_rate": _ratio(expected_arg_total - arg_mismatch_total, expected_arg_total),
+        "approval_policy_accuracy": _ratio(approval_clean_cases, len(results)),
+        "tool_error_count": tool_error_count,
+    }
+
+
+def _ratio(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 1.0
+    return round(numerator / denominator, 3)
 
 
 class ToolUseRunStore:

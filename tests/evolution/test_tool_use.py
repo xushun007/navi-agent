@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from unittest import mock
@@ -9,8 +10,11 @@ from navi_agent.evolution import (
     ToolUseEvalWorkflowService,
     ToolUseEvaluator,
     ToolUseRunStore,
+    ToolUseRunSummary,
+    ToolUseRunWriter,
     ToolUseWorkflowService,
 )
+from navi_agent.evolution.tool_use import _build_tool_use_metrics
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -154,9 +158,68 @@ class ToolUseEvalTests(unittest.TestCase):
         self.assertEqual(summary.count, len(ToolUseEvalCaseStore(Path("data/eval/tool_use_seed.jsonl")).list_cases()))
         self.assertEqual(summary.passed_count, summary.count)
         self.assertEqual(summary.pass_rate, 1.0)
+        self.assertEqual(summary.metrics["tool_selection_accuracy"], 1.0)
+        self.assertEqual(summary.metrics["required_tool_recall"], 1.0)
+        self.assertEqual(summary.metrics["tool_error_count"], 0)
         self.assertIsNotNone(summary.report_path)
         self.assertIsNotNone(latest)
         self.assertEqual(latest["count"], summary.count)
+        self.assertEqual(latest["metrics"]["tool_selection_accuracy"], 1.0)
+
+    def test_writer_reports_tool_use_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            case_path = Path(tmpdir) / "tool_use.jsonl"
+            report_root = Path(tmpdir) / "reports"
+            ToolUseEvalCaseStore(case_path).write_cases([])
+            result = ToolUseEvaluator().evaluate(
+                ToolUseEvalCase(
+                    id="case-1",
+                    level="L0",
+                    category="tool_use.file_read",
+                    prompt="read README",
+                    source_inspiration="bfcl",
+                    required_tools=["read_file"],
+                    forbidden_tools=["bash"],
+                ),
+                RuntimeTrace(
+                    session_id="s1",
+                    user_id="u1",
+                    user_message="read README",
+                    final_response="done",
+                    status="success",
+                    total_iterations=1,
+                    tool_executions=[
+                        ToolExecutionTrace(
+                            iteration=1,
+                            tool_call_id="tc1",
+                            tool_name="bash",
+                            status="success",
+                        )
+                    ],
+                ),
+            )
+            metrics = _build_tool_use_metrics([result])
+            summary = ToolUseRunSummary(
+                count=1,
+                passed_count=0,
+                failed_count=1,
+                pass_rate=0.0,
+                results=[result],
+                metrics=metrics,
+            )
+
+            report_path = ToolUseRunWriter(report_root).write_run_report(
+                case_store=ToolUseEvalCaseStore(case_path),
+                summary=summary,
+            )
+            payload = json.loads((report_path / "run.json").read_text(encoding="utf-8"))
+            markdown = (report_path / "REPORT.md").read_text(encoding="utf-8")
+
+        self.assertEqual(payload["metrics"]["tool_selection_accuracy"], 0.0)
+        self.assertEqual(payload["metrics"]["required_tool_recall"], 0.0)
+        self.assertEqual(payload["metrics"]["forbidden_tool_clean_rate"], 0.0)
+        self.assertIn("## Metrics", markdown)
+        self.assertIn("- tool_selection_accuracy: 0.0", markdown)
 
     def test_llm_workflow_uses_real_runner_interface(self) -> None:
         class FakeRuntime:
