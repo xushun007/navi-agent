@@ -6,10 +6,11 @@ from navi_agent.app import ApplicationService
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
 from navi_agent.evolution import FileSkillStore, JsonlCandidateStore, JsonlEvalCaseStore, PromptOverlayStore
 from navi_agent.logging import setup_logging
-from navi_agent.memory import InMemoryMemoryStore
+from navi_agent.memory import FileMemoryStore
 from navi_agent.paths import (
     get_app_log_path,
     get_candidate_store_path,
+    get_memories_dir,
     get_prompt_overlay_path,
     get_prompt_overlay_snapshots_dir,
     get_skills_dir,
@@ -42,7 +43,7 @@ def build_runtime(
 
     transport = build_transport(model_settings)
     session_store = SQLiteSessionStore(get_state_db_path())
-    memory_store = InMemoryMemoryStore()
+    memory_store = FileMemoryStore(get_memories_dir())
     skill_store = skill_store or FileSkillStore(get_skills_dir())
     trace_store = _build_trace_store(config)
 

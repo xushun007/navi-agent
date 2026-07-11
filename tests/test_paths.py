@@ -10,6 +10,7 @@ from navi_agent.paths import (
     get_evolution_dir,
     get_evolution_reports_dir,
     get_logs_dir,
+    get_memories_dir,
     get_navi_home,
     get_prompt_overlay_path,
     get_prompt_overlay_snapshots_dir,
@@ -35,6 +36,7 @@ class PathsTests(unittest.TestCase):
             self.assertEqual(get_app_log_path(), Path("/tmp/navi-home/logs/navi-agent.log"))
             self.assertEqual(get_trace_store_path(), Path("/tmp/navi-home/logs/traces.jsonl"))
             self.assertEqual(get_config_path(), Path("/tmp/navi-home/config.yaml"))
+            self.assertEqual(get_memories_dir(), Path("/tmp/navi-home/memories"))
             self.assertEqual(get_evolution_dir(), Path("/tmp/navi-home/evolution"))
             self.assertEqual(get_evolution_reports_dir(), Path("/tmp/navi-home/logs/evolution"))
             self.assertEqual(get_prompt_overlay_path(), Path("/tmp/navi-home/evolution/prompt-overlay.md"))

@@ -93,3 +93,7 @@ def get_smoke_reports_dir() -> Path:
 
 def get_skills_dir() -> Path:
     return get_navi_home() / "skills"
+
+
+def get_memories_dir() -> Path:
+    return get_navi_home() / "memories"

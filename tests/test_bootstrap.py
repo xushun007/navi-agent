@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from navi_agent.bootstrap import build_runtime
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings
+from navi_agent.memory import FileMemoryStore
 from navi_agent.runtime import ToolCall, ToolContext
 from navi_agent.runtime.approval import AutoApproveApprovalProvider
 from navi_agent.telemetry import CompositeTraceStore, JsonlTraceStore
@@ -86,6 +87,7 @@ class BootstrapTests(unittest.TestCase):
 
         _, kwargs = build_registry_mock.call_args
         self.assertIs(kwargs["approval_provider"], provider)
+        self.assertIsInstance(kwargs["memory_store"], FileMemoryStore)
 
     def test_build_runtime_uses_composite_trace_store_when_langfuse_enabled(self) -> None:
         with patch("navi_agent.bootstrap.SQLiteSessionStore"):

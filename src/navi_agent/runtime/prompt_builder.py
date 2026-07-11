@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from navi_agent.evolution import FileSkillStore
+from typing import Protocol
+
 from navi_agent.memory import MemoryStore
 
 from .models import ConversationState, Message
+
+
+class SkillSearchStore(Protocol):
+    def search(self, query: str, *, limit: int = 3): ...
 
 
 class PromptBuilder:
@@ -11,7 +16,7 @@ class PromptBuilder:
         self,
         memory_store: MemoryStore | None = None,
         memory_limit: int = 5,
-        skill_store: FileSkillStore | None = None,
+        skill_store: SkillSearchStore | None = None,
         skill_limit: int = 3,
     ) -> None:
         if memory_limit <= 0:
