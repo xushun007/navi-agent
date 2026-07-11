@@ -1,0 +1,73 @@
+<mxfile host="app.diagrams.net" modified="2026-07-11T00:00:00.000Z" agent="Navi Agent" version="24.7.17">
+  <diagram id="navi-current-architecture" name="Navi Agent Current Architecture">
+    <mxGraphModel dx="1434" dy="844" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="Navi Agent Current Architecture" style="text;html=1;strokeColor=none;fillColor=none;fontSize=24;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="340" y="20" width="520" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="console" value="Console CLI&#xa;uv run navi-agent &quot;...&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="120" y="90" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="weixin" value="Weixin iLink Gateway&#xa;local text polling" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="860" y="90" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="app" value="ApplicationService&#xa;- unified entry&#xa;- user_id / session_id&#xa;- candidate generation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="460" y="220" width="280" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="runtime" value="AgentRuntime&#xa;- PromptBuilder&#xa;- ContextEngine / compression&#xa;- ModelTransport&#xa;- ToolRegistry / ToolExecutor&#xa;- Approval / YOLO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="430" y="390" width="340" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="state" value="State&#xa;- SQLite session history&#xa;- JSONL runtime traces&#xa;- File memory&#xa;- File skills" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="120" y="620" width="260" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="tools" value="Tools&#xa;- read/search/write/patch&#xa;- bash&#xa;- code_executor&#xa;- memory&#xa;- todo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="470" y="620" width="260" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="evolution" value="Evolution&#xa;- IFEval / Tool Use Eval / Smoke / Healthcheck&#xa;- RuntimeTrace -&gt; EvalCase candidate&#xa;- RuntimeTrace -&gt; Skill candidate&#xa;- Human review&#xa;- Prompt overlay&#xa;- Skill usage status" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="820" y="590" width="300" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="memory" value="Memory Files&#xa;.navi-agent/memories/&#xa;MEMORY.md / USER.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="70" y="800" width="210" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="skills" value="Skill Files&#xa;.navi-agent/skills/*/SKILL.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="300" y="800" width="210" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="traces" value="Runtime Traces&#xa;.navi-agent/logs/traces.jsonl" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="530" y="800" width="210" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-console-app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="console" target="app">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-weixin-app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="weixin" target="app">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-app-runtime" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="app" target="runtime">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-runtime-state" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="runtime" target="state">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-runtime-tools" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="runtime" target="tools">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-runtime-evolution" value="trace / candidates" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="runtime" target="evolution">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-state-memory" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="state" target="memory">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-state-skills" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="state" target="skills">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-state-traces" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="state" target="traces">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-evolution-skills" value="review/apply" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;dashed=1;" edge="1" parent="1" source="evolution" target="skills">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
