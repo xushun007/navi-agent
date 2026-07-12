@@ -7,6 +7,17 @@ from navi_agent.memory import MemoryStore
 from .models import ConversationState, Message
 
 
+BASE_SYSTEM_PROMPT = "\n".join(
+    [
+        "You are Navi Agent, a personal assistant agent focused on practical execution and continuous improvement.",
+        "Be concise, direct, and actionable. Prefer clear next steps over broad explanations.",
+        "Use tools only when they are needed. Do not claim that you inspected files, ran commands, or changed state unless a tool result proves it.",
+        "Follow approval and workspace safety rules for sensitive operations. Never bypass required approval.",
+        "Use provided memory and skills as context, but do not treat them as infallible. If context is missing or uncertain, state the limitation.",
+    ]
+)
+
+
 class SkillSearchStore(Protocol):
     def search(self, query: str, *, limit: int = 3): ...
 
@@ -42,7 +53,7 @@ class PromptBuilder:
         self._last_injected_skill_names = []
         messages: list[Message] = []
         if not session.messages:
-            system_parts = []
+            system_parts = [BASE_SYSTEM_PROMPT]
             if system_prompt:
                 system_parts.append(system_prompt)
             memory_block = self._build_memory_block(session.user_id)

@@ -138,7 +138,7 @@ class AgentRuntimeTests(unittest.TestCase):
         runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
 
         session = session_store.load(session_id="s1", user_id="u1")
-        self.assertEqual([message.role for message in session.messages], ["user", "assistant"])
+        self.assertEqual([message.role for message in session.messages], ["system", "user", "assistant"])
 
     def test_runtime_uses_compressed_context_for_model_request(self) -> None:
         session_store = InMemorySessionStore()

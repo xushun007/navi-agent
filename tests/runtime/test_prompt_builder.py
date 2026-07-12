@@ -5,7 +5,7 @@ from pathlib import Path
 from navi_agent.evolution import FileSkillStore
 from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.runtime.models import ConversationState, Message
-from navi_agent.runtime.prompt_builder import PromptBuilder
+from navi_agent.runtime.prompt_builder import BASE_SYSTEM_PROMPT, PromptBuilder
 
 
 class PromptBuilderTest(unittest.TestCase):
@@ -18,6 +18,8 @@ class PromptBuilderTest(unittest.TestCase):
         msgs = self.builder.build_initial_messages(session, "hello", system_prompt="Be nice")
         self.assertEqual(len(msgs), 2)
         self.assertEqual(msgs[0].role, "system")
+        self.assertIn(BASE_SYSTEM_PROMPT, msgs[0].content)
+        self.assertIn("Be nice", msgs[0].content)
         self.assertEqual(msgs[1].role, "user")
 
     def test_new_session_with_memory(self) -> None:
@@ -40,11 +42,13 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertNotIn("[fact] Memory 0", msgs[0].content)
         self.assertNotIn("[fact] Memory 1", msgs[0].content)
 
-    def test_new_session_without_system_or_memory(self) -> None:
+    def test_new_session_without_extra_context_uses_base_system_prompt(self) -> None:
         session = ConversationState(session_id="s1", user_id="u1")
         msgs = self.builder.build_initial_messages(session, "hello")
-        self.assertEqual(len(msgs), 1)
-        self.assertEqual(msgs[0].role, "user")
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[0].role, "system")
+        self.assertEqual(msgs[0].content, BASE_SYSTEM_PROMPT)
+        self.assertEqual(msgs[1].role, "user")
 
     def test_new_session_with_relevant_skill(self) -> None:
         with TemporaryDirectory() as tmpdir:
