@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from navi_agent.app import ApplicationService
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
@@ -50,7 +51,11 @@ def build_runtime(
     return AgentRuntime(
         transport=transport,
         session_store=session_store,
-        prompt_builder=PromptBuilder(memory_store=memory_store, skill_store=skill_store),
+        prompt_builder=PromptBuilder(
+            memory_store=memory_store,
+            skill_store=skill_store,
+            project_context_root=Path.cwd(),
+        ),
         trace_store=trace_store,
         tool_registry=build_default_tool_registry(
             memory_store=memory_store,

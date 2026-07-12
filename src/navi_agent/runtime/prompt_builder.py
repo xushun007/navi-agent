@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from navi_agent.memory import MemoryStore
@@ -29,6 +30,9 @@ SKILL_GUIDANCE = (
     "but prefer the user's current instruction when there is a conflict."
 )
 
+PROJECT_CONTEXT_MAX_CHARS = 20_000
+PROJECT_CONTEXT_FILE_NAMES = (".navi.md", "AGENTS.md")
+
 
 @dataclass(frozen=True)
 class PromptParts:
@@ -53,6 +57,7 @@ class PromptBuilder:
         memory_limit: int = 5,
         skill_store: SkillSearchStore | None = None,
         skill_limit: int = 3,
+        project_context_root: Path | None = None,
     ) -> None:
         if memory_limit <= 0:
             raise ValueError("memory_limit must be positive")
@@ -62,11 +67,17 @@ class PromptBuilder:
         self._memory_limit = memory_limit
         self._skill_store = skill_store
         self._skill_limit = skill_limit
+        self._project_context_root = project_context_root
         self._last_injected_skill_names: list[str] = []
+        self._last_injected_context_files: list[str] = []
 
     @property
     def last_injected_skill_names(self) -> list[str]:
         return list(self._last_injected_skill_names)
+
+    @property
+    def last_injected_context_files(self) -> list[str]:
+        return list(self._last_injected_context_files)
 
     def build_initial_messages(
         self,
@@ -75,6 +86,7 @@ class PromptBuilder:
         system_prompt: str | None = None,
     ) -> list[Message]:
         self._last_injected_skill_names = []
+        self._last_injected_context_files = []
         messages: list[Message] = []
         if not session.messages:
             prompt = self.build_system_prompt(
@@ -93,8 +105,12 @@ class PromptBuilder:
         user_message: str,
         system_prompt: str | None = None,
     ) -> PromptParts:
+        self._last_injected_skill_names = []
+        self._last_injected_context_files = []
         stable = "\n\n".join([BASE_SYSTEM_PROMPT, MEMORY_GUIDANCE, SKILL_GUIDANCE])
-        context = system_prompt or ""
+        context = "\n\n".join(
+            part for part in [system_prompt or "", self._build_project_context_block()] if part
+        )
         volatile_parts = []
         memory_block = self._build_memory_block(user_id)
         if memory_block:
@@ -129,3 +145,39 @@ class PromptBuilder:
         for record in records:
             lines.append(f"- {record.name}: {record.description}")
         return "\n".join(lines)
+
+    def _build_project_context_block(self) -> str | None:
+        if self._project_context_root is None:
+            return None
+        root = self._project_context_root.resolve()
+        for file_name in PROJECT_CONTEXT_FILE_NAMES:
+            path = root / file_name
+            if not path.is_file():
+                continue
+            content = path.read_text(encoding="utf-8").strip()
+            if not content:
+                continue
+            self._last_injected_context_files = [file_name]
+            return "\n".join(
+                [
+                    "[Project Context]",
+                    "Follow this local project context when it applies to the current task.",
+                    f"## {file_name}",
+                    self._truncate_project_context(content),
+                ]
+            )
+        return None
+
+    @staticmethod
+    def _truncate_project_context(content: str) -> str:
+        if len(content) <= PROJECT_CONTEXT_MAX_CHARS:
+            return content
+        head_size = int(PROJECT_CONTEXT_MAX_CHARS * 0.7)
+        tail_size = int(PROJECT_CONTEXT_MAX_CHARS * 0.2)
+        return "\n".join(
+            [
+                content[:head_size].rstrip(),
+                "[... project context truncated ...]",
+                content[-tail_size:].lstrip(),
+            ]
+        )

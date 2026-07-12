@@ -70,6 +70,34 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertLess(prompt.index(SKILL_GUIDANCE), prompt.index("Context prompt"))
         self.assertLess(prompt.index("Context prompt"), prompt.index("[Memory]"))
 
+    def test_new_session_injects_project_context(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "AGENTS.md").write_text("Use uv for commands.", encoding="utf-8")
+            builder = PromptBuilder(project_context_root=root)
+            session = ConversationState(session_id="s1", user_id="u1")
+
+            msgs = builder.build_initial_messages(session, "hello")
+
+        self.assertIn("[Project Context]", msgs[0].content)
+        self.assertIn("## AGENTS.md", msgs[0].content)
+        self.assertIn("Use uv for commands.", msgs[0].content)
+        self.assertEqual(builder.last_injected_context_files, ["AGENTS.md"])
+
+    def test_project_context_prefers_navi_md(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / ".navi.md").write_text("Prefer Navi instructions.", encoding="utf-8")
+            (root / "AGENTS.md").write_text("Prefer repo instructions.", encoding="utf-8")
+            builder = PromptBuilder(project_context_root=root)
+
+            prompt = builder.build_system_prompt(user_id="u1", user_message="hello").render()
+
+        self.assertIn("## .navi.md", prompt)
+        self.assertIn("Prefer Navi instructions.", prompt)
+        self.assertNotIn("Prefer repo instructions.", prompt)
+        self.assertEqual(builder.last_injected_context_files, [".navi.md"])
+
     def test_new_session_with_relevant_skill(self) -> None:
         with TemporaryDirectory() as tmpdir:
             skill_store = FileSkillStore(Path(tmpdir))
