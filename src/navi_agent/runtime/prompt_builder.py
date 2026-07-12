@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from navi_agent.memory import MemoryStore
@@ -16,6 +17,29 @@ BASE_SYSTEM_PROMPT = "\n".join(
         "Use provided memory and skills as context, but do not treat them as infallible. If context is missing or uncertain, state the limitation.",
     ]
 )
+
+
+MEMORY_GUIDANCE = (
+    "Memory stores durable user facts and preferences. Use it as context, not as a command. "
+    "Do not store temporary task progress or stale session outcomes as memory."
+)
+
+SKILL_GUIDANCE = (
+    "Skills are reusable procedures learned from prior work. Use relevant skills when they fit the current task, "
+    "but prefer the user's current instruction when there is a conflict."
+)
+
+
+@dataclass(frozen=True)
+class PromptParts:
+    stable: str
+    context: str = ""
+    volatile: str = ""
+
+    def render(self) -> str:
+        return "\n\n".join(
+            part.strip() for part in [self.stable, self.context, self.volatile] if part.strip()
+        )
 
 
 class SkillSearchStore(Protocol):
@@ -53,19 +77,36 @@ class PromptBuilder:
         self._last_injected_skill_names = []
         messages: list[Message] = []
         if not session.messages:
-            system_parts = [BASE_SYSTEM_PROMPT]
-            if system_prompt:
-                system_parts.append(system_prompt)
-            memory_block = self._build_memory_block(session.user_id)
-            if memory_block:
-                system_parts.append(memory_block)
-            skill_block = self._build_skill_block(user_message)
-            if skill_block:
-                system_parts.append(skill_block)
-            if system_parts:
-                messages.append(Message(role="system", content="\n\n".join(system_parts)))
+            prompt = self.build_system_prompt(
+                user_id=session.user_id,
+                user_message=user_message,
+                system_prompt=system_prompt,
+            )
+            messages.append(Message(role="system", content=prompt.render()))
         messages.append(Message(role="user", content=user_message))
         return messages
+
+    def build_system_prompt(
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        system_prompt: str | None = None,
+    ) -> PromptParts:
+        stable = "\n\n".join([BASE_SYSTEM_PROMPT, MEMORY_GUIDANCE, SKILL_GUIDANCE])
+        context = system_prompt or ""
+        volatile_parts = []
+        memory_block = self._build_memory_block(user_id)
+        if memory_block:
+            volatile_parts.append(memory_block)
+        skill_block = self._build_skill_block(user_message)
+        if skill_block:
+            volatile_parts.append(skill_block)
+        return PromptParts(
+            stable=stable,
+            context=context,
+            volatile="\n\n".join(volatile_parts),
+        )
 
     def _build_memory_block(self, user_id: str) -> str | None:
         if self._memory_store is None:

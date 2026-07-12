@@ -5,7 +5,12 @@ from pathlib import Path
 from navi_agent.evolution import FileSkillStore
 from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.runtime.models import ConversationState, Message
-from navi_agent.runtime.prompt_builder import BASE_SYSTEM_PROMPT, PromptBuilder
+from navi_agent.runtime.prompt_builder import (
+    BASE_SYSTEM_PROMPT,
+    MEMORY_GUIDANCE,
+    SKILL_GUIDANCE,
+    PromptBuilder,
+)
 
 
 class PromptBuilderTest(unittest.TestCase):
@@ -47,8 +52,23 @@ class PromptBuilderTest(unittest.TestCase):
         msgs = self.builder.build_initial_messages(session, "hello")
         self.assertEqual(len(msgs), 2)
         self.assertEqual(msgs[0].role, "system")
-        self.assertEqual(msgs[0].content, BASE_SYSTEM_PROMPT)
+        self.assertIn(BASE_SYSTEM_PROMPT, msgs[0].content)
+        self.assertIn(MEMORY_GUIDANCE, msgs[0].content)
+        self.assertIn(SKILL_GUIDANCE, msgs[0].content)
         self.assertEqual(msgs[1].role, "user")
+
+    def test_system_prompt_parts_are_ordered(self) -> None:
+        self.memory.add_for_user("u1", "Likes Python")
+        prompt = self.builder.build_system_prompt(
+            user_id="u1",
+            user_message="hello",
+            system_prompt="Context prompt",
+        ).render()
+
+        self.assertLess(prompt.index(BASE_SYSTEM_PROMPT), prompt.index(MEMORY_GUIDANCE))
+        self.assertLess(prompt.index(MEMORY_GUIDANCE), prompt.index(SKILL_GUIDANCE))
+        self.assertLess(prompt.index(SKILL_GUIDANCE), prompt.index("Context prompt"))
+        self.assertLess(prompt.index("Context prompt"), prompt.index("[Memory]"))
 
     def test_new_session_with_relevant_skill(self) -> None:
         with TemporaryDirectory() as tmpdir:
