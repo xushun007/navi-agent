@@ -42,6 +42,16 @@ class InterruptingTransport:
         raise KeyboardInterrupt()
 
 
+class FailingTransport:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+        self.calls = []
+
+    def generate(self, request: ModelRequest):
+        self.calls.append(request)
+        raise self.exc
+
+
 class TrackingPromptBuilder(PromptBuilder):
     def __init__(self) -> None:
         super().__init__()
@@ -507,6 +517,38 @@ class AgentRuntimeTests(unittest.TestCase):
             runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
 
         self.assertEqual(trace_store.traces, [])
+
+    def test_runtime_returns_readable_response_when_retryable_model_failure_occurs(self) -> None:
+        trace_store = InMemoryTraceStore()
+        runtime = AgentRuntime(
+            transport=FailingTransport(TimeoutError("model timeout")),
+            trace_store=trace_store,
+        )
+
+        result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("模型服务暂时不可用", result.final_response)
+        self.assertIn("TimeoutError", result.final_response)
+        self.assertEqual(result.messages[-1].role, "assistant")
+        self.assertEqual(result.messages[-1].content, result.final_response)
+        self.assertTrue(trace_store.traces[0].retryable)
+        self.assertEqual(trace_store.traces[0].error_type, "TimeoutError")
+
+    def test_runtime_returns_readable_response_when_fatal_model_failure_occurs(self) -> None:
+        trace_store = InMemoryTraceStore()
+        runtime = AgentRuntime(
+            transport=FailingTransport(ValueError("bad request")),
+            trace_store=trace_store,
+        )
+
+        result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("模型服务调用失败", result.final_response)
+        self.assertIn("ValueError", result.final_response)
+        self.assertFalse(trace_store.traces[0].retryable)
+        self.assertEqual(trace_store.traces[0].error_type, "ValueError")
 
     def test_runtime_classifies_tool_timeout_in_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

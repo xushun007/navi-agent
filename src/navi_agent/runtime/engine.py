@@ -64,6 +64,23 @@ def _classify_error(exc: Exception) -> dict[str, object]:
     }
 
 
+def _model_failure_response(error_info: dict[str, object]) -> str:
+    retryable = error_info.get("retryable") is True
+    http_status = error_info.get("http_status")
+    error_type = error_info.get("error_type")
+    prefix = "模型服务暂时不可用" if retryable else "模型服务调用失败"
+    details = []
+    if isinstance(http_status, int):
+        details.append(f"HTTP {http_status}")
+    if isinstance(error_type, str) and error_type:
+        details.append(error_type)
+    if details:
+        prefix = f"{prefix}（{', '.join(details)}）"
+    if retryable:
+        return f"{prefix}。请稍后重试；如果持续出现，检查模型服务或网络状态。"
+    return f"{prefix}。请检查模型配置、请求参数或服务状态。"
+
+
 def _classify_tool_error(
     *,
     tool_result,
@@ -266,10 +283,12 @@ class AgentRuntime:
             except Exception as exc:
                 error_info = _classify_error(exc)
                 logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)
+                fallback_response = _model_failure_response(error_info)
+                self._session_store.append(session, Message(role="assistant", content=fallback_response))
                 result = RuntimeResult(
                     session_id=session.session_id,
                     status="failed",
-                    final_response="",
+                    final_response=fallback_response,
                     messages=self._session_store.snapshot(session),
                     tool_results=tool_results,
                 )
