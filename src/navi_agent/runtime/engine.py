@@ -8,7 +8,7 @@ from time import perf_counter
 
 from navi_agent.tooling import ToolContext
 
-from .context_engine import ContextEngine, LLMContextSummarizer
+from .context_engine import ContextBuildResult, ContextEngine, LLMContextSummarizer
 from .models import Message, RuntimeEvent, RuntimeResult
 from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
@@ -195,7 +195,33 @@ class AgentRuntime:
             )
             model_started_at = _utc_now_iso()
             model_started_perf = perf_counter()
-            context_result = self._context_engine.build(self._session_store.snapshot(session))
+            session_snapshot = self._session_store.snapshot(session)
+            try:
+                context_result = self._context_engine.build(session_snapshot)
+            except Exception as exc:
+                error_info = _classify_error(exc)
+                logger.exception(
+                    "Runtime context build failed; continuing with uncompressed context: session_id=%s error=%s",
+                    session_id,
+                    exc,
+                )
+                context_result = ContextBuildResult(
+                    messages=session_snapshot,
+                    original_message_count=len(session_snapshot),
+                    estimated_tokens_before=0,
+                    estimated_tokens_after=0,
+                    threshold_tokens=0,
+                    summary_status="failed",
+                )
+                self._emit_event(
+                    RuntimeEvent(
+                        name="context.failed",
+                        session_id=session_id,
+                        user_id=user_id,
+                        iteration=iteration_number,
+                        metadata=error_info,
+                    )
+                )
             if context_result.compressed:
                 logger.info(
                     "Runtime context compressed: session_id=%s original_messages=%s compressed_messages=%s final_messages=%s tokens=%s->%s threshold=%s",

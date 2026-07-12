@@ -80,6 +80,11 @@ class EmptyToolResultRenderer:
         return "   "
 
 
+class FailingContextEngine:
+    def build(self, messages):
+        raise TimeoutError("summary timeout")
+
+
 def ok_result(name: str, content: str, **kwargs) -> ToolResult:
     return ToolResult(tool_call_id="", name=name, content=content, **kwargs)
 
@@ -185,6 +190,24 @@ class AgentRuntimeTests(unittest.TestCase):
         compression_events = [event for event in observer.events if event.name == "context.compressed"]
         self.assertIn("estimated_tokens_before", compression_events[0].metadata)
         self.assertEqual(compression_events[0].metadata["summary_status"], "llm")
+
+    def test_runtime_continues_when_context_build_fails(self) -> None:
+        transport = FakeTransport([ModelResponse(content="done")])
+        observer = RecordingObserver()
+        runtime = AgentRuntime(
+            transport=transport,
+            context_engine=FailingContextEngine(),
+            observers=[observer],
+        )
+
+        result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.final_response, "done")
+        self.assertEqual(transport.calls[0].messages[-1].content, "hello")
+        context_failed_events = [event for event in observer.events if event.name == "context.failed"]
+        self.assertEqual(len(context_failed_events), 1)
+        self.assertEqual(context_failed_events[0].metadata["error_category"], "retryable")
 
     def test_runtime_injects_system_prompt_on_first_turn_only(self) -> None:
         session_store = InMemorySessionStore()
