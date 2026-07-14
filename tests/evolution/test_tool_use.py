@@ -166,6 +166,42 @@ class ToolUseEvalTests(unittest.TestCase):
         self.assertEqual(latest["count"], summary.count)
         self.assertEqual(latest["metrics"]["tool_selection_accuracy"], 1.0)
 
+    def test_workflow_filters_cases_by_id_and_level(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            case_path = Path(tmpdir) / "tool_use.jsonl"
+            report_root = Path(tmpdir) / "reports"
+            ToolUseEvalCaseStore(case_path).write_cases(
+                [
+                    ToolUseEvalCase(
+                        id="case-l0",
+                        level="L0",
+                        category="tool_use.file_read",
+                        prompt="read README",
+                        source_inspiration="bfcl",
+                        required_tools=["read_file"],
+                    ),
+                    ToolUseEvalCase(
+                        id="case-l1",
+                        level="L1",
+                        category="tool_use.file_search",
+                        prompt="search runtime",
+                        source_inspiration="api-bank",
+                        required_tools=["search_files"],
+                    ),
+                ]
+            )
+            service = ToolUseWorkflowService(
+                case_store=ToolUseEvalCaseStore(case_path),
+                report_root=report_root,
+                case_ids=["case-l1"],
+                levels=["l1"],
+            )
+
+            summary = service.run()
+
+        self.assertEqual(summary.count, 1)
+        self.assertEqual(summary.results[0].case_id, "case-l1")
+
     def test_writer_reports_tool_use_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             case_path = Path(tmpdir) / "tool_use.jsonl"

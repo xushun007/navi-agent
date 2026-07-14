@@ -74,6 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workflow-kind", choices=["healthcheck", "ifeval", "smoke", "tool_use", "tool_use_eval"])
     parser.add_argument("--workflow-phase", choices=["run", "compare", "report", "review"])
     parser.add_argument("--workflow-name")
+    parser.add_argument("--workflow-case-id", action="append")
+    parser.add_argument("--workflow-level", action="append", choices=["L0", "L1", "L2", "l0", "l1", "l2"])
     parser.add_argument("--gateway", choices=["weixin"])
     parser.add_argument("--gateway-pairings", choices=["weixin"])
     parser.add_argument("--approve-gateway-pairing")
@@ -387,7 +389,7 @@ def _run_unified_workflow(args) -> int:
         return 1
     if args.workflow_kind == "tool_use":
         if args.workflow_phase == "run":
-            return _run_tool_use_eval()
+            return _run_tool_use_eval(case_ids=args.workflow_case_id, levels=args.workflow_level)
         if args.workflow_phase == "report":
             return _print_tool_use_status()
         if args.workflow_phase in {"compare", "review"}:
@@ -397,7 +399,7 @@ def _run_unified_workflow(args) -> int:
         return 1
     if args.workflow_kind == "tool_use_eval":
         if args.workflow_phase == "run":
-            return _run_tool_use_llm_eval()
+            return _run_tool_use_llm_eval(case_ids=args.workflow_case_id, levels=args.workflow_level)
         if args.workflow_phase == "report":
             return _print_tool_use_eval_status()
         print(f"unsupported tool_use_eval workflow phase: {args.workflow_phase}")
@@ -406,10 +408,16 @@ def _run_unified_workflow(args) -> int:
     return 1
 
 
-def _run_tool_use_eval() -> int:
+def _run_tool_use_eval(
+    *,
+    case_ids: list[str] | None = None,
+    levels: list[str] | None = None,
+) -> int:
     service = ToolUseWorkflowService(
         case_store=ToolUseEvalCaseStore(get_eval_seed_path("tool_use_seed.jsonl")),
         report_root=get_tool_use_reports_dir(),
+        case_ids=case_ids,
+        levels=levels,
     )
     summary = service.run()
     print(f"tool_use_report_path: {summary.report_path}")
@@ -438,10 +446,16 @@ def _print_tool_use_status() -> int:
     return 0
 
 
-def _run_tool_use_llm_eval() -> int:
+def _run_tool_use_llm_eval(
+    *,
+    case_ids: list[str] | None = None,
+    levels: list[str] | None = None,
+) -> int:
     service = ToolUseEvalWorkflowService(
         case_store=ToolUseEvalCaseStore(get_eval_seed_path("tool_use_seed.jsonl")),
         report_root=get_tool_use_eval_reports_dir(),
+        case_ids=case_ids,
+        levels=levels,
     )
     summary = service.run()
     print(f"tool_use_eval_report_path: {summary.report_path}")

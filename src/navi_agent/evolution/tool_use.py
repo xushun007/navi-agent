@@ -257,13 +257,17 @@ class ToolUseWorkflowService:
         case_store: ToolUseEvalCaseStore,
         report_root: Path,
         evaluator: ToolUseEvaluator | None = None,
+        case_ids: list[str] | None = None,
+        levels: list[str] | None = None,
     ) -> None:
         self._case_store = case_store
         self._report_root = report_root
         self._evaluator = evaluator or ToolUseEvaluator()
+        self._case_ids = set(case_ids or [])
+        self._levels = {level.upper() for level in (levels or [])}
 
     def run(self) -> ToolUseRunSummary:
-        cases = self._case_store.list_cases()
+        cases = self._filter_cases(self._case_store.list_cases())
         results = [self._run_case(case) for case in cases]
         summary = _summarize_tool_use_results(results)
         report_path = ToolUseRunWriter(self._report_root).write_run_report(
@@ -272,6 +276,13 @@ class ToolUseWorkflowService:
         )
         summary.report_path = report_path
         return summary
+
+    def _filter_cases(self, cases: list[ToolUseEvalCase]) -> list[ToolUseEvalCase]:
+        if self._case_ids:
+            cases = [case for case in cases if case.id in self._case_ids]
+        if self._levels:
+            cases = [case for case in cases if case.level.upper() in self._levels]
+        return cases
 
     def _run_case(self, case: ToolUseEvalCase) -> ToolUseEvalResult:
         trace_store = InMemoryTraceStore()
@@ -319,15 +330,19 @@ class ToolUseEvalWorkflowService:
         evaluator: ToolUseEvaluator | None = None,
         model_settings: ModelSettings | None = None,
         runtime_settings: RuntimeSettings | None = None,
+        case_ids: list[str] | None = None,
+        levels: list[str] | None = None,
     ) -> None:
         self._case_store = case_store
         self._report_root = report_root
         self._evaluator = evaluator or ToolUseEvaluator()
         self._model_settings = model_settings
         self._runtime_settings = runtime_settings
+        self._case_ids = set(case_ids or [])
+        self._levels = {level.upper() for level in (levels or [])}
 
     def run(self) -> ToolUseRunSummary:
-        cases = self._case_store.list_cases()
+        cases = self._filter_cases(self._case_store.list_cases())
         results = [self._run_case(case) for case in cases]
         summary = _summarize_tool_use_results(results)
         report_path = ToolUseRunWriter(self._report_root).write_run_report(
@@ -336,6 +351,13 @@ class ToolUseEvalWorkflowService:
         )
         summary.report_path = report_path
         return summary
+
+    def _filter_cases(self, cases: list[ToolUseEvalCase]) -> list[ToolUseEvalCase]:
+        if self._case_ids:
+            cases = [case for case in cases if case.id in self._case_ids]
+        if self._levels:
+            cases = [case for case in cases if case.level.upper() in self._levels]
+        return cases
 
     def _run_case(self, case: ToolUseEvalCase) -> ToolUseEvalResult:
         config = load_config()
