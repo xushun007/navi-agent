@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from navi_agent.doctor import collect_report
+from navi_agent.evolution import ToolUseEvalCaseStore, ToolUseWorkflowService
 from navi_agent.memory import InMemoryMemoryStore
-from navi_agent.paths import get_smoke_reports_dir
+from navi_agent.paths import get_eval_seed_path, get_smoke_reports_dir
 from navi_agent.runtime import (
     AgentRuntime,
     ContextEngine,
@@ -50,6 +51,7 @@ class SmokeWorkflowService:
             self._demo_runtime_check(),
             self._tool_runtime_check(),
             self._context_compression_check(),
+            self._tool_use_regression_check(),
         ]
         passed_count = sum(1 for result in results if result.passed)
         failed_count = len(results) - passed_count
@@ -183,6 +185,25 @@ class SmokeWorkflowService:
                 "original_message_count": result.original_message_count,
                 "final_message_count": len(result.messages),
                 "latest_user_anchored": result.latest_user_anchored,
+            },
+        )
+
+    def _tool_use_regression_check(self) -> SmokeCheckResult:
+        summary = ToolUseWorkflowService(
+            case_store=ToolUseEvalCaseStore(get_eval_seed_path("tool_use_seed.jsonl")),
+            report_root=self._report_root / "tool-use-regression",
+        ).run()
+        passed = summary.failed_count == 0
+        return SmokeCheckResult(
+            name="tool_use_regression",
+            passed=passed,
+            summary="tool use regression ok" if passed else "tool use regression failed",
+            metadata={
+                "count": summary.count,
+                "passed_count": summary.passed_count,
+                "failed_count": summary.failed_count,
+                "pass_rate": summary.pass_rate,
+                "report_path": str(summary.report_path) if summary.report_path else None,
             },
         )
 
