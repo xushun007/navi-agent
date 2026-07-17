@@ -1,32 +1,34 @@
 # Navi Agent
 
-Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但当前只保留最核心的产品目标与架构方向。
+English | [简体中文](README.zh-CN.md)
 
-## 目标
+Navi Agent is a self-evolving agent project inspired by Hermes, but it currently keeps only the core product goals and architectural direction.
 
-- 可持续优化的 Agent
-- 最小闭环：接入、执行、反馈、进化
-- 先跑通单入口、单主链路
+## Goals
 
-## 当前范围
+- A continuously improvable agent
+- Minimal closed loop: gateway, execution, feedback, evolution
+- Get a single entry point and a single main pipeline working first
 
-- `gateway` 只接微信
-- 只保留核心运行链路
-- 优先单 Agent 稳定执行
+## Current Scope
 
-## 自我进化
+- `gateway` only integrates WeChat
+- Only the core runtime pipeline is kept
+- Prioritize stable single-agent execution
 
-基于真实运行数据持续发现问题、评估方案、验证改进。
+## Self-Evolution
 
-## 微信网关
+Continuously discover issues, evaluate solutions, and validate improvements based on real runtime data.
 
-当前微信网关只保留 iLink 本地轮询风格，拉取文本消息并发送文本回复。
+## WeChat Gateway
+
+The current WeChat gateway only keeps the iLink local polling style: it pulls text messages and sends text replies.
 
 ```bash
 uv run navi-agent --gateway weixin
 ```
 
-微信网关只从 `config.yaml` 或环境变量读取配置：
+The WeChat gateway reads configuration only from `config.yaml` or environment variables:
 
 ```yaml
 gateway:
@@ -39,27 +41,27 @@ gateway:
     allowed_users: []
 ```
 
-`dm_policy` 可选值：
+Available `dm_policy` values:
 
-- `open`：所有私聊用户可直接进入 Agent。
-- `pairing`：未知私聊用户先收到 pairing code，批准后才进入 Agent。
-- `allowlist`：只允许 `allowed_users` 中的用户。
-- `disabled`：禁用私聊入口。
+- `open`: all DM users can access the agent directly.
+- `pairing`: unknown DM users first receive a pairing code and can access the agent only after approval.
+- `allowlist`: only users in `allowed_users` are allowed.
+- `disabled`: the DM entry is disabled.
 
-pairing 模式下，用户首次私聊会收到批准命令提示。也可以手动查看和批准：
+In pairing mode, a user receives an approval command hint on their first DM. You can also list and approve pairings manually:
 
 ```bash
 uv run navi-agent --gateway-pairings weixin
 uv run navi-agent --approve-gateway-pairing 123456
 ```
 
-当前先保留文本消息和私聊授权的最小闭环，其他能力后续再补。
+For now, only the minimal closed loop of text messages and DM authorization is kept; other capabilities will be added later.
 
-## 一句话定义
+## One-Line Definition
 
-Navi Agent = 一个以微信为起点、以持续进化为目标的最小 Agent 内核。
+Navi Agent = a minimal agent kernel that starts from WeChat and aims for continuous evolution.
 
-## 命令
+## Commands
 
 ```bash
 uv run navi-agent --workflow-kind ifeval --workflow-phase review
@@ -68,8 +70,8 @@ uv run navi-agent --workflow-kind ifeval --workflow-phase report
 uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-name agent-healthcheck
 ```
 
-## 评测
+## Evaluation
 
-- 在线会话进 runtime，离线只看稳定样本
-- IFEval 用统一 workflow 跑分并写报告
-- 新样本先人工确认，再进 `data/eval/` 回归
+- Online sessions go through the runtime; offline evaluation only uses stable samples
+- IFEval runs scoring through the unified workflow and writes reports
+- New samples are manually confirmed first, then added to the `data/eval/` regression set
