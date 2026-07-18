@@ -116,13 +116,21 @@ class FakeSkillStore:
             },
         )()
 
+    def remove(self, name):
+        return self.items.pop(name, None) is not None
+
 
 class FakeSkillProvenanceStore:
     def __init__(self) -> None:
         self.records = []
+        self.removed = []
 
     def mark_agent_created(self, *, skill_name, candidate):
         self.records.append((skill_name, candidate.candidate_id))
+
+    def remove(self, skill_name):
+        self.removed.append(skill_name)
+        return True
 
 
 class ApplicationServiceTests(unittest.TestCase):
@@ -576,6 +584,35 @@ class ApplicationServiceTests(unittest.TestCase):
 
         self.assertIsNone(updated)
         self.assertIsNone(overlay_store.text)
+
+    def test_rollback_skill_candidate_removes_skill_and_provenance(self) -> None:
+        skill_store = FakeSkillStore()
+        provenance_store = FakeSkillProvenanceStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=FakeCandidateStore(),
+            skill_store=skill_store,
+            skill_provenance_store=provenance_store,
+        )
+        candidate = EvolutionCandidate(
+            target="skill",
+            summary="Create skill",
+            rationale="Reusable procedure",
+            metadata={
+                "skill_name": "readme-summary",
+                "skill_content": "# README Summary\n",
+            },
+        )
+        service.add_candidate(candidate)
+        service.apply_candidate(candidate.candidate_id)
+
+        updated = service.rollback_candidate(candidate.candidate_id, review_note="gate failed")
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "regressed_after_apply")
+        self.assertEqual(updated.review_note, "gate failed")
+        self.assertNotIn("readme-summary", skill_store.items)
+        self.assertEqual(provenance_store.removed, ["readme-summary"])
 
     def test_add_and_list_eval_cases_use_store(self) -> None:
         service = ApplicationService(

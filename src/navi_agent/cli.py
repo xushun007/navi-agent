@@ -941,11 +941,15 @@ def _run_skill_apply_gate(*, app, candidate_id: str) -> str | None:
     for result in summary.results:
         result_status = "pass" if result.passed else "fail"
         print(f"{result.name} [{result_status}] {result.summary}")
-    updated = app.update_candidate_status(
-        candidate_id,
-        status,
-        review_note=f"skill apply smoke gate report={summary.report_path}",
-    )
+    review_note = f"skill apply smoke gate report={summary.report_path}"
+    if passed:
+        updated = app.update_candidate_status(candidate_id, status, review_note=review_note)
+    else:
+        updated = app.rollback_candidate(
+            candidate_id,
+            status=status,
+            review_note=f"rolled back after failed skill apply smoke gate report={summary.report_path}",
+        )
     return getattr(updated, "status", None)
 
 

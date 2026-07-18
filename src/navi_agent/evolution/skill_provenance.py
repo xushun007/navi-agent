@@ -54,6 +54,14 @@ class SkillProvenanceStore:
         record = self.get(skill_name)
         return record is not None and record.origin == "agent"
 
+    def remove(self, skill_name: str) -> bool:
+        records = self._read()
+        if skill_name not in records:
+            return False
+        del records[skill_name]
+        self._write(records)
+        return True
+
     def list(self) -> list[SkillProvenanceRecord]:
         return [
             SkillProvenanceRecord(**payload)

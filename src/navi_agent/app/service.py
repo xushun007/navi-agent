@@ -187,6 +187,32 @@ class ApplicationService:
             review_note=note,
         )
 
+    def rollback_candidate(
+        self,
+        candidate_id: str,
+        *,
+        status: str = "regressed_after_apply",
+        review_note: str | None = None,
+    ) -> EvolutionCandidate | None:
+        candidate = self.get_candidate(candidate_id)
+        if candidate is None:
+            return None
+        if candidate.target != "skill":
+            return None
+        if self._skill_store is None:
+            return None
+        skill_name = (candidate.metadata or {}).get("skill_name")
+        if not isinstance(skill_name, str) or not skill_name.strip():
+            return None
+        self._skill_store.remove(skill_name)
+        if self._skill_provenance_store is not None:
+            self._skill_provenance_store.remove(skill_name)
+        return self.update_candidate_status(
+            candidate_id,
+            status,
+            review_note=review_note or f"rolled back skill {skill_name}",
+        )
+
     def list_candidates(
         self,
         limit: int | None = None,

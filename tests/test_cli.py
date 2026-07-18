@@ -24,6 +24,7 @@ class FakeApp:
         self.saved_candidates = []
         self.saved_eval_cases = []
         self.applied_candidate = None
+        self.rolled_back_candidate = None
 
     def handle(self, request):
         self.calls.append(request)
@@ -63,6 +64,12 @@ class FakeApp:
         candidate = self.update_candidate_status(candidate_id, "applied", review_note=review_note)
         if candidate is not None:
             self.applied_candidate = candidate
+        return candidate
+
+    def rollback_candidate(self, candidate_id, status="regressed_after_apply", review_note=None):
+        candidate = self.update_candidate_status(candidate_id, status, review_note=review_note)
+        if candidate is not None:
+            self.rolled_back_candidate = candidate
         return candidate
 
 
@@ -957,6 +964,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("doctor [fail] doctor failed", stdout.getvalue())
         self.assertIn("candidate_status: regressed_after_apply", stdout.getvalue())
         self.assertEqual(fake_app.saved_candidates[0].status, "regressed_after_apply")
+        self.assertIs(fake_app.rolled_back_candidate, fake_app.saved_candidates[0])
 
     def test_main_lists_skills(self) -> None:
         stdout = io.StringIO()

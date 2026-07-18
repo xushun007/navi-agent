@@ -66,6 +66,17 @@ def test_does_not_apply_pending_skill_candidate(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
+def test_removes_skill_directory(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    record = store.create(name="readme-summary", content="# README Summary\n")
+
+    removed = store.remove("readme-summary")
+
+    assert removed
+    assert not record.path.exists()
+    assert store.get("readme-summary") is None
+
+
 def test_search_returns_relevant_skills(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
     store.create(

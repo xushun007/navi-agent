@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +49,16 @@ class FileSkillStore:
             content=content,
             path=skill_path,
         )
+
+    def remove(self, name: str) -> bool:
+        name = _normalize_skill_name(name)
+        skill_dir = self._root / name
+        if not skill_dir.exists():
+            return False
+        if not skill_dir.is_dir():
+            return False
+        shutil.rmtree(skill_dir)
+        return True
 
     def list(self) -> list[SkillRecord]:
         if not self._root.exists():
