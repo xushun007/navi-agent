@@ -99,6 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-skills", action="store_true")
     parser.add_argument("--skill-status", action="store_true")
     parser.add_argument("--skill-curator-status", action="store_true")
+    parser.add_argument("--background-review-status", action="store_true")
     return parser
 
 
@@ -128,6 +129,11 @@ def main() -> int:
         return _print_skill_status()
     if args.skill_curator_status:
         return _print_skill_curator_status()
+    if args.background_review_status:
+        return _print_background_review_status(
+            system_prompt=args.system_prompt,
+            yolo=args.yolo,
+        )
     if args.eval_seed_status:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
@@ -230,6 +236,7 @@ def main() -> int:
         and not args.list_skills
         and not args.skill_status
         and not args.skill_curator_status
+        and not args.background_review_status
         and not args.eval_seed_status
         and not args.list_eval_seeds
         and not args.eval_seed_report
@@ -1008,6 +1015,29 @@ def _print_skill_curator_status() -> int:
         print(f"  injected_count: {record.injected_count}")
         print(f"  last_injected_at: {record.last_injected_at or 'never'}")
         print(f"  candidate_action: {record.candidate_action}")
+    return 0
+
+
+def _print_background_review_status(
+    *,
+    system_prompt: str | None,
+    yolo: bool = False,
+) -> int:
+    app = build_application(
+        default_system_prompt=system_prompt,
+        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+    )
+    status = app.get_background_review_status()
+    print("background_review: skill")
+    if status is None:
+        print("background_review_enabled: false")
+        return 0
+    print("background_review_enabled: true")
+    print(f"background_review_running: {str(status.running).lower()}")
+    print(f"background_review_pending_count: {status.pending_count}")
+    print(f"background_review_submitted_count: {status.submitted_count}")
+    print(f"background_review_completed_count: {status.completed_count}")
+    print(f"background_review_failed_count: {status.failed_count}")
     return 0
 
 

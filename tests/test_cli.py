@@ -72,6 +72,9 @@ class FakeApp:
             self.rolled_back_candidate = candidate
         return candidate
 
+    def get_background_review_status(self):
+        return getattr(self, "background_review_status", None)
+
 
 class FakeSessionStore:
     def __init__(self, messages):
@@ -1049,6 +1052,47 @@ class CliTests(unittest.TestCase):
         self.assertIn("- readme-summary: Summarize README files", stdout.getvalue())
         self.assertIn("origin: agent", stdout.getvalue())
         self.assertIn("candidate_action: review-unused", stdout.getvalue())
+
+    def test_main_prints_background_review_status(self) -> None:
+        fake_app = FakeApp()
+        fake_app.background_review_status = type(
+            "BackgroundReviewStatus",
+            (),
+            {
+                "running": True,
+                "pending_count": 1,
+                "submitted_count": 3,
+                "completed_count": 2,
+                "failed_count": 0,
+            },
+        )()
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("sys.argv", ["navi-agent", "--background-review-status"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("background_review: skill", stdout.getvalue())
+        self.assertIn("background_review_enabled: true", stdout.getvalue())
+        self.assertIn("background_review_running: true", stdout.getvalue())
+        self.assertIn("background_review_pending_count: 1", stdout.getvalue())
+        self.assertIn("background_review_submitted_count: 3", stdout.getvalue())
+        self.assertIn("background_review_completed_count: 2", stdout.getvalue())
+        self.assertIn("background_review_failed_count: 0", stdout.getvalue())
+
+    def test_main_prints_disabled_background_review_status(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("sys.argv", ["navi-agent", "--background-review-status"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("background_review_enabled: false", stdout.getvalue())
 
 
 if __name__ == "__main__":
