@@ -7,6 +7,7 @@ from .seed import EvalSeed, EvalSeedReportRecord, EvalSeedReportStore, EvalSeedR
 from .prompt_overlay import PromptOverlayEntry, PromptOverlayStore
 from .report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
 from .review import ReviewLoopService, ReviewLoopSummary
+from .skill_curator import SkillCuratorRecord, SkillCuratorStatus, SkillCuratorStatusService
 from .skill_provenance import SkillProvenanceRecord, SkillProvenanceStore
 from .skill_review import SkillReviewDecision, SkillReviewService
 from .skill_usage import SkillUsageRecord, SkillUsageService
@@ -62,6 +63,9 @@ __all__ = [
     "IfevalWorkflowService",
     "SimpleEvaluator",
     "SkillRecord",
+    "SkillCuratorRecord",
+    "SkillCuratorStatus",
+    "SkillCuratorStatusService",
     "SkillProvenanceRecord",
     "SkillProvenanceStore",
     "SkillReviewDecision",

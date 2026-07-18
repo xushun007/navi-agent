@@ -27,6 +27,8 @@ from navi_agent.evolution import (
     ToolUseRunStore,
     ToolUseWorkflowService,
     FileSkillStore,
+    SkillCuratorStatusService,
+    SkillProvenanceStore,
     SkillUsageService,
 )
 from navi_agent.smoke import SmokeRunStore, SmokeWorkflowService
@@ -96,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--review-skill", action="store_true")
     parser.add_argument("--list-skills", action="store_true")
     parser.add_argument("--skill-status", action="store_true")
+    parser.add_argument("--skill-curator-status", action="store_true")
     return parser
 
 
@@ -123,6 +126,8 @@ def main() -> int:
         return _list_skills()
     if args.skill_status:
         return _print_skill_status()
+    if args.skill_curator_status:
+        return _print_skill_curator_status()
     if args.eval_seed_status:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
@@ -224,6 +229,7 @@ def main() -> int:
         and not args.review_skill
         and not args.list_skills
         and not args.skill_status
+        and not args.skill_curator_status
         and not args.eval_seed_status
         and not args.list_eval_seeds
         and not args.eval_seed_report
@@ -942,6 +948,32 @@ def _print_skill_status() -> int:
         print(f"- {record.name}{description}")
         print(f"  injected_count: {record.injected_count}")
         print(f"  last_injected_at: {record.last_injected_at or 'never'}")
+    return 0
+
+
+def _print_skill_curator_status() -> int:
+    status = SkillCuratorStatusService(
+        usage_service=SkillUsageService(
+            skill_store=FileSkillStore(get_skills_dir()),
+            trace_store=JsonlTraceStore(get_trace_store_path()),
+        ),
+        provenance_store=SkillProvenanceStore(get_skills_dir()),
+    ).summarize()
+    print(f"skills_dir: {get_skills_dir()}")
+    print(f"trace_store_path: {get_trace_store_path()}")
+    print(f"skill_count: {status.skill_count}")
+    print(f"agent_created_count: {status.agent_created_count}")
+    print(f"manual_count: {status.manual_count}")
+    print(f"unused_agent_created_count: {status.unused_agent_created_count}")
+    if not status.records:
+        return 0
+    for record in status.records:
+        description = f": {record.description}" if record.description else ""
+        print(f"- {record.name}{description}")
+        print(f"  origin: {record.origin}")
+        print(f"  injected_count: {record.injected_count}")
+        print(f"  last_injected_at: {record.last_injected_at or 'never'}")
+        print(f"  candidate_action: {record.candidate_action}")
     return 0
 
 
