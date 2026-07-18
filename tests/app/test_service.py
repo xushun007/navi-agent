@@ -359,8 +359,15 @@ class ApplicationServiceTests(unittest.TestCase):
         service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
 
         self.assertEqual(candidate_store.items, [])
+        submitted_status = service.get_background_review_status()
+        self.assertIsNotNone(submitted_status)
+        self.assertEqual(submitted_status.submitted_count, 1)
         unblock_review.set()
         service.wait_for_background_reviews()
+        completed_status = service.get_background_review_status()
+        self.assertIsNotNone(completed_status)
+        self.assertEqual(completed_status.completed_count, 1)
+        self.assertEqual(completed_status.failed_count, 0)
         self.assertEqual(review_service.reviewed_traces, [runtime.latest_trace])
         self.assertEqual(candidate_store.items, [review_candidate])
 

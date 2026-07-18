@@ -14,9 +14,17 @@ def test_background_skill_review_worker_runs_submitted_trace() -> None:
     )
 
     worker.submit(trace)
+    submitted = worker.status()
+    assert submitted.submitted_count == 1
+    assert submitted.pending_count >= 0
+    assert submitted.running
     worker.drain()
 
     assert reviewed == [trace]
+    drained = worker.status()
+    assert drained.completed_count == 1
+    assert drained.failed_count == 0
+    assert drained.pending_count == 0
 
 
 def test_background_skill_review_worker_survives_review_error() -> None:
@@ -50,3 +58,8 @@ def test_background_skill_review_worker_survives_review_error() -> None:
     worker.drain()
 
     assert reviewed == ["trace-1", "trace-2"]
+    status = worker.status()
+    assert status.submitted_count == 2
+    assert status.completed_count == 1
+    assert status.failed_count == 1
+    assert status.pending_count == 0

@@ -1,4 +1,4 @@
-from .background_review import BackgroundSkillReviewWorker
+from .background_review import BackgroundSkillReviewStatus, BackgroundSkillReviewWorker
 from .evaluator import SimpleEvaluator
 from .ifeval import IfevalEvaluationResult, IfevalEvaluator, IfevalInstructionResult, IfevalRunRecord, IfevalRunStore, IfevalRunWriter
 from .jsonl_store import JsonlCandidateStore, JsonlEvalCaseStore
@@ -29,6 +29,7 @@ from .store import CandidateStore, EvalCaseStore
 
 __all__ = [
     "CandidateStore",
+    "BackgroundSkillReviewStatus",
     "BackgroundSkillReviewWorker",
     "EvaluationResult",
     "EvolutionReportRecord",

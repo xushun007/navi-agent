@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from navi_agent.evolution import (
+    BackgroundSkillReviewStatus,
     BackgroundSkillReviewWorker,
     CandidateStore,
     EvolutionCandidate,
@@ -269,6 +270,11 @@ class ApplicationService:
         if self._background_skill_review is None:
             return
         self._background_skill_review.drain()
+
+    def get_background_review_status(self) -> BackgroundSkillReviewStatus | None:
+        if self._background_skill_review is None:
+            return None
+        return self._background_skill_review.status()
 
     def _propose_and_add_skill_candidate(self, trace: RuntimeTrace) -> None:
         if self._skill_review_service is not None:

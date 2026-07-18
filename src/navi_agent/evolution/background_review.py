@@ -3,11 +3,21 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+from dataclasses import dataclass
 from collections.abc import Callable
 
 from navi_agent.telemetry import RuntimeTrace
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundSkillReviewStatus:
+    submitted_count: int
+    completed_count: int
+    failed_count: int
+    pending_count: int
+    running: bool
 
 
 class BackgroundSkillReviewWorker:
@@ -20,13 +30,38 @@ class BackgroundSkillReviewWorker:
         self._queue: queue.Queue[RuntimeTrace] = queue.Queue()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._submitted_count = 0
+        self._completed_count = 0
+        self._failed_count = 0
 
     def submit(self, trace: RuntimeTrace) -> None:
         self._ensure_started()
+        with self._lock:
+            self._submitted_count += 1
+        logger.info(
+            "Submitted background skill review: trace_id=%s session_id=%s pending=%s",
+            trace.trace_id,
+            trace.session_id,
+            self._queue.qsize() + 1,
+        )
         self._queue.put(trace)
 
     def drain(self) -> None:
         self._queue.join()
+
+    def status(self) -> BackgroundSkillReviewStatus:
+        with self._lock:
+            submitted_count = self._submitted_count
+            completed_count = self._completed_count
+            failed_count = self._failed_count
+            running = self._thread is not None and self._thread.is_alive()
+        return BackgroundSkillReviewStatus(
+            submitted_count=submitted_count,
+            completed_count=completed_count,
+            failed_count=failed_count,
+            pending_count=self._queue.qsize(),
+            running=running,
+        )
 
     def _ensure_started(self) -> None:
         with self._lock:
@@ -43,8 +78,23 @@ class BackgroundSkillReviewWorker:
         while True:
             trace = self._queue.get()
             try:
+                logger.info(
+                    "Starting background skill review: trace_id=%s session_id=%s",
+                    trace.trace_id,
+                    trace.session_id,
+                )
                 self._review_trace(trace)
+                with self._lock:
+                    self._completed_count += 1
+                logger.info(
+                    "Completed background skill review: trace_id=%s session_id=%s pending=%s",
+                    trace.trace_id,
+                    trace.session_id,
+                    self._queue.qsize(),
+                )
             except Exception:
+                with self._lock:
+                    self._failed_count += 1
                 logger.exception("Background skill review failed: trace_id=%s", trace.trace_id)
             finally:
                 self._queue.task_done()
