@@ -15,6 +15,7 @@ from navi_agent.evolution import (
 from navi_agent.evolution import EvalSeedStore
 from navi_agent.cli import _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult, WorkspaceYoloApprovalProvider
+from navi_agent.smoke import SmokeCheckResult, SmokeRunSummary
 
 
 class FakeApp:
@@ -869,9 +870,18 @@ class CliTests(unittest.TestCase):
 
         with patch("navi_agent.cli.build_application", return_value=fake_app):
             with patch("builtins.input", return_value="y"):
-                with patch("sys.argv", ["navi-agent", "--review-skill"]):
-                    with redirect_stdout(stdout):
-                        exit_code = main()
+                with patch("navi_agent.cli.SmokeWorkflowService") as smoke_cls:
+                    smoke_cls.return_value.run.return_value = SmokeRunSummary(
+                        count=1,
+                        passed_count=1,
+                        failed_count=0,
+                        pass_rate=1.0,
+                        results=[SmokeCheckResult(name="doctor", passed=True, summary="doctor ok")],
+                        report_path=Path("/tmp/smoke/report.json"),
+                    )
+                    with patch("sys.argv", ["navi-agent", "--review-skill"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("skill review:", stdout.getvalue())
@@ -883,7 +893,9 @@ class CliTests(unittest.TestCase):
         self.assertIn("--- BEGIN SKILL.md ---", stdout.getvalue())
         self.assertIn("# README Summary", stdout.getvalue())
         self.assertIn("--- END SKILL.md ---", stdout.getvalue())
-        self.assertIn("candidate_status: applied", stdout.getvalue())
+        self.assertIn("skill_apply_gate: smoke", stdout.getvalue())
+        self.assertIn("skill_apply_gate_failed_count: 0", stdout.getvalue())
+        self.assertIn("candidate_status: verified", stdout.getvalue())
         self.assertIs(fake_app.applied_candidate, fake_app.saved_candidates[0])
 
     def test_main_reviews_and_rejects_skill_candidate(self) -> None:
@@ -908,6 +920,43 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("candidate_status: rejected", stdout.getvalue())
         self.assertEqual(fake_app.saved_candidates[0].status, "rejected")
+
+    def test_main_marks_skill_candidate_regressed_when_apply_gate_fails(self) -> None:
+        fake_app = FakeApp()
+        fake_app.saved_candidates.append(
+            EvolutionCandidate(
+                target="skill",
+                summary="Create README summary skill",
+                rationale="Successful tool trace",
+                candidate_id="skill-1",
+                metadata={
+                    "skill_name": "readme-summary",
+                    "skill_content": "# README Summary\n",
+                },
+            )
+        )
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("builtins.input", return_value="y"):
+                with patch("navi_agent.cli.SmokeWorkflowService") as smoke_cls:
+                    smoke_cls.return_value.run.return_value = SmokeRunSummary(
+                        count=1,
+                        passed_count=0,
+                        failed_count=1,
+                        pass_rate=0.0,
+                        results=[SmokeCheckResult(name="doctor", passed=False, summary="doctor failed")],
+                        report_path=Path("/tmp/smoke/report.json"),
+                    )
+                    with patch("sys.argv", ["navi-agent", "--review-skill"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("skill_apply_gate_failed_count: 1", stdout.getvalue())
+        self.assertIn("doctor [fail] doctor failed", stdout.getvalue())
+        self.assertIn("candidate_status: regressed_after_apply", stdout.getvalue())
+        self.assertEqual(fake_app.saved_candidates[0].status, "regressed_after_apply")
 
     def test_main_lists_skills(self) -> None:
         stdout = io.StringIO()

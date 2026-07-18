@@ -911,7 +911,8 @@ def _review_skill(
             if updated is None:
                 print(f"candidate cannot be applied: {candidate.candidate_id}")
                 return 1
-            print(f"candidate_status: {updated.status}")
+            gate_status = _run_skill_apply_gate(app=app, candidate_id=candidate.candidate_id)
+            print(f"candidate_status: {gate_status or updated.status}")
             return 0
         if answer in {"", "n", "no"}:
             updated = app.update_candidate_status(
@@ -925,6 +926,27 @@ def _review_skill(
             print(f"candidate_status: {updated.status}")
             return 0
         print("please answer y or n")
+
+
+def _run_skill_apply_gate(*, app, candidate_id: str) -> str | None:
+    summary = SmokeWorkflowService().run()
+    passed = summary.failed_count == 0
+    status = "verified" if passed else "regressed_after_apply"
+    print("skill_apply_gate: smoke")
+    print(f"skill_apply_gate_report_path: {summary.report_path}")
+    print(f"skill_apply_gate_count: {summary.count}")
+    print(f"skill_apply_gate_passed_count: {summary.passed_count}")
+    print(f"skill_apply_gate_failed_count: {summary.failed_count}")
+    print(f"skill_apply_gate_pass_rate: {summary.pass_rate}")
+    for result in summary.results:
+        result_status = "pass" if result.passed else "fail"
+        print(f"{result.name} [{result_status}] {result.summary}")
+    updated = app.update_candidate_status(
+        candidate_id,
+        status,
+        review_note=f"skill apply smoke gate report={summary.report_path}",
+    )
+    return getattr(updated, "status", None)
 
 
 def _list_skills() -> int:
