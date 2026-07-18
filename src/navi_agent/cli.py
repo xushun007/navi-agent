@@ -259,6 +259,7 @@ def main() -> int:
         )
     )
     print(result.final_response)
+    _drain_background_reviews(app)
     return 0
 
 
@@ -1359,6 +1360,7 @@ def _run_interactive(
         if not message:
             continue
         if message.lower() in {"exit", "quit"}:
+            _drain_background_reviews(app)
             return 0
         result = app.handle(
             AppRequest(
@@ -1369,6 +1371,12 @@ def _run_interactive(
             )
         )
         print(result.final_response)
+
+
+def _drain_background_reviews(app) -> None:
+    drain = getattr(app, "wait_for_background_reviews", None)
+    if callable(drain):
+        drain()
 
 
 if __name__ == "__main__":

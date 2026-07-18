@@ -1,3 +1,4 @@
+import threading
 import unittest
 
 from navi_agent.app import AppRequest, ApplicationService
@@ -131,6 +132,23 @@ class FakeSkillProvenanceStore:
     def remove(self, skill_name):
         self.removed.append(skill_name)
         return True
+
+
+class FakeSkillReviewService:
+    def __init__(
+        self,
+        candidate: EvolutionCandidate | None = None,
+        unblock_event: threading.Event | None = None,
+    ) -> None:
+        self.candidate = candidate
+        self.unblock_event = unblock_event
+        self.reviewed_traces = []
+
+    def propose_candidate(self, trace):
+        self.reviewed_traces.append(trace)
+        if self.unblock_event is not None:
+            self.unblock_event.wait(timeout=2)
+        return self.candidate
 
 
 class ApplicationServiceTests(unittest.TestCase):
@@ -301,6 +319,50 @@ class ApplicationServiceTests(unittest.TestCase):
             [candidate.target for candidate in candidate_store.items],
             [],
         )
+
+    def test_handle_runs_skill_review_service_in_background(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Summarize README",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="read_file",
+                    status="success",
+                )
+            ],
+        )
+        candidate_store = FakeCandidateStore()
+        review_candidate = EvolutionCandidate(
+            target="skill",
+            summary="Create README skill",
+            rationale="Reusable procedure",
+            metadata={
+                "skill_name": "readme-summary",
+                "source_trace_id": "trace-1",
+            },
+        )
+        unblock_review = threading.Event()
+        review_service = FakeSkillReviewService(review_candidate, unblock_event=unblock_review)
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=candidate_store,
+            skill_review_service=review_service,
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+
+        self.assertEqual(candidate_store.items, [])
+        unblock_review.set()
+        service.wait_for_background_reviews()
+        self.assertEqual(review_service.reviewed_traces, [runtime.latest_trace])
+        self.assertEqual(candidate_store.items, [review_candidate])
 
     def test_add_and_list_candidates_use_store(self) -> None:
         service = ApplicationService(

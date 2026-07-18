@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from navi_agent.evolution import (
+    BackgroundSkillReviewWorker,
     CandidateStore,
     EvolutionCandidate,
     EvolutionEngine,
@@ -58,6 +59,11 @@ class ApplicationService:
         self._skill_review_service = skill_review_service
         self._evaluator = SimpleEvaluator()
         self._evolution_engine = EvolutionEngine()
+        self._background_skill_review = (
+            BackgroundSkillReviewWorker(review_trace=self._propose_and_add_skill_candidate)
+            if skill_review_service is not None
+            else None
+        )
 
     def handle(self, request: AppRequest) -> RuntimeResult:
         session_id = request.session_id or self._new_session_id()
@@ -254,12 +260,23 @@ class ApplicationService:
             if candidate is not None:
                 self.add_candidate(candidate)
         if auto_propose_skill:
-            if self._skill_review_service is not None:
-                candidate = self._skill_review_service.propose_candidate(trace)
+            if self._background_skill_review is not None:
+                self._background_skill_review.submit(trace)
             else:
-                candidate = self._evolution_engine.propose_skill_candidate(trace)
-            if candidate is not None and not self._skill_exists(candidate):
-                self.add_candidate(candidate)
+                self._propose_and_add_skill_candidate(trace)
+
+    def wait_for_background_reviews(self) -> None:
+        if self._background_skill_review is None:
+            return
+        self._background_skill_review.drain()
+
+    def _propose_and_add_skill_candidate(self, trace: RuntimeTrace) -> None:
+        if self._skill_review_service is not None:
+            candidate = self._skill_review_service.propose_candidate(trace)
+        else:
+            candidate = self._evolution_engine.propose_skill_candidate(trace)
+        if candidate is not None and not self._skill_exists(candidate):
+            self.add_candidate(candidate)
 
     def _find_superseded_candidates(
         self,
