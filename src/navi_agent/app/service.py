@@ -12,6 +12,7 @@ from navi_agent.evolution import (
     EvalCase,
     EvalCaseStore,
     FileSkillStore,
+    SkillProvenanceStore,
     SkillReviewService,
 )
 from navi_agent.runtime import AgentRuntime, RuntimeResult
@@ -44,6 +45,7 @@ class ApplicationService:
         eval_case_store: EvalCaseStore | None = None,
         prompt_overlay_store: PromptOverlayStore | None = None,
         skill_store: FileSkillStore | None = None,
+        skill_provenance_store: SkillProvenanceStore | None = None,
         skill_review_service: SkillReviewService | None = None,
     ) -> None:
         self._runtime = runtime
@@ -52,6 +54,7 @@ class ApplicationService:
         self._eval_case_store = eval_case_store
         self._prompt_overlay_store = prompt_overlay_store
         self._skill_store = skill_store
+        self._skill_provenance_store = skill_provenance_store
         self._skill_review_service = skill_review_service
         self._evaluator = SimpleEvaluator()
         self._evolution_engine = EvolutionEngine()
@@ -170,6 +173,11 @@ class ApplicationService:
             )
             if skill is None:
                 return None
+            if self._skill_provenance_store is not None:
+                self._skill_provenance_store.mark_agent_created(
+                    skill_name=skill.name,
+                    candidate=candidate,
+                )
             note = review_note or f"applied skill {skill.name}"
         else:
             return None

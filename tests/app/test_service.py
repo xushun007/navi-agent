@@ -117,6 +117,14 @@ class FakeSkillStore:
         )()
 
 
+class FakeSkillProvenanceStore:
+    def __init__(self) -> None:
+        self.records = []
+
+    def mark_agent_created(self, *, skill_name, candidate):
+        self.records.append((skill_name, candidate.candidate_id))
+
+
 class ApplicationServiceTests(unittest.TestCase):
     def test_handle_uses_existing_session_id(self) -> None:
         runtime = FakeRuntime()
@@ -524,10 +532,12 @@ class ApplicationServiceTests(unittest.TestCase):
 
     def test_apply_skill_candidate_uses_skill_store(self) -> None:
         skill_store = FakeSkillStore()
+        provenance_store = FakeSkillProvenanceStore()
         service = ApplicationService(
             runtime=FakeRuntime(),
             candidate_store=FakeCandidateStore(),
             skill_store=skill_store,
+            skill_provenance_store=provenance_store,
         )
         candidate = EvolutionCandidate(
             target="skill",
@@ -546,6 +556,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(updated.status, "applied")
         self.assertEqual(updated.review_note, "applied skill readme-summary")
         self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
+        self.assertEqual(provenance_store.records, [("readme-summary", candidate.candidate_id)])
 
     def test_apply_unsupported_candidate_is_rejected(self) -> None:
         overlay_store = FakePromptOverlayStore()

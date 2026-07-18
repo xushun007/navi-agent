@@ -10,6 +10,7 @@ from navi_agent.evolution import (
     JsonlCandidateStore,
     JsonlEvalCaseStore,
     PromptOverlayStore,
+    SkillProvenanceStore,
     SkillReviewService,
 )
 from navi_agent.logging import setup_logging
@@ -103,6 +104,7 @@ def build_application(
         eval_case_store=JsonlEvalCaseStore(get_eval_case_store_path()),
         prompt_overlay_store=prompt_overlay_store,
         skill_store=skill_store,
+        skill_provenance_store=SkillProvenanceStore(get_skills_dir()),
         skill_review_service=SkillReviewService(
             transport=build_transport(review_model_settings),
             skill_store=skill_store,
