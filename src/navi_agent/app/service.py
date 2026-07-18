@@ -9,6 +9,7 @@ from navi_agent.evolution import (
     CandidateStore,
     EvolutionCandidate,
     EvolutionEngine,
+    NudgeReviewTriggerPolicy,
     SimpleEvaluator,
     PromptOverlayStore,
     EvalCase,
@@ -16,6 +17,7 @@ from navi_agent.evolution import (
     FileSkillStore,
     SkillProvenanceStore,
     SkillReviewService,
+    ReviewTriggerPolicy,
 )
 from navi_agent.runtime import AgentRuntime, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
@@ -49,6 +51,7 @@ class ApplicationService:
         skill_store: FileSkillStore | None = None,
         skill_provenance_store: SkillProvenanceStore | None = None,
         skill_review_service: SkillReviewService | None = None,
+        review_trigger_policy: ReviewTriggerPolicy | None = None,
     ) -> None:
         self._runtime = runtime
         self._default_system_prompt = default_system_prompt
@@ -58,6 +61,7 @@ class ApplicationService:
         self._skill_store = skill_store
         self._skill_provenance_store = skill_provenance_store
         self._skill_review_service = skill_review_service
+        self._review_trigger_policy = review_trigger_policy or NudgeReviewTriggerPolicy()
         self._evaluator = SimpleEvaluator()
         self._evolution_engine = EvolutionEngine()
         self._background_skill_review = (
@@ -261,9 +265,14 @@ class ApplicationService:
             if candidate is not None:
                 self.add_candidate(candidate)
         if auto_propose_skill:
-            if self._background_skill_review is not None:
+            decision = self._review_trigger_policy.decide(trace)
+            if decision.review_memory:
+                # Navi does not yet have a background memory reviewer. Keep the
+                # memory nudge decision visible in policy state without writing.
+                pass
+            if self._background_skill_review is not None and decision.review_skill:
                 self._background_skill_review.submit(trace)
-            else:
+            elif self._background_skill_review is None:
                 self._propose_and_add_skill_candidate(trace)
 
     def wait_for_background_reviews(self) -> None:

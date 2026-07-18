@@ -8,6 +8,7 @@ from .seed import EvalSeed, EvalSeedReportRecord, EvalSeedReportStore, EvalSeedR
 from .prompt_overlay import PromptOverlayEntry, PromptOverlayStore
 from .report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
 from .review import ReviewLoopService, ReviewLoopSummary
+from .review_trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, ReviewTriggerPolicy
 from .skill_curator import SkillCuratorRecord, SkillCuratorStatus, SkillCuratorStatusService
 from .skill_provenance import SkillProvenanceRecord, SkillProvenanceStore
 from .skill_review import SkillReviewDecision, SkillReviewService
@@ -48,6 +49,7 @@ __all__ = [
     "InMemoryEvalCaseStore",
     "JsonlCandidateStore",
     "JsonlEvalCaseStore",
+    "NudgeReviewTriggerPolicy",
     "EvalSeed",
     "EvalSeedReportRecord",
     "EvalSeedReportStore",
@@ -57,6 +59,8 @@ __all__ = [
     "PromptOverlayEntry",
     "ReviewLoopService",
     "ReviewLoopSummary",
+    "ReviewTriggerDecision",
+    "ReviewTriggerPolicy",
     "SkillUsageRecord",
     "SkillUsageService",
     "IfevalReviewResult",

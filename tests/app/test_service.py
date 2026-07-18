@@ -2,7 +2,7 @@ import threading
 import unittest
 
 from navi_agent.app import AppRequest, ApplicationService
-from navi_agent.evolution import EvolutionCandidate, EvalCase
+from navi_agent.evolution import EvolutionCandidate, EvalCase, NudgeReviewTriggerPolicy
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
@@ -354,6 +354,7 @@ class ApplicationServiceTests(unittest.TestCase):
             runtime=runtime,
             candidate_store=candidate_store,
             skill_review_service=review_service,
+            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
         )
 
         service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
