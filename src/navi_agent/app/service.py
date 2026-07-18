@@ -83,6 +83,7 @@ class ApplicationService:
         if system_prompt is None:
             system_prompt = self._default_system_prompt
 
+        self._hydrate_review_trigger(session_id=session_id, user_id=request.user_id)
         result = self._runtime.run_conversation(
             session_id=session_id,
             user_id=request.user_id,
@@ -288,6 +289,17 @@ class ApplicationService:
                 )
             elif self._background_skill_review is None:
                 self._propose_and_add_skill_candidate(trace)
+
+    def _hydrate_review_trigger(self, *, session_id: str, user_id: str) -> None:
+        hydrate = getattr(self._review_trigger_policy, "hydrate", None)
+        if not callable(hydrate):
+            return
+        traces = self._runtime.get_session_traces(session_id, user_id=user_id)
+        hydrate(
+            traces,
+            memory_available=self._memory_review_service is not None,
+            skill_available=self._skill_review_service is not None,
+        )
 
     def wait_for_background_reviews(self) -> None:
         if self._background_skill_review is None:

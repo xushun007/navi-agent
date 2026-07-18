@@ -78,6 +78,34 @@ def test_skill_manage_execution_resets_skill_nudge() -> None:
     assert policy.tool_executions_since_skill == 0
 
 
+def test_hydrates_memory_counter_from_trace_history() -> None:
+    policy = NudgeReviewTriggerPolicy(memory_turn_interval=3, skill_tool_interval=0)
+
+    policy.hydrate([_trace(), _trace()])
+
+    assert policy.turns_since_memory == 2
+    decision = policy.decide(_trace())
+    assert decision.review_memory
+
+
+def test_hydrates_memory_counter_with_foreground_memory_reset() -> None:
+    policy = NudgeReviewTriggerPolicy(memory_turn_interval=3, skill_tool_interval=0)
+
+    policy.hydrate([_trace(), _trace(tool_names=["memory"]), _trace()])
+
+    assert policy.turns_since_memory == 1
+
+
+def test_hydrates_skill_counter_from_tool_history() -> None:
+    policy = NudgeReviewTriggerPolicy(memory_turn_interval=0, skill_tool_interval=4)
+
+    policy.hydrate([_trace(tool_count=2), _trace(tool_count=1)])
+
+    assert policy.tool_executions_since_skill == 3
+    decision = policy.decide(_trace(tool_count=1))
+    assert decision.review_skill
+
+
 def test_negative_intervals_are_rejected() -> None:
     with pytest.raises(ValueError):
         NudgeReviewTriggerPolicy(memory_turn_interval=-1)

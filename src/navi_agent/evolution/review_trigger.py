@@ -51,6 +51,22 @@ class NudgeReviewTriggerPolicy:
     def tool_executions_since_skill(self) -> int:
         return self._tool_executions_since_skill
 
+    def hydrate(
+        self,
+        traces: list[RuntimeTrace],
+        *,
+        memory_available: bool = True,
+        skill_available: bool = True,
+    ) -> None:
+        self._turns_since_memory = 0
+        self._tool_executions_since_skill = 0
+        for trace in traces:
+            self._hydrate_trace(
+                trace,
+                memory_available=memory_available,
+                skill_available=skill_available,
+            )
+
     def decide(
         self,
         trace: RuntimeTrace,
@@ -88,6 +104,27 @@ class NudgeReviewTriggerPolicy:
             review_skill=review_skill,
             reasons=reasons,
         )
+
+    def _hydrate_trace(
+        self,
+        trace: RuntimeTrace,
+        *,
+        memory_available: bool,
+        skill_available: bool,
+    ) -> None:
+        if trace.status != "success" or not trace.final_response.strip():
+            return
+        if _has_tool_execution(trace, "memory"):
+            self._turns_since_memory = 0
+        elif memory_available and self._memory_turn_interval > 0:
+            self._turns_since_memory = (self._turns_since_memory + 1) % self._memory_turn_interval
+
+        if _has_tool_execution(trace, "skill_manage"):
+            self._tool_executions_since_skill = 0
+        elif skill_available and self._skill_tool_interval > 0 and trace.tool_executions:
+            self._tool_executions_since_skill = (
+                self._tool_executions_since_skill + len(trace.tool_executions)
+            ) % self._skill_tool_interval
 
 
 def _has_tool_execution(trace: RuntimeTrace, tool_name: str) -> bool:

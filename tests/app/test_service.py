@@ -466,6 +466,42 @@ class ApplicationServiceTests(unittest.TestCase):
         service.wait_for_background_reviews()
         self.assertEqual(memory_review_service.reviewed_traces, [runtime.latest_trace])
 
+    def test_handle_hydrates_review_trigger_from_session_traces(self) -> None:
+        runtime = FakeRuntime()
+        runtime.session_traces = [
+            RuntimeTrace(
+                session_id="s1",
+                user_id="u1",
+                user_message="previous",
+                final_response="done",
+                status="success",
+                trace_id="trace-0",
+            )
+        ]
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="current",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+        )
+        memory_review_service = FakeMemoryReviewService()
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            memory_review_service=memory_review_service,
+            review_trigger_policy=NudgeReviewTriggerPolicy(
+                memory_turn_interval=2,
+                skill_tool_interval=0,
+            ),
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+        service.wait_for_background_reviews()
+
+        self.assertEqual(memory_review_service.reviewed_traces, [runtime.latest_trace])
+
     def test_add_and_list_candidates_use_store(self) -> None:
         service = ApplicationService(
             runtime=FakeRuntime(),
