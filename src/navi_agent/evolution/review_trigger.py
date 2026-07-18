@@ -18,7 +18,13 @@ class ReviewTriggerDecision:
 
 
 class ReviewTriggerPolicy(Protocol):
-    def decide(self, trace: RuntimeTrace) -> ReviewTriggerDecision: ...
+    def decide(
+        self,
+        trace: RuntimeTrace,
+        *,
+        memory_available: bool = True,
+        skill_available: bool = True,
+    ) -> ReviewTriggerDecision: ...
 
 
 class NudgeReviewTriggerPolicy:
@@ -45,7 +51,13 @@ class NudgeReviewTriggerPolicy:
     def tool_executions_since_skill(self) -> int:
         return self._tool_executions_since_skill
 
-    def decide(self, trace: RuntimeTrace) -> ReviewTriggerDecision:
+    def decide(
+        self,
+        trace: RuntimeTrace,
+        *,
+        memory_available: bool = True,
+        skill_available: bool = True,
+    ) -> ReviewTriggerDecision:
         if trace.status != "success" or not trace.final_response.strip():
             return ReviewTriggerDecision()
 
@@ -53,14 +65,18 @@ class NudgeReviewTriggerPolicy:
         review_memory = False
         review_skill = False
 
-        if self._memory_turn_interval > 0:
+        if _has_tool_execution(trace, "memory"):
+            self._turns_since_memory = 0
+        elif memory_available and self._memory_turn_interval > 0:
             self._turns_since_memory += 1
             if self._turns_since_memory >= self._memory_turn_interval:
                 review_memory = True
                 reasons.append("memory_nudge_counter")
                 self._turns_since_memory = 0
 
-        if self._skill_tool_interval > 0 and trace.tool_executions:
+        if _has_tool_execution(trace, "skill_manage"):
+            self._tool_executions_since_skill = 0
+        elif skill_available and self._skill_tool_interval > 0 and trace.tool_executions:
             self._tool_executions_since_skill += len(trace.tool_executions)
             if self._tool_executions_since_skill >= self._skill_tool_interval:
                 review_skill = True
@@ -72,3 +88,7 @@ class NudgeReviewTriggerPolicy:
             review_skill=review_skill,
             reasons=reasons,
         )
+
+
+def _has_tool_execution(trace: RuntimeTrace, tool_name: str) -> bool:
+    return any(execution.tool_name == tool_name for execution in trace.tool_executions)

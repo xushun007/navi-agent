@@ -272,7 +272,11 @@ class ApplicationService:
             if candidate is not None:
                 self.add_candidate(candidate)
         if auto_propose_skill:
-            decision = self._review_trigger_policy.decide(trace)
+            decision = self._review_trigger_policy.decide(
+                trace,
+                memory_available=self._memory_review_service is not None,
+                skill_available=self._skill_review_service is not None,
+            )
             if self._background_skill_review is not None and (
                 (decision.review_memory and self._memory_review_service is not None)
                 or (decision.review_skill and self._skill_review_service is not None)
