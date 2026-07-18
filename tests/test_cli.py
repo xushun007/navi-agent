@@ -860,6 +860,8 @@ class CliTests(unittest.TestCase):
                     "source_session_id": "session-1",
                     "source_trace_id": "trace-1",
                     "tool_names": ["read_file", "bash"],
+                    "reviewer": "llm",
+                    "skill_content": "# README Summary\n\n## When To Use\n\nUse for README summaries.",
                 },
             )
         )
@@ -874,6 +876,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("skill review:", stdout.getvalue())
         self.assertIn("skill_name: readme-summary", stdout.getvalue())
+        self.assertIn("reviewer: llm", stdout.getvalue())
+        self.assertIn("source_session_id: session-1", stdout.getvalue())
+        self.assertIn("source_trace_id: trace-1", stdout.getvalue())
+        self.assertIn("tool_names: read_file,bash", stdout.getvalue())
+        self.assertIn("--- BEGIN SKILL.md ---", stdout.getvalue())
+        self.assertIn("# README Summary", stdout.getvalue())
+        self.assertIn("--- END SKILL.md ---", stdout.getvalue())
         self.assertIn("candidate_status: applied", stdout.getvalue())
         self.assertIs(fake_app.applied_candidate, fake_app.saved_candidates[0])
 

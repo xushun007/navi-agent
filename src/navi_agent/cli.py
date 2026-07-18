@@ -884,12 +884,19 @@ def _review_skill(
         print(f"candidate_rationale: {candidate.rationale}")
     if metadata.get("skill_name"):
         print(f"skill_name: {metadata['skill_name']}")
+    if metadata.get("reviewer"):
+        print(f"reviewer: {metadata['reviewer']}")
     if metadata.get("source_session_id"):
         print(f"source_session_id: {metadata['source_session_id']}")
     if metadata.get("source_trace_id"):
         print(f"source_trace_id: {metadata['source_trace_id']}")
     if metadata.get("tool_names"):
         print(f"tool_names: {','.join(metadata['tool_names'])}")
+    if metadata.get("skill_content"):
+        print("skill_content:")
+        print("--- BEGIN SKILL.md ---")
+        print(str(metadata["skill_content"]).rstrip())
+        print("--- END SKILL.md ---")
     while True:
         try:
             answer = input("apply skill candidate? [y/N]: ").strip().lower()
