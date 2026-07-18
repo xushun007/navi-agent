@@ -10,6 +10,7 @@ from navi_agent.evolution import (
     JsonlCandidateStore,
     JsonlEvalCaseStore,
     PromptOverlayStore,
+    MemoryReviewService,
     SkillProvenanceStore,
     SkillReviewService,
 )
@@ -39,6 +40,7 @@ def build_runtime(
     runtime_settings: RuntimeSettings | None = None,
     approval_provider: ApprovalProvider | None = None,
     skill_store: FileSkillStore | None = None,
+    memory_store: FileMemoryStore | None = None,
 ) -> AgentRuntime:
     config = load_config()
     model_settings = model_settings or ModelSettings.from_sources(config)
@@ -51,7 +53,7 @@ def build_runtime(
 
     transport = build_transport(model_settings)
     session_store = SQLiteSessionStore(get_state_db_path())
-    memory_store = FileMemoryStore(get_memories_dir())
+    memory_store = memory_store or FileMemoryStore(get_memories_dir())
     skill_store = skill_store or FileSkillStore(get_skills_dir())
     trace_store = _build_trace_store(config)
 
@@ -81,11 +83,13 @@ def build_application(
     config = load_config()
     review_model_settings = model_settings or ModelSettings.from_sources(config)
     skill_store = FileSkillStore(get_skills_dir())
+    memory_store = FileMemoryStore(get_memories_dir())
     runtime = build_runtime(
         model_settings=model_settings,
         runtime_settings=runtime_settings,
         approval_provider=approval_provider,
         skill_store=skill_store,
+        memory_store=memory_store,
     )
     prompt_overlay_store = PromptOverlayStore(
         get_prompt_overlay_path(),
@@ -105,6 +109,11 @@ def build_application(
         prompt_overlay_store=prompt_overlay_store,
         skill_store=skill_store,
         skill_provenance_store=SkillProvenanceStore(get_skills_dir()),
+        memory_store=memory_store,
+        memory_review_service=MemoryReviewService(
+            transport=build_transport(review_model_settings),
+            memory_store=memory_store,
+        ),
         skill_review_service=SkillReviewService(
             transport=build_transport(review_model_settings),
             skill_store=skill_store,

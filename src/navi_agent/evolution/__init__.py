@@ -1,7 +1,8 @@
-from .background_review import BackgroundSkillReviewStatus, BackgroundSkillReviewWorker
+from .background_review import BackgroundReviewTask, BackgroundSkillReviewStatus, BackgroundSkillReviewWorker
 from .evaluator import SimpleEvaluator
 from .ifeval import IfevalEvaluationResult, IfevalEvaluator, IfevalInstructionResult, IfevalRunRecord, IfevalRunStore, IfevalRunWriter
 from .jsonl_store import JsonlCandidateStore, JsonlEvalCaseStore
+from .memory_review import MemoryReviewDecision, MemoryReviewService
 from .memory import InMemoryCandidateStore, InMemoryEvalCaseStore
 from .models import EvaluationResult, EvolutionCandidate, EvalCase
 from .seed import EvalSeed, EvalSeedReportRecord, EvalSeedReportStore, EvalSeedReportWriter, EvalSeedStore
@@ -30,6 +31,7 @@ from .store import CandidateStore, EvalCaseStore
 
 __all__ = [
     "CandidateStore",
+    "BackgroundReviewTask",
     "BackgroundSkillReviewStatus",
     "BackgroundSkillReviewWorker",
     "EvaluationResult",
@@ -49,6 +51,8 @@ __all__ = [
     "InMemoryEvalCaseStore",
     "JsonlCandidateStore",
     "JsonlEvalCaseStore",
+    "MemoryReviewDecision",
+    "MemoryReviewService",
     "NudgeReviewTriggerPolicy",
     "EvalSeed",
     "EvalSeedReportRecord",

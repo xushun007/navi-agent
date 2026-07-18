@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from navi_agent.telemetry import RuntimeTrace
 
@@ -20,31 +20,53 @@ class BackgroundSkillReviewStatus:
     running: bool
 
 
+@dataclass(frozen=True, slots=True)
+class BackgroundReviewTask:
+    trace: RuntimeTrace
+    review_memory: bool = False
+    review_skill: bool = False
+
+
 class BackgroundSkillReviewWorker:
     def __init__(
         self,
         *,
-        review_trace: Callable[[RuntimeTrace], None],
+        review_trace: Callable[[BackgroundReviewTask], None],
     ) -> None:
         self._review_trace = review_trace
-        self._queue: queue.Queue[RuntimeTrace] = queue.Queue()
+        self._queue: queue.Queue[BackgroundReviewTask] = queue.Queue()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._submitted_count = 0
         self._completed_count = 0
         self._failed_count = 0
 
-    def submit(self, trace: RuntimeTrace) -> None:
+    def submit(
+        self,
+        trace: RuntimeTrace,
+        *,
+        review_memory: bool = False,
+        review_skill: bool = False,
+    ) -> None:
+        if not review_memory and not review_skill:
+            return
         self._ensure_started()
+        task = BackgroundReviewTask(
+            trace=trace,
+            review_memory=review_memory,
+            review_skill=review_skill,
+        )
         with self._lock:
             self._submitted_count += 1
         logger.info(
-            "Submitted background skill review: trace_id=%s session_id=%s pending=%s",
+            "Submitted background review: trace_id=%s session_id=%s memory=%s skill=%s pending=%s",
             trace.trace_id,
             trace.session_id,
+            review_memory,
+            review_skill,
             self._queue.qsize() + 1,
         )
-        self._queue.put(trace)
+        self._queue.put(task)
 
     def drain(self) -> None:
         self._queue.join()
@@ -76,18 +98,21 @@ class BackgroundSkillReviewWorker:
 
     def _run(self) -> None:
         while True:
-            trace = self._queue.get()
+            task = self._queue.get()
+            trace = task.trace
             try:
                 logger.info(
-                    "Starting background skill review: trace_id=%s session_id=%s",
+                    "Starting background review: trace_id=%s session_id=%s memory=%s skill=%s",
                     trace.trace_id,
                     trace.session_id,
+                    task.review_memory,
+                    task.review_skill,
                 )
-                self._review_trace(trace)
+                self._review_trace(task)
                 with self._lock:
                     self._completed_count += 1
                 logger.info(
-                    "Completed background skill review: trace_id=%s session_id=%s pending=%s",
+                    "Completed background review: trace_id=%s session_id=%s pending=%s",
                     trace.trace_id,
                     trace.session_id,
                     self._queue.qsize(),
@@ -95,6 +120,6 @@ class BackgroundSkillReviewWorker:
             except Exception:
                 with self._lock:
                     self._failed_count += 1
-                logger.exception("Background skill review failed: trace_id=%s", trace.trace_id)
+                logger.exception("Background review failed: trace_id=%s", trace.trace_id)
             finally:
                 self._queue.task_done()

@@ -151,6 +151,18 @@ class FakeSkillReviewService:
         return self.candidate
 
 
+class FakeMemoryReviewService:
+    def __init__(self, unblock_event: threading.Event | None = None) -> None:
+        self.unblock_event = unblock_event
+        self.reviewed_traces = []
+
+    def review_and_write(self, trace):
+        self.reviewed_traces.append(trace)
+        if self.unblock_event is not None:
+            self.unblock_event.wait(timeout=2)
+        return True
+
+
 class ApplicationServiceTests(unittest.TestCase):
     def test_handle_uses_existing_session_id(self) -> None:
         runtime = FakeRuntime()
@@ -422,6 +434,37 @@ class ApplicationServiceTests(unittest.TestCase):
         service.wait_for_background_reviews()
 
         self.assertEqual(skill_store.items["readme-summary"], "# Existing\n")
+
+    def test_handle_runs_memory_review_service_in_background(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="记住：我喜欢简洁直接",
+            final_response="已记住。",
+            status="success",
+            trace_id="trace-1",
+        )
+        unblock_review = threading.Event()
+        memory_review_service = FakeMemoryReviewService(unblock_event=unblock_review)
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            memory_review_service=memory_review_service,
+            review_trigger_policy=NudgeReviewTriggerPolicy(
+                memory_turn_interval=1,
+                skill_tool_interval=0,
+            ),
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+
+        status = service.get_background_review_status()
+        self.assertIsNotNone(status)
+        self.assertEqual(status.submitted_count, 1)
+        unblock_review.set()
+        service.wait_for_background_reviews()
+        self.assertEqual(memory_review_service.reviewed_traces, [runtime.latest_trace])
 
     def test_add_and_list_candidates_use_store(self) -> None:
         service = ApplicationService(

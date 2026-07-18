@@ -13,14 +13,17 @@ def test_background_skill_review_worker_runs_submitted_trace() -> None:
         status="success",
     )
 
-    worker.submit(trace)
+    worker.submit(trace, review_memory=True, review_skill=True)
     submitted = worker.status()
     assert submitted.submitted_count == 1
     assert submitted.pending_count >= 0
     assert submitted.running
     worker.drain()
 
-    assert reviewed == [trace]
+    assert len(reviewed) == 1
+    assert reviewed[0].trace == trace
+    assert reviewed[0].review_memory
+    assert reviewed[0].review_skill
     drained = worker.status()
     assert drained.completed_count == 1
     assert drained.failed_count == 0
@@ -30,8 +33,8 @@ def test_background_skill_review_worker_runs_submitted_trace() -> None:
 def test_background_skill_review_worker_survives_review_error() -> None:
     reviewed = []
 
-    def review(trace):
-        reviewed.append(trace.trace_id)
+    def review(task):
+        reviewed.append(task.trace.trace_id)
         if len(reviewed) == 1:
             raise RuntimeError("boom")
 
@@ -53,8 +56,8 @@ def test_background_skill_review_worker_survives_review_error() -> None:
         trace_id="trace-2",
     )
 
-    worker.submit(first)
-    worker.submit(second)
+    worker.submit(first, review_skill=True)
+    worker.submit(second, review_skill=True)
     worker.drain()
 
     assert reviewed == ["trace-1", "trace-2"]

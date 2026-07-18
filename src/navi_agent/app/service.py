@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from navi_agent.evolution import (
+    BackgroundReviewTask,
     BackgroundSkillReviewStatus,
     BackgroundSkillReviewWorker,
     CandidateStore,
     EvolutionCandidate,
     EvolutionEngine,
+    MemoryReviewService,
     NudgeReviewTriggerPolicy,
     SimpleEvaluator,
     PromptOverlayStore,
@@ -19,6 +21,7 @@ from navi_agent.evolution import (
     SkillReviewService,
     ReviewTriggerPolicy,
 )
+from navi_agent.memory import MemoryStore
 from navi_agent.runtime import AgentRuntime, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -50,6 +53,8 @@ class ApplicationService:
         prompt_overlay_store: PromptOverlayStore | None = None,
         skill_store: FileSkillStore | None = None,
         skill_provenance_store: SkillProvenanceStore | None = None,
+        memory_store: MemoryStore | None = None,
+        memory_review_service: MemoryReviewService | None = None,
         skill_review_service: SkillReviewService | None = None,
         review_trigger_policy: ReviewTriggerPolicy | None = None,
     ) -> None:
@@ -60,13 +65,15 @@ class ApplicationService:
         self._prompt_overlay_store = prompt_overlay_store
         self._skill_store = skill_store
         self._skill_provenance_store = skill_provenance_store
+        self._memory_store = memory_store
+        self._memory_review_service = memory_review_service
         self._skill_review_service = skill_review_service
         self._review_trigger_policy = review_trigger_policy or NudgeReviewTriggerPolicy()
         self._evaluator = SimpleEvaluator()
         self._evolution_engine = EvolutionEngine()
         self._background_skill_review = (
-            BackgroundSkillReviewWorker(review_trace=self._propose_and_add_skill_candidate)
-            if skill_review_service is not None
+            BackgroundSkillReviewWorker(review_trace=self._run_background_review_task)
+            if skill_review_service is not None or memory_review_service is not None
             else None
         )
 
@@ -266,12 +273,15 @@ class ApplicationService:
                 self.add_candidate(candidate)
         if auto_propose_skill:
             decision = self._review_trigger_policy.decide(trace)
-            if decision.review_memory:
-                # Navi does not yet have a background memory reviewer. Keep the
-                # memory nudge decision visible in policy state without writing.
-                pass
-            if self._background_skill_review is not None and decision.review_skill:
-                self._background_skill_review.submit(trace)
+            if self._background_skill_review is not None and (
+                (decision.review_memory and self._memory_review_service is not None)
+                or (decision.review_skill and self._skill_review_service is not None)
+            ):
+                self._background_skill_review.submit(
+                    trace,
+                    review_memory=decision.review_memory and self._memory_review_service is not None,
+                    review_skill=decision.review_skill and self._skill_review_service is not None,
+                )
             elif self._background_skill_review is None:
                 self._propose_and_add_skill_candidate(trace)
 
@@ -313,6 +323,12 @@ class ApplicationService:
                 skill_name=skill.name,
                 candidate=candidate,
             )
+
+    def _run_background_review_task(self, task: BackgroundReviewTask) -> None:
+        if task.review_memory and self._memory_review_service is not None:
+            self._memory_review_service.review_and_write(task.trace)
+        if task.review_skill:
+            self._propose_and_add_skill_candidate(task.trace)
 
     def _find_superseded_candidates(
         self,
