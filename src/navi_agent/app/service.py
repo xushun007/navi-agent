@@ -288,10 +288,31 @@ class ApplicationService:
     def _propose_and_add_skill_candidate(self, trace: RuntimeTrace) -> None:
         if self._skill_review_service is not None:
             candidate = self._skill_review_service.propose_candidate(trace)
+            if candidate is not None:
+                self._apply_background_skill_candidate(candidate)
+            return
         else:
             candidate = self._evolution_engine.propose_skill_candidate(trace)
         if candidate is not None and not self._skill_exists(candidate):
             self.add_candidate(candidate)
+
+    def _apply_background_skill_candidate(self, candidate: EvolutionCandidate) -> None:
+        if self._skill_store is None:
+            return
+        if self._skill_exists(candidate):
+            return
+        candidate.status = "accepted"
+        skill = self._evolution_engine.apply_skill_candidate(
+            candidate,
+            skill_store=self._skill_store,
+        )
+        if skill is None:
+            return
+        if self._skill_provenance_store is not None:
+            self._skill_provenance_store.mark_agent_created(
+                skill_name=skill.name,
+                candidate=candidate,
+            )
 
     def _find_superseded_candidates(
         self,
