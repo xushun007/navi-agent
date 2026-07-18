@@ -12,6 +12,7 @@ from navi_agent.evolution import (
     EvalCase,
     EvalCaseStore,
     FileSkillStore,
+    SkillReviewService,
 )
 from navi_agent.runtime import AgentRuntime, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
@@ -43,6 +44,7 @@ class ApplicationService:
         eval_case_store: EvalCaseStore | None = None,
         prompt_overlay_store: PromptOverlayStore | None = None,
         skill_store: FileSkillStore | None = None,
+        skill_review_service: SkillReviewService | None = None,
     ) -> None:
         self._runtime = runtime
         self._default_system_prompt = default_system_prompt
@@ -50,6 +52,7 @@ class ApplicationService:
         self._eval_case_store = eval_case_store
         self._prompt_overlay_store = prompt_overlay_store
         self._skill_store = skill_store
+        self._skill_review_service = skill_review_service
         self._evaluator = SimpleEvaluator()
         self._evolution_engine = EvolutionEngine()
 
@@ -217,7 +220,10 @@ class ApplicationService:
             if candidate is not None:
                 self.add_candidate(candidate)
         if auto_propose_skill:
-            candidate = self._evolution_engine.propose_skill_candidate(trace)
+            if self._skill_review_service is not None:
+                candidate = self._skill_review_service.propose_candidate(trace)
+            else:
+                candidate = self._evolution_engine.propose_skill_candidate(trace)
             if candidate is not None and not self._skill_exists(candidate):
                 self.add_candidate(candidate)
 

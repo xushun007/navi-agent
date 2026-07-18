@@ -5,7 +5,13 @@ from pathlib import Path
 
 from navi_agent.app import ApplicationService
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
-from navi_agent.evolution import FileSkillStore, JsonlCandidateStore, JsonlEvalCaseStore, PromptOverlayStore
+from navi_agent.evolution import (
+    FileSkillStore,
+    JsonlCandidateStore,
+    JsonlEvalCaseStore,
+    PromptOverlayStore,
+    SkillReviewService,
+)
 from navi_agent.logging import setup_logging
 from navi_agent.memory import FileMemoryStore
 from navi_agent.paths import (
@@ -71,6 +77,8 @@ def build_application(
     default_system_prompt: str | None = None,
     approval_provider: ApprovalProvider | None = None,
 ) -> ApplicationService:
+    config = load_config()
+    review_model_settings = model_settings or ModelSettings.from_sources(config)
     skill_store = FileSkillStore(get_skills_dir())
     runtime = build_runtime(
         model_settings=model_settings,
@@ -95,6 +103,10 @@ def build_application(
         eval_case_store=JsonlEvalCaseStore(get_eval_case_store_path()),
         prompt_overlay_store=prompt_overlay_store,
         skill_store=skill_store,
+        skill_review_service=SkillReviewService(
+            transport=build_transport(review_model_settings),
+            skill_store=skill_store,
+        ),
     )
 
 
