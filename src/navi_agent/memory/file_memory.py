@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -114,13 +115,7 @@ class FileMemoryStore:
             self._user_path: [record for record in records if record.target == "user"],
         }
         for path, items in grouped.items():
-            with path.open("w", encoding="utf-8") as handle:
-                handle.write(f"# {path.stem.title()}\n\n")
-                for record in items:
-                    handle.write(f"- [{record.kind}] {self._single_line(record.content)}\n")
-                    handle.write(f"  <!-- id:{record.id} user:{record.user_id} -->\n")
-                if items:
-                    handle.write("\n")
+            self._write_memory_file(path, items)
 
     @property
     def _memory_path(self) -> Path:
@@ -149,3 +144,23 @@ class FileMemoryStore:
     @staticmethod
     def _single_line(content: str) -> str:
         return " ".join(content.strip().split())
+
+    @staticmethod
+    def _write_memory_file(path: Path, records: list[MemoryRecord]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(f"# {path.stem.title()}\n\n")
+            for record in records:
+                handle.write(f"- [{record.kind}] {FileMemoryStore._single_line(record.content)}\n")
+                handle.write(f"  <!-- id:{record.id} user:{record.user_id} -->\n")
+            if records:
+                handle.write("\n")
+        temp_path.replace(path)

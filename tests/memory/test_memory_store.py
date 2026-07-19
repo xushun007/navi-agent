@@ -140,6 +140,17 @@ class FileMemoryStoreTests(unittest.TestCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(len(records), 1)
 
+    def test_memory_write_does_not_leave_temp_files(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            store = FileMemoryStore(root)
+
+            store.add_for_user("u1", "Project uses uv", kind="fact")
+
+            temp_files = list(root.glob("*.tmp"))
+
+        self.assertEqual(temp_files, [])
+
     def test_reads_manually_edited_markdown_entries(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
