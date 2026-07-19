@@ -6,7 +6,7 @@ from navi_agent.runtime.tools import ToolRegistry, ToolsetDefinition
 from navi_agent.telemetry import InMemoryTraceStore
 from navi_agent.tools.skill_manage_tool import SkillManageTool
 
-from .skill_review import SkillReviewEvidence
+from .evidence import SkillReviewEvidence, render_skill_review_evidence
 from .skills import FileSkillStore
 
 
@@ -69,40 +69,11 @@ Rules:
 
 
 def _build_review_prompt(evidence: SkillReviewEvidence) -> str:
-    blocks = []
-    for index, trace in enumerate(evidence.traces, start=1):
-        tool_lines = "\n".join(
-            (
-                f"  - {execution.tool_name}: status={execution.status} "
-                f"output={_truncate(execution.content, 500)}"
-            )
-            for execution in trace.tool_executions
-        )
-        blocks.append(
-            "\n".join(
-                [
-                    f"## Trace {index}",
-                    f"session_id: {trace.session_id}",
-                    f"trace_id: {trace.trace_id}",
-                    f"user_message: {_truncate(trace.user_message, 1200)}",
-                    f"final_response: {_truncate(trace.final_response, 1200)}",
-                    "tool_executions:",
-                    tool_lines or "  - none",
-                ]
-            )
-        )
     return "\n".join(
         [
             "Review the session evidence below and update the skill library if warranted.",
             "",
             "[Evidence Window]",
-            "\n\n".join(blocks),
+            render_skill_review_evidence(evidence),
         ]
     )
-
-
-def _truncate(value: str, limit: int) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[:limit].rstrip() + "..."

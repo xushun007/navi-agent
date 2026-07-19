@@ -10,6 +10,7 @@ from navi_agent.runtime import Message
 from navi_agent.runtime.transports import ModelRequest, ModelTransport
 from navi_agent.telemetry import RuntimeTrace
 
+from .evidence import SkillReviewEvidence, coerce_skill_review_evidence, render_skill_review_evidence
 from .models import EvolutionCandidate
 from .skills import FileSkillStore
 
@@ -30,15 +31,6 @@ class SkillReviewDecision:
     append_content: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class SkillReviewEvidence:
-    traces: list[RuntimeTrace]
-
-    @property
-    def latest_trace(self) -> RuntimeTrace:
-        return self.traces[-1]
-
-
 class SkillReviewService:
     def __init__(
         self,
@@ -53,7 +45,7 @@ class SkillReviewService:
         self,
         trace: RuntimeTrace | SkillReviewEvidence,
     ) -> EvolutionCandidate | None:
-        evidence = _coerce_evidence(trace)
+        evidence = coerce_skill_review_evidence(trace)
         if not evidence.traces:
             return None
         latest_trace = evidence.latest_trace
@@ -61,7 +53,7 @@ class SkillReviewService:
             return None
         if not latest_trace.final_response.strip():
             return None
-        if not _tool_executions(evidence):
+        if not evidence.tool_executions:
             return None
 
         try:
@@ -94,7 +86,7 @@ class SkillReviewService:
             "source_trace_id": latest_trace.trace_id,
             "source_trace_ids": [item.trace_id for item in evidence.traces],
             "skill_name": decision.skill_name,
-            "tool_names": [execution.tool_name for execution in _tool_executions(evidence)],
+            "tool_names": [execution.tool_name for execution in evidence.tool_executions],
             "reviewer": "llm",
         }
         if operation == "update":
@@ -230,7 +222,7 @@ class SkillReviewService:
                 existing_block,
                 "",
                 "[Evidence Window]",
-                _format_evidence(evidence),
+                render_skill_review_evidence(evidence),
             ]
         )
 
@@ -254,7 +246,7 @@ class SkillReviewService:
                 existing_skill_content,
                 "",
                 "[Evidence Window]",
-                _format_evidence(evidence),
+                render_skill_review_evidence(evidence),
             ]
         )
 
@@ -274,7 +266,7 @@ class SkillReviewService:
                 f"rationale: {plan.rationale}",
                 "",
                 "[Evidence Window]",
-                _format_evidence(evidence),
+                render_skill_review_evidence(evidence),
             ]
         )
 
@@ -365,45 +357,6 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     return payload
 
 
-def _coerce_evidence(trace: RuntimeTrace | SkillReviewEvidence) -> SkillReviewEvidence:
-    if isinstance(trace, SkillReviewEvidence):
-        return trace
-    return SkillReviewEvidence(traces=[trace])
-
-
-def _tool_executions(evidence: SkillReviewEvidence) -> list[Any]:
-    executions = []
-    for trace in evidence.traces:
-        executions.extend(trace.tool_executions)
-    return executions
-
-
-def _format_evidence(evidence: SkillReviewEvidence) -> str:
-    blocks = []
-    for index, trace in enumerate(evidence.traces, start=1):
-        tool_lines = "\n".join(
-            (
-                f"  - {execution.tool_name}: status={execution.status} "
-                f"output={_truncate(execution.content, 500)}"
-            )
-            for execution in trace.tool_executions
-        )
-        blocks.append(
-            "\n".join(
-                [
-                    f"## Trace {index}",
-                    f"session_id: {trace.session_id}",
-                    f"trace_id: {trace.trace_id}",
-                    f"user_message: {_truncate(trace.user_message, 1200)}",
-                    f"final_response: {_truncate(trace.final_response, 1200)}",
-                    "tool_executions:",
-                    tool_lines or "  - none",
-                ]
-            )
-        )
-    return "\n\n".join(blocks)
-
-
 def _normalize_skill_name(name: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
     if not normalized:
@@ -413,10 +366,3 @@ def _normalize_skill_name(name: str) -> str:
     if not _VALID_SKILL_NAME.match(normalized):
         return ""
     return normalized
-
-
-def _truncate(value: str, limit: int) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[:limit].rstrip() + "..."

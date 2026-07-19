@@ -1,4 +1,5 @@
 from .background_review import BackgroundReviewTask, BackgroundSkillReviewStatus, BackgroundSkillReviewWorker
+from .evidence import EvidenceRenderConfig, SkillReviewEvidence, render_skill_review_evidence, smart_truncate
 from .evaluator import SimpleEvaluator
 from .ifeval import IfevalEvaluationResult, IfevalEvaluator, IfevalInstructionResult, IfevalRunRecord, IfevalRunStore, IfevalRunWriter
 from .jsonl_store import JsonlCandidateStore, JsonlEvalCaseStore
@@ -13,7 +14,7 @@ from .review_trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, Rev
 from .skill_curator import SkillCuratorArchiveResult, SkillCuratorRecord, SkillCuratorService, SkillCuratorStatus, SkillCuratorStatusService
 from .skill_provenance import SkillProvenanceRecord, SkillProvenanceStore
 from .skill_review_agent import SkillReviewAgentService
-from .skill_review import SkillReviewDecision, SkillReviewEvidence, SkillReviewService
+from .skill_review import SkillReviewDecision, SkillReviewService
 from .skill_usage import SkillUsageRecord, SkillUsageService, SkillUsageSidecarRecord, SkillUsageStore
 from .skills import EvolutionEngine, FileSkillStore, SkillRecord, SkillReference
 from .tool_use import (
@@ -36,6 +37,7 @@ __all__ = [
     "BackgroundSkillReviewStatus",
     "BackgroundSkillReviewWorker",
     "EvaluationResult",
+    "EvidenceRenderConfig",
     "EvolutionReportRecord",
     "EvolutionReportStore",
     "EvolutionCandidate",
@@ -89,6 +91,8 @@ __all__ = [
     "SkillReviewEvidence",
     "SkillReviewAgentService",
     "SkillReviewService",
+    "render_skill_review_evidence",
+    "smart_truncate",
     "EvalCase",
     "EvalCaseStore",
     "ToolUseEvalCase",
