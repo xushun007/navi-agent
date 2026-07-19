@@ -260,35 +260,11 @@ def main() -> int:
             return 1
         print(f"rolled back prompt overlay to {args.rollback_prompt_overlay}")
         return 0
-    if (
-        not args.interactive
-        and not args.gateway
-        and not args.gateway_pairings
-        and not args.approve_gateway_pairing
-        and not args.prompt_overlay_status
-        and not args.show_prompt_overlay
-        and not args.list_prompt_overlay_entries
-        and not args.list_prompt_overlay_snapshots
-        and not args.rollback_prompt_overlay
-        and not args.review_skill
-        and not args.list_skills
-        and not args.skill_status
-        and not args.skill_curator_status
-        and not args.skill_curator_archive_unused
-        and not args.background_review_status
-        and not args.eval_seed_status
-        and not args.list_eval_seeds
-        and not args.eval_seed_report
-        and not args.ifeval_import_session
-        and not args.message
-    ):
-        parser.error("message is required unless --interactive is set")
-
     app = build_application(
         default_system_prompt=args.system_prompt,
         approval_provider=_build_approval_provider(args),
     )
-    if args.interactive:
+    if args.interactive or not args.message:
         return _run_interactive(
             app=app,
             user_id=args.user_id,

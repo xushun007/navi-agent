@@ -272,10 +272,19 @@ class CliTests(unittest.TestCase):
         _, kwargs = build_application_mock.call_args
         self.assertIsInstance(kwargs["approval_provider"], WorkspaceYoloApprovalProvider)
 
-    def test_main_requires_message_without_interactive(self) -> None:
-        with patch("sys.argv", ["navi-agent"]):
-            with self.assertRaises(SystemExit):
-                main()
+    def test_main_defaults_to_interactive_mode(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("builtins.input", side_effect=EOFError):
+                with patch("sys.argv", ["navi-agent"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Interactive session:", stdout.getvalue())
+        self.assertEqual(fake_app.calls, [])
 
     def test_import_ifeval_seed_writes_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

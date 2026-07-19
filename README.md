@@ -33,6 +33,12 @@ navi-agent doctor --doctor-gateway weixin
 navi-agent start
 ```
 
+Run local interactive chat:
+
+```bash
+navi-agent
+```
+
 When developing from this repository, prefix commands with `uv run`:
 
 ```bash
@@ -40,6 +46,7 @@ uv run navi-agent init
 uv run navi-agent doctor
 uv run navi-agent doctor --doctor-gateway weixin
 uv run navi-agent start
+uv run navi-agent
 ```
 
 ## Self-Evolution

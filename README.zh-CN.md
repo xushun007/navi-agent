@@ -33,6 +33,12 @@ navi-agent doctor --doctor-gateway weixin
 navi-agent start
 ```
 
+启动本地交互聊天：
+
+```bash
+navi-agent
+```
+
 如果在当前仓库内开发，命令前加 `uv run`：
 
 ```bash
@@ -40,6 +46,7 @@ uv run navi-agent init
 uv run navi-agent doctor
 uv run navi-agent doctor --doctor-gateway weixin
 uv run navi-agent start
+uv run navi-agent
 ```
 
 ## 自我进化
