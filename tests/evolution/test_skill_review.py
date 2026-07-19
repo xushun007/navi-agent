@@ -119,6 +119,23 @@ def test_llm_review_invalid_response_returns_none(tmp_path: Path) -> None:
     assert candidate is None
 
 
+def test_skill_review_prompt_discourages_micro_skills(tmp_path: Path) -> None:
+    transport = FakeTransport(
+        '{"action": "nothing", "skill_name": "", "summary": "", "rationale": "one-off", "skill_content": ""}'
+    )
+
+    SkillReviewService(
+        transport=transport,
+        skill_store=FileSkillStore(tmp_path),
+    ).propose_candidate(_tool_trace())
+
+    system_prompt = transport.requests[0].messages[0].content
+    assert "not one-session micro skills" in system_prompt
+    assert "one exact error string" in system_prompt
+    assert "update the broadest one" in system_prompt
+    assert "Preserve useful existing content" in system_prompt
+
+
 def _tool_trace() -> RuntimeTrace:
     return RuntimeTrace(
         session_id="session-1",

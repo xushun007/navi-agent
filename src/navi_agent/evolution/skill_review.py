@@ -145,11 +145,17 @@ Rules:
 - Use action "nothing" unless the session contains reusable procedural knowledge.
 - Prefer action "update_skill" when an existing skill covers the same class of work.
 - Use action "create_skill" only when no existing class-level skill fits.
-- Keep skills class-level, not one-session micro skills.
+- Keep skills class-level, not one-session micro skills. A skill name must describe a reusable task class, not today's request.
+- Do not create skills named after one PR, one session, one exact error string, one temporary feature branch, or one user's one-off wording.
+- If a learning only adds a pitfall, verification step, user workflow preference, or provider/tool quirk to an existing workflow, update the existing skill.
+- If multiple existing skills overlap, update the broadest one and mention the consolidation need in rationale; do not create another sibling.
 - Do not create or update a skill for transient environment failures or ordinary one-off answers.
+- Do not encode negative claims like "tool X does not work" from a setup failure. Encode the reproducible fix or troubleshooting condition only.
+- User corrections about style, sequence, approval, verification, or tool choice are valid skill updates when they affect a class of future tasks.
 - Prefer broad reusable procedures: debugging pattern, tool workflow, project convention, user-corrected workflow, or repeatable verification path.
 - skill_name must be lowercase kebab-case.
 - skill_content must be the complete final SKILL.md body after create/update, with sections: # title, ## When To Use, ## Procedure, ## Evidence.
+- Preserve useful existing content when updating a skill. Add or revise focused sections; do not replace broad guidance with only the latest session.
 
 Schema:
 {
