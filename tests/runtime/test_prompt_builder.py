@@ -122,7 +122,7 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn("readme-summary: Summarize README files and run tests", msgs[0].content)
         self.assertEqual(builder.last_injected_skill_names, ["readme-summary"])
 
-    def test_new_session_with_skill_reference(self) -> None:
+    def test_new_session_with_skill_attachment_hints(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             skill_store = FileSkillStore(root)
@@ -148,8 +148,8 @@ class PromptBuilderTest(unittest.TestCase):
 
             msgs = builder.build_initial_messages(session, "summarize README")
 
-        self.assertIn("reference references/checks.md", msgs[0].content)
-        self.assertIn("Run README checks after editing", msgs[0].content)
+        self.assertIn("attachments: references/checks.md", msgs[0].content)
+        self.assertNotIn("Run README checks after editing", msgs[0].content)
 
     def test_injected_skill_names_reset_between_builds(self) -> None:
         with TemporaryDirectory() as tmpdir:
