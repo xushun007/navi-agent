@@ -29,7 +29,14 @@ class SkillManageTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "view", "create", "append", "write_attachment"],
+                    "enum": [
+                        "list",
+                        "view",
+                        "create",
+                        "append",
+                        "write_attachment",
+                        "view_attachment",
+                    ],
                 },
                 "skill_name": {"type": "string"},
                 "skill_content": {"type": "string"},
@@ -79,6 +86,38 @@ class SkillManageTool(BaseTool):
                     "skill_name": record.name,
                     "description": record.description,
                     "attachments": [attachment.path for attachment in record.attachments],
+                },
+            )
+
+        if action == "view_attachment":
+            attachment_path = str(kwargs.get("attachment_path") or "").strip()
+            if not attachment_path:
+                return ToolResult.error(
+                    name=self.name,
+                    content="skill_manage_error: attachment_path is required for view_attachment",
+                )
+            try:
+                content = self._skill_store.read_attachment(
+                    name=skill_name,
+                    relative_path=attachment_path,
+                )
+            except ValueError as error:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"skill_manage_error: {error}",
+                )
+            if content is None:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"skill_manage_error: attachment not found: {attachment_path}",
+                )
+            return ToolResult.ok(
+                name=self.name,
+                content=content,
+                structured_content={
+                    "action": "view_attachment",
+                    "skill_name": skill_name,
+                    "attachment_path": attachment_path,
                 },
             )
 

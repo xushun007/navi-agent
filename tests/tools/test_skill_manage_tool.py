@@ -144,6 +144,66 @@ def test_skill_manage_writes_attachment(tmp_path: Path) -> None:
     assert viewed.structured_content["attachments"] == ["templates/report.md"]
 
 
+def test_skill_manage_views_attachment(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="dogfood",
+        content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
+    )
+    store.write_attachment(
+        name="dogfood",
+        relative_path="references/taxonomy.md",
+        content="# Taxonomy\n\n- Critical\n",
+    )
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="view_attachment",
+        skill_name="dogfood",
+        attachment_path="references/taxonomy.md",
+    )
+
+    assert result.status == "success"
+    assert "# Taxonomy" in result.content
+    assert result.structured_content["attachment_path"] == "references/taxonomy.md"
+
+
+def test_skill_manage_view_attachment_returns_error_for_missing_file(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="dogfood",
+        content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
+    )
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="view_attachment",
+        skill_name="dogfood",
+        attachment_path="references/missing.md",
+    )
+
+    assert result.status == "error"
+    assert "attachment not found" in result.content
+
+
+def test_skill_manage_view_attachment_rejects_path_escape(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="dogfood",
+        content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
+    )
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="view_attachment",
+        skill_name="dogfood",
+        attachment_path="../bad.md",
+    )
+
+    assert result.status == "error"
+    assert "parent segments" in result.content
+
+
 def test_skill_manage_rejects_attachment_path_escape(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
     store.create(
