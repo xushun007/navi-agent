@@ -48,10 +48,26 @@ class PathsTests(unittest.TestCase):
                 Path("/tmp/navi-home/evolution/eval-cases.jsonl"),
             )
 
-    def test_get_navi_home_defaults_under_workspace_when_env_missing(self) -> None:
+    def test_get_navi_home_defaults_to_global_home_when_env_missing(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            with patch("navi_agent.paths.Path.cwd", return_value=Path("/tmp/workspace")):
-                self.assertEqual(get_navi_home(), Path("/tmp/workspace/.navi-agent"))
+            with patch("navi_agent.paths.Path.home", return_value=Path("/tmp/home")):
+                self.assertEqual(get_navi_home(), Path("/tmp/home/.navi-agent"))
+
+    def test_get_navi_home_uses_profile_when_env_missing(self) -> None:
+        with patch.dict(os.environ, {"NAVI_PROFILE": "work"}, clear=True):
+            with patch("navi_agent.paths.Path.home", return_value=Path("/tmp/home")):
+                self.assertEqual(
+                    get_navi_home(),
+                    Path("/tmp/home/.navi-agent/profiles/work"),
+                )
+
+    def test_navi_home_override_takes_precedence_over_profile(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"NAVI_HOME": "/tmp/custom-navi-home", "NAVI_PROFILE": "work"},
+            clear=True,
+        ):
+            self.assertEqual(get_navi_home(), Path("/tmp/custom-navi-home"))
 
 
 if __name__ == "__main__":

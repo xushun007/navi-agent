@@ -8,7 +8,11 @@ def get_navi_home() -> Path:
     raw_home = os.getenv("NAVI_HOME", "").strip()
     if raw_home:
         return Path(raw_home).expanduser()
-    return Path.cwd() / ".navi-agent"
+    base_home = Path.home() / ".navi-agent"
+    profile = os.getenv("NAVI_PROFILE", "").strip()
+    if profile:
+        return base_home / "profiles" / profile
+    return base_home
 
 
 def get_repo_root() -> Path:

@@ -39,6 +39,10 @@ navi-agent start
 navi-agent
 ```
 
+默认情况下，Navi Agent 会把配置、记忆、技能、日志和网关状态存放在 `~/.navi-agent`。
+需要隔离场景时，可以使用 `NAVI_PROFILE=work`，对应目录为 `~/.navi-agent/profiles/work`；
+需要完全自定义目录时，可以设置 `NAVI_HOME=/path/to/.navi-agent`。
+
 如果在当前仓库内开发，命令前加 `uv run`：
 
 ```bash

@@ -39,6 +39,10 @@ Run local interactive chat:
 navi-agent
 ```
 
+By default Navi Agent stores config, memory, skills, logs, and gateway state under `~/.navi-agent`.
+Use `NAVI_PROFILE=work` for an isolated profile under `~/.navi-agent/profiles/work`, or set
+`NAVI_HOME=/path/to/.navi-agent` when you want a fully custom home directory.
+
 When developing from this repository, prefix commands with `uv run`:
 
 ```bash
