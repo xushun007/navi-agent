@@ -1,4 +1,5 @@
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -159,6 +160,24 @@ class FileMemoryStoreTests(unittest.TestCase):
             temp_files = list(root.glob("*.tmp"))
 
         self.assertEqual(temp_files, [])
+
+    def test_concurrent_writes_preserve_records(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            def add_memory(index: int) -> None:
+                FileMemoryStore(root).add_for_user("u1", f"Memory {index}", kind="fact")
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                list(executor.map(add_memory, range(12)))
+
+            records = FileMemoryStore(root).list_for_user("u1")
+
+        self.assertEqual(len(records), 12)
+        self.assertEqual(
+            {record.content for record in records},
+            {f"Memory {index}" for index in range(12)},
+        )
 
     def test_reads_manually_edited_markdown_entries(self) -> None:
         with TemporaryDirectory() as tmpdir:

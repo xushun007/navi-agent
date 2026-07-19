@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import re
 import tempfile
 import uuid
@@ -7,6 +8,11 @@ from pathlib import Path
 
 from .models import MemoryRecord
 from .validation import normalize_memory_content, validate_memory_content
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None
 
 _ENTRY_RE = re.compile(
     r"^- \[(?P<kind>[a-z]+)\]\s+(?P<content>.*)\n"
@@ -40,27 +46,28 @@ class FileMemoryStore:
         validation_error = validate_memory_content(content)
         if validation_error:
             raise ValueError(validation_error)
-        records = self._read_all()
-        for existing in records:
-            if (
-                existing.user_id == user_id
-                and existing.kind == normalized_kind
-                and existing.target == normalized_target
-                and normalize_memory_content(existing.content) == content
-            ):
-                return existing
-        record = MemoryRecord(
-            id=uuid.uuid4().hex[:12],
-            user_id=user_id,
-            kind=normalized_kind,
-            content=content,
-            target=normalized_target,
-            source=self._single_line(source) or "unknown",
-            source_session_id=self._single_line(source_session_id),
-        )
-        records.append(record)
-        self._write_all(records)
-        return record
+        with self._file_lock():
+            records = self._read_all()
+            for existing in records:
+                if (
+                    existing.user_id == user_id
+                    and existing.kind == normalized_kind
+                    and existing.target == normalized_target
+                    and normalize_memory_content(existing.content) == content
+                ):
+                    return existing
+            record = MemoryRecord(
+                id=uuid.uuid4().hex[:12],
+                user_id=user_id,
+                kind=normalized_kind,
+                content=content,
+                target=normalized_target,
+                source=self._single_line(source) or "unknown",
+                source_session_id=self._single_line(source_session_id),
+            )
+            records.append(record)
+            self._write_all(records)
+            return record
 
     def get_for_user(self, user_id: str, record_id: str) -> MemoryRecord | None:
         for record in self.list_for_user(user_id):
@@ -72,29 +79,31 @@ class FileMemoryStore:
         validation_error = validate_memory_content(content)
         if validation_error:
             raise ValueError(validation_error)
-        records = self._read_all()
-        updated = None
-        for record in records:
-            if record.user_id == user_id and record.id == record_id:
-                record.content = normalize_memory_content(content)
-                updated = record
-                break
-        if updated is None:
-            return None
-        self._write_all(records)
-        return updated
+        with self._file_lock():
+            records = self._read_all()
+            updated = None
+            for record in records:
+                if record.user_id == user_id and record.id == record_id:
+                    record.content = normalize_memory_content(content)
+                    updated = record
+                    break
+            if updated is None:
+                return None
+            self._write_all(records)
+            return updated
 
     def remove_for_user(self, user_id: str, record_id: str) -> bool:
-        records = self._read_all()
-        remaining = [
-            record
-            for record in records
-            if not (record.user_id == user_id and record.id == record_id)
-        ]
-        if len(remaining) == len(records):
-            return False
-        self._write_all(remaining)
-        return True
+        with self._file_lock():
+            records = self._read_all()
+            remaining = [
+                record
+                for record in records
+                if not (record.user_id == user_id and record.id == record_id)
+            ]
+            if len(remaining) == len(records):
+                return False
+            self._write_all(remaining)
+            return True
 
     def _read_all(self) -> list[MemoryRecord]:
         records = []
@@ -153,6 +162,19 @@ class FileMemoryStore:
     @staticmethod
     def _single_line(content: str) -> str:
         return " ".join(content.strip().split())
+
+    @contextmanager
+    def _file_lock(self):
+        self._root.mkdir(parents=True, exist_ok=True)
+        lock_path = self._root / ".memory.lock"
+        with lock_path.open("a+", encoding="utf-8") as handle:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _write_memory_file(path: Path, records: list[MemoryRecord]) -> None:
