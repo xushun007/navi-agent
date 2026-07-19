@@ -53,17 +53,23 @@ class SkillReviewService:
             return None
 
         if decision.action != "create_skill":
-            return None
+            if decision.action != "update_skill":
+                return None
         if not decision.skill_name or not decision.skill_content.strip():
             return None
-        if self._skill_store is not None and self._skill_store.get(decision.skill_name) is not None:
+        existing_skill = self._skill_store.get(decision.skill_name) if self._skill_store is not None else None
+        if decision.action == "create_skill" and existing_skill is not None:
+            return None
+        if decision.action == "update_skill" and existing_skill is None:
             return None
 
+        operation = "update" if decision.action == "update_skill" else "create"
         return EvolutionCandidate(
             target="skill",
-            summary=decision.summary or f"Create reusable skill `{decision.skill_name}`",
+            summary=decision.summary or f"{operation.title()} reusable skill `{decision.skill_name}`",
             rationale=decision.rationale or "LLM review found reusable procedural knowledge.",
             metadata={
+                "operation": operation,
                 "source_session_id": trace.session_id,
                 "source_trace_id": trace.trace_id,
                 "skill_name": decision.skill_name,
@@ -97,7 +103,16 @@ class SkillReviewService:
         existing_skills = []
         if self._skill_store is not None:
             for skill in self._skill_store.list():
-                existing_skills.append(f"- {skill.name}: {skill.description}")
+                existing_skills.append(
+                    "\n".join(
+                        [
+                            f"## {skill.name}",
+                            f"description: {skill.description}",
+                            "content:",
+                            _truncate(skill.content, 1600),
+                        ]
+                    )
+                )
         existing_block = "\n".join(existing_skills) if existing_skills else "- none"
         tool_lines = "\n".join(
             f"- {execution.tool_name}: status={execution.status} output={_truncate(execution.content, 500)}"
@@ -123,21 +138,22 @@ class SkillReviewService:
 
 _REVIEW_SYSTEM_PROMPT = """You are Navi Agent's skill reviewer.
 
-Decide whether this completed session should create one reusable skill candidate.
+Decide whether this completed session should update or create one reusable skill.
 
 Rules:
 - Return only one JSON object. No markdown.
 - Use action "nothing" unless the session contains reusable procedural knowledge.
-- Create class-level skills, not one-session micro skills.
-- Do not create a skill for transient environment failures or ordinary one-off answers.
+- Prefer action "update_skill" when an existing skill covers the same class of work.
+- Use action "create_skill" only when no existing class-level skill fits.
+- Keep skills class-level, not one-session micro skills.
+- Do not create or update a skill for transient environment failures or ordinary one-off answers.
 - Prefer broad reusable procedures: debugging pattern, tool workflow, project convention, user-corrected workflow, or repeatable verification path.
-- If an existing skill already covers the procedure, return action "nothing".
 - skill_name must be lowercase kebab-case.
-- skill_content must be a complete SKILL.md body with sections: # title, ## When To Use, ## Procedure, ## Evidence.
+- skill_content must be the complete final SKILL.md body after create/update, with sections: # title, ## When To Use, ## Procedure, ## Evidence.
 
 Schema:
 {
-  "action": "create_skill" | "nothing",
+  "action": "update_skill" | "create_skill" | "nothing",
   "skill_name": "short-kebab-name-or-empty",
   "summary": "short candidate summary",
   "rationale": "why this should or should not become a skill",

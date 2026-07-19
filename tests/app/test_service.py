@@ -117,6 +117,19 @@ class FakeSkillStore:
             },
         )()
 
+    def update(self, *, name, content):
+        if name not in self.items:
+            return None
+        self.items[name] = content
+        return type(
+            "FakeSkillRecord",
+            (),
+            {
+                "name": name,
+                "content": content,
+            },
+        )()
+
     def remove(self, name):
         return self.items.pop(name, None) is not None
 
@@ -434,6 +447,51 @@ class ApplicationServiceTests(unittest.TestCase):
         service.wait_for_background_reviews()
 
         self.assertEqual(skill_store.items["readme-summary"], "# Existing\n")
+
+    def test_background_skill_review_updates_existing_skill(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Summarize README",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="read_file",
+                    status="success",
+                )
+            ],
+        )
+        skill_store = FakeSkillStore()
+        skill_store.create(name="readme-summary", content="# Existing\n")
+        review_service = FakeSkillReviewService(
+            EvolutionCandidate(
+                target="skill",
+                summary="Update README skill",
+                rationale="Reusable procedure changed",
+                metadata={
+                    "operation": "update",
+                    "skill_name": "readme-summary",
+                    "skill_content": "# Updated\n",
+                },
+            )
+        )
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            skill_store=skill_store,
+            skill_review_service=review_service,
+            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+        service.wait_for_background_reviews()
+
+        self.assertEqual(skill_store.items["readme-summary"], "# Updated\n")
 
     def test_handle_runs_memory_review_service_in_background(self) -> None:
         runtime = FakeRuntime()

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from navi_agent.evolution import EvolutionEngine, FileSkillStore
+from navi_agent.evolution import EvolutionCandidate, EvolutionEngine, FileSkillStore
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -52,6 +52,28 @@ def test_applies_accepted_skill_candidate_to_store(tmp_path: Path) -> None:
     assert "source_session_id: session-1" in record.content
 
 
+def test_applies_update_skill_candidate_to_store(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="# Old\n")
+    candidate = EvolutionCandidate(
+        target="skill",
+        summary="Update skill",
+        rationale="New procedure",
+        status="accepted",
+        metadata={
+            "operation": "update",
+            "skill_name": "readme-summary",
+            "skill_content": "# New\n",
+        },
+    )
+
+    record = EvolutionEngine().apply_skill_candidate(candidate, skill_store=store)
+
+    assert record is not None
+    assert record.content == "# New\n"
+    assert store.get("readme-summary").content == "# New\n"
+
+
 def test_does_not_apply_pending_skill_candidate(tmp_path: Path) -> None:
     engine = EvolutionEngine()
     candidate = engine.propose_skill_candidate(_tool_trace())
@@ -75,6 +97,14 @@ def test_removes_skill_directory(tmp_path: Path) -> None:
     assert removed
     assert not record.path.exists()
     assert store.get("readme-summary") is None
+
+
+def test_update_missing_skill_returns_none(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+
+    record = store.update(name="missing-skill", content="# Missing\n")
+
+    assert record is None
 
 
 def test_search_returns_relevant_skills(tmp_path: Path) -> None:

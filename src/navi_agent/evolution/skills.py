@@ -37,6 +37,19 @@ class FileSkillStore:
             path=skill_path,
         )
 
+    def update(self, *, name: str, content: str) -> SkillRecord | None:
+        name = _normalize_skill_name(name)
+        skill_path = self._root / name / "SKILL.md"
+        if not skill_path.exists():
+            return None
+        skill_path.write_text(content, encoding="utf-8")
+        return SkillRecord(
+            name=name,
+            description=_extract_description(content),
+            content=content,
+            path=skill_path,
+        )
+
     def get(self, name: str) -> SkillRecord | None:
         name = _normalize_skill_name(name)
         skill_path = self._root / name / "SKILL.md"
@@ -134,6 +147,9 @@ class EvolutionEngine:
             return None
         if not isinstance(content, str) or not content.strip():
             return None
+        operation = str(metadata.get("operation") or "create").strip()
+        if operation == "update":
+            return skill_store.update(name=name, content=content)
         return skill_store.create(name=name, content=content)
 
     @staticmethod

@@ -81,6 +81,35 @@ def test_llm_review_skips_existing_skill(tmp_path: Path) -> None:
     assert candidate is None
 
 
+def test_llm_review_proposes_update_skill_candidate(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="readme-verification",
+        content="# README Verification\n\n## When To Use\n\nUse for README checks.",
+    )
+    transport = FakeTransport(
+        """
+        {
+          "action": "update_skill",
+          "skill_name": "readme-verification",
+          "summary": "Update README verification skill",
+          "rationale": "The trace adds a verification step.",
+          "skill_content": "# README Verification\\n\\n## When To Use\\n\\nUse for README checks.\\n\\n## Procedure\\n\\n- Read README.\\n- Verify tests.\\n\\n## Evidence\\n\\n- session trace."
+        }
+        """
+    )
+
+    candidate = SkillReviewService(
+        transport=transport,
+        skill_store=store,
+    ).propose_candidate(_tool_trace())
+
+    assert candidate is not None
+    assert candidate.metadata["operation"] == "update"
+    assert candidate.metadata["skill_name"] == "readme-verification"
+    assert "Verify tests" in candidate.metadata["skill_content"]
+
+
 def test_llm_review_invalid_response_returns_none(tmp_path: Path) -> None:
     candidate = SkillReviewService(
         transport=FakeTransport("not json"),

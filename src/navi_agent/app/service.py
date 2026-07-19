@@ -325,7 +325,8 @@ class ApplicationService:
     def _apply_background_skill_candidate(self, candidate: EvolutionCandidate) -> None:
         if self._skill_store is None:
             return
-        if self._skill_exists(candidate):
+        operation = str((candidate.metadata or {}).get("operation") or "create").strip()
+        if operation != "update" and self._skill_exists(candidate):
             return
         candidate.status = "accepted"
         skill = self._evolution_engine.apply_skill_candidate(
