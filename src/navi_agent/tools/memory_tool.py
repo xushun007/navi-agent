@@ -50,12 +50,15 @@ class MemoryTool(BaseTool):
                     name=self.name,
                     content="memory_error: content is required for add",
                 )
-            record = self._memory_store.add_for_user(
-                context.user_id,
-                content,
-                kind=kind,
-                target=target,
-            )
+            try:
+                record = self._memory_store.add_for_user(
+                    context.user_id,
+                    content,
+                    kind=kind,
+                    target=target,
+                )
+            except ValueError as error:
+                return ToolResult.error(name=self.name, content=f"memory_error: {error}")
             return ToolResult.ok(
                 name=self.name,
                 content="memory_stored",
@@ -97,7 +100,10 @@ class MemoryTool(BaseTool):
                 return ToolResult.error(name=self.name, content="memory_error: id is required for update")
             if not content:
                 return ToolResult.error(name=self.name, content="memory_error: content is required for update")
-            record = self._memory_store.update_for_user(context.user_id, record_id, content)
+            try:
+                record = self._memory_store.update_for_user(context.user_id, record_id, content)
+            except ValueError as error:
+                return ToolResult.error(name=self.name, content=f"memory_error: {error}")
             if record is None:
                 return ToolResult.error(
                     name=self.name,

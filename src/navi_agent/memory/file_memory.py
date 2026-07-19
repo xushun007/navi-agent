@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 from .models import MemoryRecord
+from .validation import normalize_memory_content, validate_memory_content
 
 _ENTRY_RE = re.compile(
     r"^- \[(?P<kind>[a-z]+)\]\s+(?P<content>.*)\n"
@@ -27,14 +28,28 @@ class FileMemoryStore:
         kind: str = "fact",
         target: str = "",
     ) -> MemoryRecord:
+        normalized_kind = self._normalize_kind(kind)
+        normalized_target = self._normalize_target(target, kind=normalized_kind)
+        content = normalize_memory_content(content)
+        validation_error = validate_memory_content(content)
+        if validation_error:
+            raise ValueError(validation_error)
+        records = self._read_all()
+        for existing in records:
+            if (
+                existing.user_id == user_id
+                and existing.kind == normalized_kind
+                and existing.target == normalized_target
+                and normalize_memory_content(existing.content) == content
+            ):
+                return existing
         record = MemoryRecord(
             id=uuid.uuid4().hex[:12],
             user_id=user_id,
-            kind=self._normalize_kind(kind),
+            kind=normalized_kind,
             content=content,
-            target=self._normalize_target(target, kind=kind),
+            target=normalized_target,
         )
-        records = self._read_all()
         records.append(record)
         self._write_all(records)
         return record
@@ -46,11 +61,14 @@ class FileMemoryStore:
         return None
 
     def update_for_user(self, user_id: str, record_id: str, content: str) -> MemoryRecord | None:
+        validation_error = validate_memory_content(content)
+        if validation_error:
+            raise ValueError(validation_error)
         records = self._read_all()
         updated = None
         for record in records:
             if record.user_id == user_id and record.id == record_id:
-                record.content = content
+                record.content = normalize_memory_content(content)
                 updated = record
                 break
         if updated is None:

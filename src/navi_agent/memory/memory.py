@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from .models import MemoryRecord
+from .validation import normalize_memory_content, validate_memory_content
 
 
 class InMemoryMemoryStore:
@@ -19,12 +20,25 @@ class InMemoryMemoryStore:
         kind: str = "fact",
         target: str = "",
     ) -> MemoryRecord:
+        content = normalize_memory_content(content)
+        validation_error = validate_memory_content(content)
+        if validation_error:
+            raise ValueError(validation_error)
+        target = target or ("user" if kind == "preference" else "memory")
+        for record in self._records:
+            if (
+                record.user_id == user_id
+                and record.kind == kind
+                and record.target == target
+                and normalize_memory_content(record.content) == content
+            ):
+                return record
         record = MemoryRecord(
             id=uuid.uuid4().hex[:12],
             user_id=user_id,
             kind=kind,
             content=content,
-            target=target or ("user" if kind == "preference" else "memory"),
+            target=target,
         )
         self._records.append(record)
         return record
@@ -39,7 +53,10 @@ class InMemoryMemoryStore:
         record = self.get_for_user(user_id, record_id)
         if record is None:
             return None
-        record.content = content
+        validation_error = validate_memory_content(content)
+        if validation_error:
+            raise ValueError(validation_error)
+        record.content = normalize_memory_content(content)
         return record
 
     def remove_for_user(self, user_id: str, record_id: str) -> bool:
