@@ -10,7 +10,7 @@ from .prompt_overlay import PromptOverlayEntry, PromptOverlayStore
 from .report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
 from .review import ReviewLoopService, ReviewLoopSummary
 from .review_trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, ReviewTriggerPolicy
-from .skill_curator import SkillCuratorRecord, SkillCuratorStatus, SkillCuratorStatusService
+from .skill_curator import SkillCuratorArchiveResult, SkillCuratorRecord, SkillCuratorService, SkillCuratorStatus, SkillCuratorStatusService
 from .skill_provenance import SkillProvenanceRecord, SkillProvenanceStore
 from .skill_review import SkillReviewDecision, SkillReviewService
 from .skill_usage import SkillUsageRecord, SkillUsageService, SkillUsageSidecarRecord, SkillUsageStore
@@ -77,6 +77,8 @@ __all__ = [
     "SimpleEvaluator",
     "SkillRecord",
     "SkillCuratorRecord",
+    "SkillCuratorArchiveResult",
+    "SkillCuratorService",
     "SkillCuratorStatus",
     "SkillCuratorStatusService",
     "SkillProvenanceRecord",

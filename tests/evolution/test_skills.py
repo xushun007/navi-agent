@@ -99,6 +99,18 @@ def test_removes_skill_directory(tmp_path: Path) -> None:
     assert store.get("readme-summary") is None
 
 
+def test_archives_skill_directory(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="# README Summary\n")
+
+    archived = store.archive("readme-summary")
+
+    assert archived is not None
+    assert archived.path == tmp_path / ".archive" / "readme-summary" / "SKILL.md"
+    assert archived.path.exists()
+    assert store.get("readme-summary") is None
+
+
 def test_update_missing_skill_returns_none(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
 

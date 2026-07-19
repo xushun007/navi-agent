@@ -73,6 +73,26 @@ class FileSkillStore:
         shutil.rmtree(skill_dir)
         return True
 
+    def archive(self, name: str) -> SkillRecord | None:
+        name = _normalize_skill_name(name)
+        skill_dir = self._root / name
+        skill_path = skill_dir / "SKILL.md"
+        if not skill_path.exists():
+            return None
+        content = skill_path.read_text(encoding="utf-8")
+        archive_root = self._root / ".archive"
+        archive_root.mkdir(parents=True, exist_ok=True)
+        archive_dir = archive_root / name
+        if archive_dir.exists():
+            shutil.rmtree(archive_dir)
+        shutil.move(str(skill_dir), str(archive_dir))
+        return SkillRecord(
+            name=name,
+            description=_extract_description(content),
+            content=content,
+            path=archive_dir / "SKILL.md",
+        )
+
     def list(self) -> list[SkillRecord]:
         if not self._root.exists():
             return []

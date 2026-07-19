@@ -8,6 +8,7 @@ from unittest.mock import patch
 from navi_agent.evolution import (
     EvalSeed,
     EvolutionCandidate,
+    SkillCuratorArchiveResult,
     SkillCuratorRecord,
     SkillCuratorStatus,
     SkillUsageRecord,
@@ -1052,6 +1053,28 @@ class CliTests(unittest.TestCase):
         self.assertIn("- readme-summary: Summarize README files", stdout.getvalue())
         self.assertIn("origin: agent", stdout.getvalue())
         self.assertIn("candidate_action: review-unused", stdout.getvalue())
+
+    def test_main_archives_unused_agent_skills(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.get_skills_dir", return_value=Path("/tmp/skills")):
+            with patch("navi_agent.cli.get_trace_store_path", return_value=Path("/tmp/traces.jsonl")):
+                with patch("navi_agent.cli.SkillCuratorService") as service_cls:
+                    service_cls.return_value.archive_unused_agent_created.return_value = SkillCuratorArchiveResult(
+                        archived_count=1,
+                        archived_names=["readme-summary"],
+                        skipped_count=2,
+                    )
+                    with patch("sys.argv", ["navi-agent", "--skill-curator-archive-unused"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("skills_dir: /tmp/skills", stdout.getvalue())
+        self.assertIn("archived_count: 1", stdout.getvalue())
+        self.assertIn("skipped_count: 2", stdout.getvalue())
+        self.assertIn("archived_skills:", stdout.getvalue())
+        self.assertIn("- readme-summary", stdout.getvalue())
 
     def test_main_prints_background_review_status(self) -> None:
         fake_app = FakeApp()
