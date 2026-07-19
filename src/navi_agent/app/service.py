@@ -19,6 +19,7 @@ from navi_agent.evolution import (
     FileSkillStore,
     SkillProvenanceStore,
     SkillReviewService,
+    SkillUsageStore,
     ReviewTriggerPolicy,
 )
 from navi_agent.memory import MemoryStore
@@ -53,6 +54,7 @@ class ApplicationService:
         prompt_overlay_store: PromptOverlayStore | None = None,
         skill_store: FileSkillStore | None = None,
         skill_provenance_store: SkillProvenanceStore | None = None,
+        skill_usage_store: SkillUsageStore | None = None,
         memory_store: MemoryStore | None = None,
         memory_review_service: MemoryReviewService | None = None,
         skill_review_service: SkillReviewService | None = None,
@@ -65,6 +67,7 @@ class ApplicationService:
         self._prompt_overlay_store = prompt_overlay_store
         self._skill_store = skill_store
         self._skill_provenance_store = skill_provenance_store
+        self._skill_usage_store = skill_usage_store
         self._memory_store = memory_store
         self._memory_review_service = memory_review_service
         self._skill_review_service = skill_review_service
@@ -197,6 +200,7 @@ class ApplicationService:
                     skill_name=skill.name,
                     candidate=candidate,
                 )
+            self._record_skill_usage(skill.name, candidate=candidate)
             note = review_note or f"applied skill {skill.name}"
         else:
             return None
@@ -226,6 +230,8 @@ class ApplicationService:
         self._skill_store.remove(skill_name)
         if self._skill_provenance_store is not None:
             self._skill_provenance_store.remove(skill_name)
+        if self._skill_usage_store is not None:
+            self._skill_usage_store.record_archive(skill_name)
         return self.update_candidate_status(
             candidate_id,
             status,
@@ -340,6 +346,16 @@ class ApplicationService:
                 skill_name=skill.name,
                 candidate=candidate,
             )
+        self._record_skill_usage(skill.name, candidate=candidate)
+
+    def _record_skill_usage(self, skill_name: str, *, candidate: EvolutionCandidate) -> None:
+        if self._skill_usage_store is None:
+            return
+        operation = str((candidate.metadata or {}).get("operation") or "create").strip()
+        if operation == "update":
+            self._skill_usage_store.record_update(skill_name)
+        else:
+            self._skill_usage_store.record_create(skill_name)
 
     def _run_background_review_task(self, task: BackgroundReviewTask) -> None:
         if task.review_memory and self._memory_review_service is not None:

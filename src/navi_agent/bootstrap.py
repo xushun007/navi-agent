@@ -13,6 +13,7 @@ from navi_agent.evolution import (
     MemoryReviewService,
     SkillProvenanceStore,
     SkillReviewService,
+    SkillUsageStore,
 )
 from navi_agent.logging import setup_logging
 from navi_agent.memory import FileMemoryStore
@@ -109,6 +110,7 @@ def build_application(
         prompt_overlay_store=prompt_overlay_store,
         skill_store=skill_store,
         skill_provenance_store=SkillProvenanceStore(get_skills_dir()),
+        skill_usage_store=SkillUsageStore(get_skills_dir()),
         memory_store=memory_store,
         memory_review_service=MemoryReviewService(
             transport=build_transport(review_model_settings),

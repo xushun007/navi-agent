@@ -13,7 +13,7 @@ from .review_trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, Rev
 from .skill_curator import SkillCuratorRecord, SkillCuratorStatus, SkillCuratorStatusService
 from .skill_provenance import SkillProvenanceRecord, SkillProvenanceStore
 from .skill_review import SkillReviewDecision, SkillReviewService
-from .skill_usage import SkillUsageRecord, SkillUsageService
+from .skill_usage import SkillUsageRecord, SkillUsageService, SkillUsageSidecarRecord, SkillUsageStore
 from .skills import EvolutionEngine, FileSkillStore, SkillRecord
 from .tool_use import (
     ToolUseEvalCase,
@@ -67,6 +67,8 @@ __all__ = [
     "ReviewTriggerPolicy",
     "SkillUsageRecord",
     "SkillUsageService",
+    "SkillUsageSidecarRecord",
+    "SkillUsageStore",
     "IfevalReviewResult",
     "IfevalRunSummary",
     "IfevalStatusSummary",

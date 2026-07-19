@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from navi_agent.evolution import FileSkillStore, SkillUsageService
+from navi_agent.evolution import FileSkillStore, SkillUsageService, SkillUsageStore
 from navi_agent.telemetry import InMemoryTraceStore, RuntimeTrace
 
 
@@ -75,3 +75,27 @@ def test_includes_unused_skills(tmp_path: Path) -> None:
     assert records[0].name == "unused-skill"
     assert records[0].injected_count == 0
     assert records[0].last_injected_at is None
+
+
+def test_summarizes_skill_usage_sidecar_events(tmp_path: Path) -> None:
+    skill_store = FileSkillStore(tmp_path)
+    skill_store.create(
+        name="readme-summary",
+        content="description: Summarize README files",
+    )
+    usage_store = SkillUsageStore(tmp_path)
+    usage_store.record_create("readme-summary")
+    usage_store.record_update("readme-summary")
+    usage_store.record_archive("old-skill")
+
+    records = SkillUsageService(
+        skill_store=skill_store,
+        trace_store=InMemoryTraceStore(),
+        usage_store=usage_store,
+    ).summarize()
+
+    by_name = {record.name: record for record in records}
+    assert by_name["readme-summary"].created_count == 1
+    assert by_name["readme-summary"].updated_count == 1
+    assert by_name["readme-summary"].archived_count == 0
+    assert by_name["old-skill"].archived_count == 1

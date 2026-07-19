@@ -147,6 +147,22 @@ class FakeSkillProvenanceStore:
         return True
 
 
+class FakeSkillUsageStore:
+    def __init__(self) -> None:
+        self.created = []
+        self.updated = []
+        self.archived = []
+
+    def record_create(self, skill_name):
+        self.created.append(skill_name)
+
+    def record_update(self, skill_name):
+        self.updated.append(skill_name)
+
+    def record_archive(self, skill_name):
+        self.archived.append(skill_name)
+
+
 class FakeSkillReviewService:
     def __init__(
         self,
@@ -366,6 +382,7 @@ class ApplicationServiceTests(unittest.TestCase):
         candidate_store = FakeCandidateStore()
         skill_store = FakeSkillStore()
         provenance_store = FakeSkillProvenanceStore()
+        usage_store = FakeSkillUsageStore()
         review_candidate = EvolutionCandidate(
             target="skill",
             summary="Create README skill",
@@ -383,6 +400,7 @@ class ApplicationServiceTests(unittest.TestCase):
             candidate_store=candidate_store,
             skill_store=skill_store,
             skill_provenance_store=provenance_store,
+            skill_usage_store=usage_store,
             skill_review_service=review_service,
             review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
         )
@@ -403,6 +421,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(candidate_store.items, [])
         self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
         self.assertEqual(provenance_store.records, [("readme-summary", review_candidate.candidate_id)])
+        self.assertEqual(usage_store.created, ["readme-summary"])
 
     def test_background_skill_review_does_not_overwrite_existing_skill(self) -> None:
         runtime = FakeRuntime()
@@ -423,6 +442,7 @@ class ApplicationServiceTests(unittest.TestCase):
             ],
         )
         skill_store = FakeSkillStore()
+        usage_store = FakeSkillUsageStore()
         skill_store.create(name="readme-summary", content="# Existing\n")
         review_service = FakeSkillReviewService(
             EvolutionCandidate(
@@ -439,6 +459,7 @@ class ApplicationServiceTests(unittest.TestCase):
             runtime=runtime,
             candidate_store=FakeCandidateStore(),
             skill_store=skill_store,
+            skill_usage_store=usage_store,
             skill_review_service=review_service,
             review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
         )
@@ -467,6 +488,7 @@ class ApplicationServiceTests(unittest.TestCase):
             ],
         )
         skill_store = FakeSkillStore()
+        usage_store = FakeSkillUsageStore()
         skill_store.create(name="readme-summary", content="# Existing\n")
         review_service = FakeSkillReviewService(
             EvolutionCandidate(
@@ -484,6 +506,7 @@ class ApplicationServiceTests(unittest.TestCase):
             runtime=runtime,
             candidate_store=FakeCandidateStore(),
             skill_store=skill_store,
+            skill_usage_store=usage_store,
             skill_review_service=review_service,
             review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
         )
@@ -492,6 +515,7 @@ class ApplicationServiceTests(unittest.TestCase):
         service.wait_for_background_reviews()
 
         self.assertEqual(skill_store.items["readme-summary"], "# Updated\n")
+        self.assertEqual(usage_store.updated, ["readme-summary"])
 
     def test_handle_runs_memory_review_service_in_background(self) -> None:
         runtime = FakeRuntime()
@@ -799,11 +823,13 @@ class ApplicationServiceTests(unittest.TestCase):
     def test_apply_skill_candidate_uses_skill_store(self) -> None:
         skill_store = FakeSkillStore()
         provenance_store = FakeSkillProvenanceStore()
+        usage_store = FakeSkillUsageStore()
         service = ApplicationService(
             runtime=FakeRuntime(),
             candidate_store=FakeCandidateStore(),
             skill_store=skill_store,
             skill_provenance_store=provenance_store,
+            skill_usage_store=usage_store,
         )
         candidate = EvolutionCandidate(
             target="skill",
@@ -823,6 +849,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(updated.review_note, "applied skill readme-summary")
         self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
         self.assertEqual(provenance_store.records, [("readme-summary", candidate.candidate_id)])
+        self.assertEqual(usage_store.created, ["readme-summary"])
 
     def test_apply_unsupported_candidate_is_rejected(self) -> None:
         overlay_store = FakePromptOverlayStore()
@@ -846,11 +873,13 @@ class ApplicationServiceTests(unittest.TestCase):
     def test_rollback_skill_candidate_removes_skill_and_provenance(self) -> None:
         skill_store = FakeSkillStore()
         provenance_store = FakeSkillProvenanceStore()
+        usage_store = FakeSkillUsageStore()
         service = ApplicationService(
             runtime=FakeRuntime(),
             candidate_store=FakeCandidateStore(),
             skill_store=skill_store,
             skill_provenance_store=provenance_store,
+            skill_usage_store=usage_store,
         )
         candidate = EvolutionCandidate(
             target="skill",
@@ -871,6 +900,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(updated.review_note, "gate failed")
         self.assertNotIn("readme-summary", skill_store.items)
         self.assertEqual(provenance_store.removed, ["readme-summary"])
+        self.assertEqual(usage_store.archived, ["readme-summary"])
 
     def test_add_and_list_eval_cases_use_store(self) -> None:
         service = ApplicationService(

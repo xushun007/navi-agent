@@ -30,6 +30,7 @@ from navi_agent.evolution import (
     SkillCuratorStatusService,
     SkillProvenanceStore,
     SkillUsageService,
+    SkillUsageStore,
 )
 from navi_agent.smoke import SmokeRunStore, SmokeWorkflowService
 from navi_agent.gateway.weixin import (
@@ -978,6 +979,7 @@ def _print_skill_status() -> int:
     records = SkillUsageService(
         skill_store=FileSkillStore(get_skills_dir()),
         trace_store=JsonlTraceStore(get_trace_store_path()),
+        usage_store=SkillUsageStore(get_skills_dir()),
     ).summarize()
     print(f"skills_dir: {get_skills_dir()}")
     print(f"trace_store_path: {get_trace_store_path()}")
@@ -989,6 +991,9 @@ def _print_skill_status() -> int:
         print(f"- {record.name}{description}")
         print(f"  injected_count: {record.injected_count}")
         print(f"  last_injected_at: {record.last_injected_at or 'never'}")
+        print(f"  created_count: {record.created_count}")
+        print(f"  updated_count: {record.updated_count}")
+        print(f"  archived_count: {record.archived_count}")
     return 0
 
 
@@ -997,6 +1002,7 @@ def _print_skill_curator_status() -> int:
         usage_service=SkillUsageService(
             skill_store=FileSkillStore(get_skills_dir()),
             trace_store=JsonlTraceStore(get_trace_store_path()),
+            usage_store=SkillUsageStore(get_skills_dir()),
         ),
         provenance_store=SkillProvenanceStore(get_skills_dir()),
     ).summarize()
