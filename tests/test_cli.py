@@ -130,6 +130,9 @@ class CliTests(unittest.TestCase):
 
         self.assertTrue(args.doctor)
         self.assertIsNone(args.message)
+        args = parser.parse_args(["doctor", "--doctor-gateway", "weixin"])
+        self.assertEqual(args.message, "doctor")
+        self.assertEqual(args.doctor_gateway, "weixin")
 
     def test_build_parser_parses_unified_workflow_run_flag(self) -> None:
         parser = build_parser()
@@ -319,15 +322,15 @@ class CliTests(unittest.TestCase):
                 exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        run_doctor_mock.assert_called_once_with()
+        run_doctor_mock.assert_called_once_with(gateway=None)
 
     def test_main_runs_doctor_command(self) -> None:
         with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:
-            with patch("sys.argv", ["navi-agent", "doctor"]):
+            with patch("sys.argv", ["navi-agent", "doctor", "--doctor-gateway", "weixin"]):
                 exit_code = main()
 
         self.assertEqual(exit_code, 0)
-        run_doctor_mock.assert_called_once_with()
+        run_doctor_mock.assert_called_once_with(gateway="weixin")
 
     def test_main_init_creates_default_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -389,6 +392,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("weixin token is required", stdout.getvalue())
+        self.assertIn("doctor --doctor-gateway weixin", stdout.getvalue())
 
     def test_main_runs_weixin_ilink_mode(self) -> None:
         fake_app = FakeApp()
@@ -431,6 +435,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("weixin account_id is required", stdout.getvalue())
+        self.assertIn("doctor --doctor-gateway weixin", stdout.getvalue())
 
     def test_main_lists_weixin_pairings(self) -> None:
         stdout = io.StringIO()

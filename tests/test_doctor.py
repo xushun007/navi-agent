@@ -33,6 +33,53 @@ runtime:
         self.assertIn("api_key_configured: yes", report.lines)
         self.assertIn("langfuse_sdk_installed: no", report.lines)
         self.assertIn("transport: ok", report.lines)
+        self.assertFalse(any(line.startswith("weixin_") for line in report.lines))
+
+    def test_collect_report_checks_weixin_only_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text(
+                """
+model:
+  name: gpt-4o-mini
+  api_key: test-key
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=False):
+                with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
+                    core_report = collect_report()
+                    gateway_report = collect_report(gateway="weixin")
+
+        self.assertTrue(core_report.ok)
+        self.assertFalse(gateway_report.ok)
+        self.assertIn("weixin_token_configured: no", gateway_report.lines)
+        self.assertIn("weixin_account_id_configured: no", gateway_report.lines)
+
+    def test_collect_report_marks_weixin_gateway_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text(
+                """
+model:
+  name: gpt-4o-mini
+  api_key: test-key
+
+gateway:
+  weixin:
+    token: token
+    account_id: account-1
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=False):
+                with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
+                    report = collect_report(gateway="weixin")
+
+        self.assertTrue(report.ok)
+        self.assertIn("weixin_gateway: ok", report.lines)
 
     def test_collect_report_is_not_ok_when_api_key_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

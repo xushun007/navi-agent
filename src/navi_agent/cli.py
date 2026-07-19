@@ -100,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-y", "--yolo", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
+    parser.add_argument("--doctor-gateway", choices=["weixin"])
     parser.add_argument("--workflow-kind", choices=["healthcheck", "ifeval", "smoke", "tool_use", "tool_use_eval"])
     parser.add_argument("--workflow-phase", choices=["run", "compare", "report", "review"])
     parser.add_argument("--workflow-name")
@@ -137,7 +138,7 @@ def main() -> int:
     if args.message == "init":
         return _init_config()
     if args.message == "doctor":
-        return run_doctor()
+        return run_doctor(gateway=args.doctor_gateway)
     if args.message == "start":
         args.gateway = "weixin"
         return _run_gateway(args)
@@ -145,7 +146,7 @@ def main() -> int:
         print(render_banner())
         return 0
     if args.doctor:
-        return run_doctor()
+        return run_doctor(gateway=args.doctor_gateway)
     if args.workflow_kind or args.workflow_phase:
         return _run_unified_workflow(args)
     if args.gateway_pairings:
@@ -339,6 +340,7 @@ def _run_weixin_gateway(args) -> int:
     token = settings.token
     if not token:
         print("weixin token is required: set gateway.weixin.token")
+        print("hint: run `navi-agent doctor --doctor-gateway weixin` to check gateway readiness")
         return 1
     app = build_application(
         default_system_prompt=args.system_prompt,
@@ -347,6 +349,7 @@ def _run_weixin_gateway(args) -> int:
     account_id = settings.account_id
     if not account_id:
         print("weixin account_id is required: set gateway.weixin.account_id")
+        print("hint: run `navi-agent doctor --doctor-gateway weixin` to check gateway readiness")
         return 1
     base_url = settings.base_url
     print(f"weixin_ilink_polling: account_id={account_id} base_url={base_url}")

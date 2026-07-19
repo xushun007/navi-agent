@@ -29,6 +29,7 @@ Initialize local config, check readiness, then start the WeChat gateway:
 ```bash
 navi-agent init
 navi-agent doctor
+navi-agent doctor --doctor-gateway weixin
 navi-agent start
 ```
 
@@ -37,6 +38,7 @@ When developing from this repository, prefix commands with `uv run`:
 ```bash
 uv run navi-agent init
 uv run navi-agent doctor
+uv run navi-agent doctor --doctor-gateway weixin
 uv run navi-agent start
 ```
 

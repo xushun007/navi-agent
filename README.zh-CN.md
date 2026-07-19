@@ -29,6 +29,7 @@ uv tool install git+https://github.com/xushun007/navi-agent.git
 ```bash
 navi-agent init
 navi-agent doctor
+navi-agent doctor --doctor-gateway weixin
 navi-agent start
 ```
 
@@ -37,6 +38,7 @@ navi-agent start
 ```bash
 uv run navi-agent init
 uv run navi-agent doctor
+uv run navi-agent doctor --doctor-gateway weixin
 uv run navi-agent start
 ```
 

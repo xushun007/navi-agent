@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
+from navi_agent.config import (
+    LangfuseSettings,
+    ModelSettings,
+    RuntimeSettings,
+    WeixinGatewaySettings,
+    load_config,
+)
 from navi_agent.paths import get_app_log_path, get_config_path, get_navi_home, get_state_db_path
 from navi_agent.runtime import build_transport
 from navi_agent.telemetry import LangfuseTraceExporter, is_langfuse_sdk_available
@@ -14,7 +20,7 @@ class DoctorReport:
     lines: list[str]
 
 
-def collect_report() -> DoctorReport:
+def collect_report(*, gateway: str | None = None) -> DoctorReport:
     config_path = get_config_path()
     config = load_config(config_path)
     model_settings = ModelSettings.from_sources(config)
@@ -57,14 +63,37 @@ def collect_report() -> DoctorReport:
                 lines.append(f"langfuse_exporter: error: {exc}")
             else:
                 lines.append("langfuse_exporter: ok")
+    if gateway == "weixin":
+        gateway_report = _collect_weixin_gateway_report(config)
+        ok = ok and gateway_report.ok
+        lines.extend(gateway_report.lines)
     return DoctorReport(ok=ok, lines=lines)
 
 
-def run_doctor(output_fn=print) -> int:
-    report = collect_report()
+def run_doctor(output_fn=print, *, gateway: str | None = None) -> int:
+    report = collect_report(gateway=gateway)
     for line in report.lines:
         output_fn(line)
     return 0 if report.ok else 1
+
+
+def _collect_weixin_gateway_report(config: dict) -> DoctorReport:
+    settings = WeixinGatewaySettings.from_sources(config)
+    lines = [
+        "gateway: weixin",
+        f"weixin_base_url: {settings.base_url}",
+        f"weixin_token_configured: {_format_bool(bool(settings.token))}",
+        f"weixin_account_id_configured: {_format_bool(bool(settings.account_id))}",
+        f"weixin_dm_policy: {settings.dm_policy}",
+    ]
+    ok = bool(settings.token and settings.account_id)
+    if not settings.token:
+        lines.append("weixin_gateway: error: missing gateway.weixin.token")
+    if not settings.account_id:
+        lines.append("weixin_gateway: error: missing gateway.weixin.account_id")
+    if ok:
+        lines.append("weixin_gateway: ok")
+    return DoctorReport(ok=ok, lines=lines)
 
 
 def _format_bool(value: bool) -> str:
