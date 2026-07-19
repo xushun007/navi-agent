@@ -16,6 +16,30 @@ Navi Agent is a self-evolving agent project inspired by Hermes, but it currently
 - Only the core runtime pipeline is kept
 - Prioritize stable single-agent execution
 
+## Quickstart
+
+Install from source:
+
+```bash
+uv tool install git+https://github.com/xushun007/navi-agent.git
+```
+
+Initialize local config, check readiness, then start the WeChat gateway:
+
+```bash
+navi-agent init
+navi-agent doctor
+navi-agent start
+```
+
+When developing from this repository, prefix commands with `uv run`:
+
+```bash
+uv run navi-agent init
+uv run navi-agent doctor
+uv run navi-agent start
+```
+
 ## Self-Evolution
 
 Continuously discover issues, evaluate solutions, and validate improvements based on real runtime data.
@@ -25,7 +49,7 @@ Continuously discover issues, evaluate solutions, and validate improvements base
 The current WeChat gateway only keeps the iLink local polling style: it pulls text messages and sends text replies.
 
 ```bash
-uv run navi-agent --gateway weixin
+navi-agent start
 ```
 
 The WeChat gateway reads configuration only from `config.yaml` or environment variables:

@@ -16,6 +16,30 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 - 只保留核心运行链路
 - 优先单 Agent 稳定执行
 
+## 快速开始
+
+从源码安装：
+
+```bash
+uv tool install git+https://github.com/xushun007/navi-agent.git
+```
+
+初始化本地配置、检查状态、启动微信入口：
+
+```bash
+navi-agent init
+navi-agent doctor
+navi-agent start
+```
+
+如果在当前仓库内开发，命令前加 `uv run`：
+
+```bash
+uv run navi-agent init
+uv run navi-agent doctor
+uv run navi-agent start
+```
+
 ## 自我进化
 
 基于真实运行数据持续发现问题、评估方案、验证改进。
@@ -25,7 +49,7 @@ Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但
 当前微信网关只保留 iLink 本地轮询风格，拉取文本消息并发送文本回复。
 
 ```bash
-uv run navi-agent --gateway weixin
+navi-agent start
 ```
 
 微信网关只从 `config.yaml` 或环境变量读取配置：

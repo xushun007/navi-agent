@@ -321,6 +321,64 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         run_doctor_mock.assert_called_once_with()
 
+    def test_main_runs_doctor_command(self) -> None:
+        with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:
+            with patch("sys.argv", ["navi-agent", "doctor"]):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        run_doctor_mock.assert_called_once_with()
+
+    def test_main_init_creates_default_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stdout = io.StringIO()
+            with patch.dict("os.environ", {"NAVI_HOME": tmpdir}, clear=True):
+                with patch("sys.argv", ["navi-agent", "init"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+            config_path = Path(tmpdir) / "config.yaml"
+            self.assertEqual(exit_code, 0)
+            self.assertIn("config_created:", stdout.getvalue())
+            self.assertTrue(config_path.exists())
+            self.assertIn("gateway:", config_path.read_text(encoding="utf-8"))
+
+    def test_main_init_does_not_overwrite_existing_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text("model:\n  name: custom\n", encoding="utf-8")
+            stdout = io.StringIO()
+            with patch.dict("os.environ", {"NAVI_HOME": tmpdir}, clear=True):
+                with patch("sys.argv", ["navi-agent", "init"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+            self.assertEqual(exit_code, 0)
+            self.assertIn("config_exists:", stdout.getvalue())
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "model:\n  name: custom\n")
+
+    def test_main_start_runs_weixin_gateway(self) -> None:
+        fake_app = FakeApp()
+        config = {
+            "gateway": {
+                "weixin": {
+                    "token": "token",
+                    "account_id": "account-1",
+                    "base_url": "http://127.0.0.1:9001",
+                }
+            }
+        }
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.load_config", return_value=config):
+                with patch("navi_agent.cli.ILinkGateway") as gateway_cls:
+                    with patch("sys.argv", ["navi-agent", "start"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("weixin_ilink_polling: account_id=account-1", stdout.getvalue())
+        gateway_cls.return_value.run_forever.assert_called_once_with()
+
     def test_main_requires_weixin_token_for_gateway_mode(self) -> None:
         stdout = io.StringIO()
 

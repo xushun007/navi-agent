@@ -44,6 +44,8 @@ from navi_agent.paths import get_eval_seed_reports_dir
 from navi_agent.paths import get_eval_seed_path
 from navi_agent.paths import get_ifeval_drafts_path
 from navi_agent.paths import get_ifeval_reports_dir
+from navi_agent.paths import get_config_path
+from navi_agent.paths import get_navi_home
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
 from navi_agent.paths import get_skills_dir
@@ -62,6 +64,29 @@ from navi_agent.healthcheck import (
     replay_healthcheck_workflow,
     run_healthcheck_workflow,
 )
+
+
+DEFAULT_CONFIG_TEMPLATE = """model:
+  name: gpt-4o-mini
+  api_key: replace-with-your-api-key
+  base_url: https://api.openai.com/v1
+
+runtime:
+  max_iterations: 8
+
+gateway:
+  weixin:
+    token: replace-with-your-weixin-token
+    account_id: replace-with-your-weixin-account-id
+    base_url: https://ilinkai.weixin.qq.com
+    poll_interval_seconds: 1.0
+    dm_policy: pairing
+    allowed_users: []
+
+telemetry:
+  langfuse:
+    enabled: false
+"""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -109,6 +134,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if args.message == "init":
+        return _init_config()
+    if args.message == "doctor":
+        return run_doctor()
+    if args.message == "start":
+        args.gateway = "weixin"
+        return _run_gateway(args)
     if args.banner:
         print(render_banner())
         return 0
@@ -280,6 +312,19 @@ def _build_approval_provider(args):
     if getattr(args, "yolo", False):
         return WorkspaceYoloApprovalProvider()
     return CliApprovalProvider()
+
+
+def _init_config() -> int:
+    navi_home = get_navi_home()
+    config_path = get_config_path()
+    navi_home.mkdir(parents=True, exist_ok=True)
+    if config_path.exists():
+        print(f"config_exists: {config_path}")
+        return 0
+    config_path.write_text(DEFAULT_CONFIG_TEMPLATE, encoding="utf-8")
+    print(f"config_created: {config_path}")
+    print("next: edit config.yaml, then run `navi-agent doctor` and `navi-agent start`")
+    return 0
 
 
 def _run_gateway(args) -> int:
