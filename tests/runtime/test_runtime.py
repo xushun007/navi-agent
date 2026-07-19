@@ -373,7 +373,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(trace.model_calls[0].completed_at)
         self.assertGreaterEqual(trace.model_calls[0].duration_ms, 0)
 
-    def test_runtime_records_injected_skill_names(self) -> None:
+    def test_runtime_does_not_record_skill_index_as_injected_skill_usage(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_store = FileSkillStore(Path(tmpdir))
             skill_store.create(
@@ -400,7 +400,7 @@ class AgentRuntimeTests(unittest.TestCase):
                 user_message="summarize README",
             )
 
-        self.assertEqual(trace_store.traces[0].injected_skill_names, ["readme-summary"])
+        self.assertEqual(trace_store.traces[0].injected_skill_names, [])
 
     def test_runtime_emits_structured_events(self) -> None:
         transport = FakeTransport(

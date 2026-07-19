@@ -129,17 +129,15 @@ class SkillUsageService:
         for trace in self._trace_store.list_traces(limit=trace_limit):
             timestamp = trace.completed_at or trace.started_at
             for skill_name in trace.injected_skill_names:
-                if skill_name not in usage:
-                    usage[skill_name] = {
-                        "count": 0,
-                        "last_injected_at": None,
-                    }
-                usage[skill_name]["count"] += 1
-                if timestamp and (
-                    usage[skill_name]["last_injected_at"] is None
-                    or timestamp > usage[skill_name]["last_injected_at"]
-                ):
-                    usage[skill_name]["last_injected_at"] = timestamp
+                _record_skill_usage(usage, skill_name, timestamp)
+            for execution in trace.tool_executions:
+                if execution.tool_name != "skill_manage":
+                    continue
+                action = str(execution.arguments.get("action") or "").strip()
+                if action != "view":
+                    continue
+                skill_name = str(execution.arguments.get("skill_name") or "").strip()
+                _record_skill_usage(usage, skill_name, timestamp)
 
         descriptions = {skill.name: skill.description for skill in skills}
         sidecar = {record.name: record for record in self._usage_store.list()} if self._usage_store is not None else {}
@@ -159,3 +157,23 @@ class SkillUsageService:
             for name, values in {**{record.name: {"count": 0, "last_injected_at": None} for record in sidecar.values()}, **usage}.items()
         ]
         return sorted(records, key=lambda record: (-record.injected_count, record.name))
+
+
+def _record_skill_usage(
+    usage: dict[str, dict[str, object]],
+    skill_name: str,
+    timestamp: str | None,
+) -> None:
+    if not skill_name:
+        return
+    if skill_name not in usage:
+        usage[skill_name] = {
+            "count": 0,
+            "last_injected_at": None,
+        }
+    usage[skill_name]["count"] = int(usage[skill_name]["count"]) + 1
+    if timestamp and (
+        usage[skill_name]["last_injected_at"] is None
+        or timestamp > usage[skill_name]["last_injected_at"]
+    ):
+        usage[skill_name]["last_injected_at"] = timestamp

@@ -117,7 +117,7 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertNotIn("Prefer repo instructions.", prompt)
         self.assertEqual(builder.last_injected_context_files, [".navi.md"])
 
-    def test_new_session_with_relevant_skill(self) -> None:
+    def test_new_session_injects_skill_index(self) -> None:
         with TemporaryDirectory() as tmpdir:
             skill_store = FileSkillStore(Path(tmpdir))
             skill_store.create(
@@ -134,14 +134,17 @@ class PromptBuilderTest(unittest.TestCase):
             builder = PromptBuilder(skill_store=skill_store)
             session = ConversationState(session_id="s1", user_id="u1")
 
-            msgs = builder.build_initial_messages(session, "summarize README")
+            msgs = builder.build_initial_messages(session, "help me fix it")
 
         self.assertEqual(len(msgs), 2)
         self.assertIn("[Skills]", msgs[0].content)
+        self.assertIn("Available reusable procedures", msgs[0].content)
+        self.assertIn("skill_manage(action='view'", msgs[0].content)
         self.assertIn("readme-summary: Summarize README files and run tests", msgs[0].content)
-        self.assertEqual(builder.last_injected_skill_names, ["readme-summary"])
+        self.assertNotIn("Use read_file before bash.", msgs[0].content)
+        self.assertEqual(builder.last_injected_skill_names, [])
 
-    def test_new_session_with_skill_attachment_hints(self) -> None:
+    def test_new_session_does_not_inject_skill_attachment_hints(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             skill_store = FileSkillStore(root)
@@ -167,7 +170,8 @@ class PromptBuilderTest(unittest.TestCase):
 
             msgs = builder.build_initial_messages(session, "summarize README")
 
-        self.assertIn("attachments: references/checks.md", msgs[0].content)
+        self.assertNotIn("attachments:", msgs[0].content)
+        self.assertNotIn("references/checks.md", msgs[0].content)
         self.assertNotIn("Run README checks after editing", msgs[0].content)
 
     def test_injected_skill_names_reset_between_builds(self) -> None:
@@ -186,10 +190,12 @@ class PromptBuilderTest(unittest.TestCase):
             builder = PromptBuilder(skill_store=skill_store)
             session = ConversationState(session_id="s1", user_id="u1")
 
-            builder.build_initial_messages(session, "summarize README")
-            builder.build_initial_messages(session, "unrelated")
+            first = builder.build_initial_messages(session, "summarize README")
+            second = builder.build_initial_messages(session, "unrelated")
 
         self.assertEqual(builder.last_injected_skill_names, [])
+        self.assertIn("readme-summary", first[0].content)
+        self.assertIn("readme-summary", second[0].content)
 
     def test_existing_session_skips_system_and_memory(self) -> None:
         self.memory.add_for_user("u1", "Memory")
@@ -202,7 +208,3 @@ class PromptBuilderTest(unittest.TestCase):
     def test_memory_limit_must_be_positive(self) -> None:
         with self.assertRaises(ValueError):
             PromptBuilder(memory_store=self.memory, memory_limit=0)
-
-    def test_skill_limit_must_be_positive(self) -> None:
-        with self.assertRaises(ValueError):
-            PromptBuilder(skill_limit=0)

@@ -27,8 +27,10 @@ MEMORY_GUIDANCE = (
 )
 
 SKILL_GUIDANCE = (
-    "Skills are reusable procedures learned from prior work. Use relevant skills when they fit the current task, "
-    "but prefer the user's current instruction when there is a conflict."
+    "Skills are reusable procedures learned from prior work. Before execution, scan the available skill index. "
+    "If a skill is relevant or partially relevant, load its full instructions with skill_manage(action='view') "
+    "before following it. Only load attachment files when the loaded SKILL.md explicitly points to them. "
+    "Prefer the user's current instruction when there is a conflict."
 )
 
 PROJECT_CONTEXT_MAX_CHARS = 20_000
@@ -47,8 +49,8 @@ class PromptParts:
         )
 
 
-class SkillSearchStore(Protocol):
-    def search(self, query: str, *, limit: int = 3): ...
+class SkillIndexStore(Protocol):
+    def list(self): ...
 
 
 class PromptBuilder:
@@ -56,18 +58,14 @@ class PromptBuilder:
         self,
         memory_store: MemoryStore | None = None,
         memory_limit: int = 5,
-        skill_store: SkillSearchStore | None = None,
-        skill_limit: int = 3,
+        skill_store: SkillIndexStore | None = None,
         project_context_root: Path | None = None,
     ) -> None:
         if memory_limit <= 0:
             raise ValueError("memory_limit must be positive")
-        if skill_limit <= 0:
-            raise ValueError("skill_limit must be positive")
         self._memory_store = memory_store
         self._memory_limit = memory_limit
         self._skill_store = skill_store
-        self._skill_limit = skill_limit
         self._project_context_root = project_context_root
         self._last_injected_skill_names: list[str] = []
         self._last_injected_context_files: list[str] = []
@@ -116,7 +114,7 @@ class PromptBuilder:
         memory_block = self._build_memory_block(user_id)
         if memory_block:
             volatile_parts.append(memory_block)
-        skill_block = self._build_skill_block(user_message)
+        skill_block = self._build_skill_block()
         if skill_block:
             volatile_parts.append(skill_block)
         return PromptParts(
@@ -137,19 +135,20 @@ class PromptBuilder:
         )
         return "\n".join(lines)
 
-    def _build_skill_block(self, user_message: str) -> str | None:
+    def _build_skill_block(self) -> str | None:
         if self._skill_store is None:
             return None
-        records = self._skill_store.search(user_message, limit=self._skill_limit)
+        records = self._skill_store.list()
         if not records:
             return None
-        self._last_injected_skill_names = [record.name for record in records]
-        lines = ["[Skills]", "Relevant reusable procedures:"]
+        lines = [
+            "[Skills]",
+            "Available reusable procedures. Scan this index before execution. "
+            "If one matches or is partially relevant, call skill_manage(action='view', skill_name='<name>') "
+            "to load the full SKILL.md before using it.",
+        ]
         for record in records:
             lines.append(f"- {record.name}: {record.description}")
-            attachment_paths = [attachment.path for attachment in record.attachments]
-            if attachment_paths:
-                lines.append(f"  attachments: {', '.join(attachment_paths)}")
         return "\n".join(lines)
 
     def _build_project_context_block(self) -> str | None:

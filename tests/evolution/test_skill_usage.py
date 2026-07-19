@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from navi_agent.evolution import FileSkillStore, SkillUsageService, SkillUsageStore
-from navi_agent.telemetry import InMemoryTraceStore, RuntimeTrace
+from navi_agent.telemetry import InMemoryTraceStore, RuntimeTrace, ToolExecutionTrace
 
 
 def test_summarizes_skill_usage_from_traces(tmp_path: Path) -> None:
@@ -51,6 +51,49 @@ def test_summarizes_skill_usage_from_traces(tmp_path: Path) -> None:
     assert records[0].last_injected_at == "2026-07-11T11:00:00+00:00"
     assert records[1].name == "missing-skill"
     assert records[1].injected_count == 1
+
+
+def test_summarizes_skill_usage_from_skill_view_tool_calls(tmp_path: Path) -> None:
+    skill_store = FileSkillStore(tmp_path)
+    skill_store.create(
+        name="debug-crash",
+        content="\n".join(
+            [
+                "---",
+                "description: Debug process crashes",
+                "---",
+            ]
+        ),
+    )
+    trace_store = InMemoryTraceStore()
+    trace_store.record(
+        RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="帮我修一下",
+            final_response="ok",
+            status="success",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="tc1",
+                    tool_name="skill_manage",
+                    status="success",
+                    arguments={"action": "view", "skill_name": "debug-crash"},
+                )
+            ],
+            completed_at="2026-07-11T10:00:00+00:00",
+        )
+    )
+
+    records = SkillUsageService(
+        skill_store=skill_store,
+        trace_store=trace_store,
+    ).summarize()
+
+    assert records[0].name == "debug-crash"
+    assert records[0].injected_count == 1
+    assert records[0].last_injected_at == "2026-07-11T10:00:00+00:00"
 
 
 def test_includes_unused_skills(tmp_path: Path) -> None:
