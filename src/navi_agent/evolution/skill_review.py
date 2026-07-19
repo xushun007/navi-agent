@@ -26,6 +26,8 @@ class SkillReviewDecision:
     summary: str = ""
     rationale: str = ""
     skill_content: str = ""
+    section: str = ""
+    append_content: str = ""
 
 
 class SkillReviewService:
@@ -55,7 +57,7 @@ class SkillReviewService:
         if decision.action != "create_skill":
             if decision.action != "update_skill":
                 return None
-        if not decision.skill_name or not decision.skill_content.strip():
+        if not decision.skill_name:
             return None
         existing_skill = self._skill_store.get(decision.skill_name) if self._skill_store is not None else None
         if decision.action == "create_skill" and existing_skill is not None:
@@ -64,19 +66,30 @@ class SkillReviewService:
             return None
 
         operation = "update" if decision.action == "update_skill" else "create"
+        if operation == "create" and not decision.skill_content.strip():
+            return None
+        if operation == "update" and (
+            not decision.section.strip() or not decision.append_content.strip()
+        ):
+            return None
+        metadata = {
+            "operation": operation,
+            "source_session_id": trace.session_id,
+            "source_trace_id": trace.trace_id,
+            "skill_name": decision.skill_name,
+            "tool_names": [execution.tool_name for execution in trace.tool_executions],
+            "reviewer": "llm",
+        }
+        if operation == "update":
+            metadata["section"] = decision.section
+            metadata["append_content"] = decision.append_content
+        else:
+            metadata["skill_content"] = decision.skill_content
         return EvolutionCandidate(
             target="skill",
             summary=decision.summary or f"{operation.title()} reusable skill `{decision.skill_name}`",
             rationale=decision.rationale or "LLM review found reusable procedural knowledge.",
-            metadata={
-                "operation": operation,
-                "source_session_id": trace.session_id,
-                "source_trace_id": trace.trace_id,
-                "skill_name": decision.skill_name,
-                "skill_content": decision.skill_content,
-                "tool_names": [execution.tool_name for execution in trace.tool_executions],
-                "reviewer": "llm",
-            },
+            metadata=metadata,
         )
 
     def _review(self, trace: RuntimeTrace) -> SkillReviewDecision:
@@ -97,6 +110,8 @@ class SkillReviewService:
             summary=str(payload.get("summary") or "").strip(),
             rationale=str(payload.get("rationale") or "").strip(),
             skill_content=str(payload.get("skill_content") or "").strip(),
+            section=str(payload.get("section") or "").strip(),
+            append_content=str(payload.get("append_content") or "").strip(),
         )
 
     def _build_user_prompt(self, trace: RuntimeTrace) -> str:
@@ -154,8 +169,9 @@ Rules:
 - User corrections about style, sequence, approval, verification, or tool choice are valid skill updates when they affect a class of future tasks.
 - Prefer broad reusable procedures: debugging pattern, tool workflow, project convention, user-corrected workflow, or repeatable verification path.
 - skill_name must be lowercase kebab-case.
-- skill_content must be the complete final SKILL.md body after create/update, with sections: # title, ## When To Use, ## Procedure, ## Evidence.
-- Preserve useful existing content when updating a skill. Add or revise focused sections; do not replace broad guidance with only the latest session.
+- For create_skill, skill_content must be the complete SKILL.md body with sections: # title, ## When To Use, ## Procedure, ## Evidence.
+- For update_skill, do not rewrite the full SKILL.md. Return a target section and append_content only.
+- update_skill must be append-only. append_content should be concise Markdown bullets or paragraphs that preserve existing content.
 
 Schema:
 {
@@ -163,7 +179,9 @@ Schema:
   "skill_name": "short-kebab-name-or-empty",
   "summary": "short candidate summary",
   "rationale": "why this should or should not become a skill",
-  "skill_content": "complete SKILL.md content or empty string"
+  "skill_content": "complete SKILL.md content for create_skill, otherwise empty string",
+  "section": "target section heading for update_skill, for example ## Pitfalls",
+  "append_content": "append-only Markdown for update_skill"
 }
 """
 

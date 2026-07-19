@@ -63,15 +63,17 @@ def test_applies_update_skill_candidate_to_store(tmp_path: Path) -> None:
         metadata={
             "operation": "update",
             "skill_name": "readme-summary",
-            "skill_content": "# New\n",
+            "section": "## Procedure",
+            "append_content": "- Verify README after editing.",
         },
     )
 
     record = EvolutionEngine().apply_skill_candidate(candidate, skill_store=store)
 
     assert record is not None
-    assert record.content == "# New\n"
-    assert store.get("readme-summary").content == "# New\n"
+    assert "# Old" in record.content
+    assert "## Procedure" in record.content
+    assert "- Verify README after editing." in record.content
 
 
 def test_does_not_apply_pending_skill_candidate(tmp_path: Path) -> None:
@@ -117,6 +119,23 @@ def test_update_missing_skill_returns_none(tmp_path: Path) -> None:
     record = store.update(name="missing-skill", content="# Missing\n")
 
     assert record is None
+
+
+def test_append_to_existing_skill_section(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="readme-summary",
+        content="# README Summary\n\n## Procedure\n\n- Read README.\n\n## Evidence\n\n- trace",
+    )
+
+    record = store.append_to_section(
+        name="readme-summary",
+        section="## Procedure",
+        content="- Verify README.",
+    )
+
+    assert record is not None
+    assert "## Procedure\n\n- Read README.\n\n- Verify README.\n\n## Evidence" in record.content
 
 
 def test_search_returns_relevant_skills(tmp_path: Path) -> None:

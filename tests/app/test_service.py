@@ -130,6 +130,20 @@ class FakeSkillStore:
             },
         )()
 
+    def append_to_section(self, *, name, section, content):
+        if name not in self.items:
+            return None
+        current = self.items[name].rstrip()
+        self.items[name] = f"{current}\n\n{section}\n\n{content}\n"
+        return type(
+            "FakeSkillRecord",
+            (),
+            {
+                "name": name,
+                "content": self.items[name],
+            },
+        )()
+
     def remove(self, name):
         return self.items.pop(name, None) is not None
 
@@ -498,7 +512,8 @@ class ApplicationServiceTests(unittest.TestCase):
                 metadata={
                     "operation": "update",
                     "skill_name": "readme-summary",
-                    "skill_content": "# Updated\n",
+                    "section": "## Procedure",
+                    "append_content": "- Verify README after editing.",
                 },
             )
         )
@@ -514,7 +529,9 @@ class ApplicationServiceTests(unittest.TestCase):
         service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
         service.wait_for_background_reviews()
 
-        self.assertEqual(skill_store.items["readme-summary"], "# Updated\n")
+        self.assertIn("# Existing", skill_store.items["readme-summary"])
+        self.assertIn("## Procedure", skill_store.items["readme-summary"])
+        self.assertIn("- Verify README after editing.", skill_store.items["readme-summary"])
         self.assertEqual(usage_store.updated, ["readme-summary"])
 
     def test_handle_runs_memory_review_service_in_background(self) -> None:

@@ -906,6 +906,15 @@ def _review_skill(
         print(f"source_trace_id: {metadata['source_trace_id']}")
     if metadata.get("tool_names"):
         print(f"tool_names: {','.join(metadata['tool_names'])}")
+    if metadata.get("operation"):
+        print(f"operation: {metadata['operation']}")
+    if metadata.get("section"):
+        print(f"section: {metadata['section']}")
+    if metadata.get("append_content"):
+        print("append_content:")
+        print("--- BEGIN PATCH ---")
+        print(str(metadata["append_content"]).rstrip())
+        print("--- END PATCH ---")
     if metadata.get("skill_content"):
         print("skill_content:")
         print("--- BEGIN SKILL.md ---")

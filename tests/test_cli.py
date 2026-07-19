@@ -917,7 +917,12 @@ class CliTests(unittest.TestCase):
                 summary="Create README summary skill",
                 rationale="Successful tool trace",
                 candidate_id="skill-1",
-                metadata={"skill_name": "readme-summary"},
+                metadata={
+                    "operation": "update",
+                    "skill_name": "readme-summary",
+                    "section": "## Procedure",
+                    "append_content": "- Verify README after editing.",
+                },
             )
         )
         stdout = io.StringIO()
@@ -929,6 +934,11 @@ class CliTests(unittest.TestCase):
                         exit_code = main()
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("operation: update", stdout.getvalue())
+        self.assertIn("section: ## Procedure", stdout.getvalue())
+        self.assertIn("--- BEGIN PATCH ---", stdout.getvalue())
+        self.assertIn("- Verify README after editing.", stdout.getvalue())
+        self.assertIn("--- END PATCH ---", stdout.getvalue())
         self.assertIn("candidate_status: rejected", stdout.getvalue())
         self.assertEqual(fake_app.saved_candidates[0].status, "rejected")
 

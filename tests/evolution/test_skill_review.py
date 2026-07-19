@@ -94,7 +94,9 @@ def test_llm_review_proposes_update_skill_candidate(tmp_path: Path) -> None:
           "skill_name": "readme-verification",
           "summary": "Update README verification skill",
           "rationale": "The trace adds a verification step.",
-          "skill_content": "# README Verification\\n\\n## When To Use\\n\\nUse for README checks.\\n\\n## Procedure\\n\\n- Read README.\\n- Verify tests.\\n\\n## Evidence\\n\\n- session trace."
+          "skill_content": "",
+          "section": "## Procedure",
+          "append_content": "- Verify tests."
         }
         """
     )
@@ -107,7 +109,8 @@ def test_llm_review_proposes_update_skill_candidate(tmp_path: Path) -> None:
     assert candidate is not None
     assert candidate.metadata["operation"] == "update"
     assert candidate.metadata["skill_name"] == "readme-verification"
-    assert "Verify tests" in candidate.metadata["skill_content"]
+    assert candidate.metadata["section"] == "## Procedure"
+    assert candidate.metadata["append_content"] == "- Verify tests."
 
 
 def test_llm_review_invalid_response_returns_none(tmp_path: Path) -> None:
@@ -133,7 +136,7 @@ def test_skill_review_prompt_discourages_micro_skills(tmp_path: Path) -> None:
     assert "not one-session micro skills" in system_prompt
     assert "one exact error string" in system_prompt
     assert "update the broadest one" in system_prompt
-    assert "Preserve useful existing content" in system_prompt
+    assert "append-only" in system_prompt
 
 
 def _tool_trace() -> RuntimeTrace:

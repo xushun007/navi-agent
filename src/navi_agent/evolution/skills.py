@@ -59,6 +59,22 @@ class FileSkillStore:
             references=_read_references(skill_path.parent),
         )
 
+    def append_to_section(self, *, name: str, section: str, content: str) -> SkillRecord | None:
+        name = _normalize_skill_name(name)
+        skill_path = self._root / name / "SKILL.md"
+        if not skill_path.exists():
+            return None
+        current = skill_path.read_text(encoding="utf-8")
+        updated = append_to_markdown_section(current, section=section, content=content)
+        skill_path.write_text(updated, encoding="utf-8")
+        return SkillRecord(
+            name=name,
+            description=_extract_description(updated),
+            content=updated,
+            path=skill_path,
+            references=_read_references(skill_path.parent),
+        )
+
     def get(self, name: str) -> SkillRecord | None:
         name = _normalize_skill_name(name)
         skill_path = self._root / name / "SKILL.md"
@@ -177,11 +193,21 @@ class EvolutionEngine:
         content = metadata.get("skill_content")
         if not isinstance(name, str) or not name.strip():
             return None
-        if not isinstance(content, str) or not content.strip():
-            return None
         operation = str(metadata.get("operation") or "create").strip()
         if operation == "update":
-            return skill_store.update(name=name, content=content)
+            section = metadata.get("section")
+            append_content = metadata.get("append_content")
+            if not isinstance(section, str) or not section.strip():
+                return None
+            if not isinstance(append_content, str) or not append_content.strip():
+                return None
+            return skill_store.append_to_section(
+                name=name,
+                section=section,
+                content=append_content,
+            )
+        if not isinstance(content, str) or not content.strip():
+            return None
         return skill_store.create(name=name, content=content)
 
     @staticmethod
@@ -251,6 +277,47 @@ def _extract_description(content: str) -> str:
         if line.startswith("description:"):
             return line.removeprefix("description:").strip()
     return ""
+
+
+def append_to_markdown_section(markdown: str, *, section: str, content: str) -> str:
+    section = section.strip()
+    content = content.strip()
+    if not section:
+        raise ValueError("section is required")
+    if not content:
+        raise ValueError("content is required")
+    heading = section if section.startswith("#") else f"## {section}"
+    lines = markdown.rstrip().splitlines()
+    heading_index = _find_heading_index(lines, heading)
+    if heading_index is None:
+        return "\n".join([markdown.rstrip(), "", heading, "", content, ""])
+
+    insert_at = len(lines)
+    heading_level = len(heading) - len(heading.lstrip("#"))
+    for index in range(heading_index + 1, len(lines)):
+        line = lines[index]
+        if line.startswith("#"):
+            level = len(line) - len(line.lstrip("#"))
+            if level <= heading_level:
+                insert_at = index
+                break
+    new_lines = lines[:insert_at]
+    if new_lines and new_lines[-1].strip():
+        new_lines.append("")
+    new_lines.extend(content.splitlines())
+    if insert_at < len(lines):
+        if new_lines and new_lines[-1].strip():
+            new_lines.append("")
+        new_lines.extend(lines[insert_at:])
+    return "\n".join(new_lines).rstrip() + "\n"
+
+
+def _find_heading_index(lines: list[str], heading: str) -> int | None:
+    normalized = heading.strip().lower()
+    for index, line in enumerate(lines):
+        if line.strip().lower() == normalized:
+            return index
+    return None
 
 
 def _read_references(skill_dir: Path) -> list[SkillReference]:
