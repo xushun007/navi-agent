@@ -25,7 +25,7 @@ class BackgroundSkillReviewStatus:
 @dataclass(frozen=True, slots=True)
 class BackgroundReviewTask:
     trace: RuntimeTrace
-    skill_evidence: SkillReviewEvidence | None = None
+    review_evidence: SkillReviewEvidence | None = None
     review_memory: bool = False
     review_skill: bool = False
 
@@ -48,7 +48,7 @@ class BackgroundSkillReviewWorker:
         self,
         trace: RuntimeTrace,
         *,
-        skill_evidence: SkillReviewEvidence | None = None,
+        review_evidence: SkillReviewEvidence | None = None,
         review_memory: bool = False,
         review_skill: bool = False,
     ) -> None:
@@ -57,19 +57,19 @@ class BackgroundSkillReviewWorker:
         self._ensure_started()
         task = BackgroundReviewTask(
             trace=trace,
-            skill_evidence=skill_evidence,
+            review_evidence=review_evidence,
             review_memory=review_memory,
             review_skill=review_skill,
         )
         with self._lock:
             self._submitted_count += 1
         logger.info(
-            "Submitted background review: trace_id=%s session_id=%s memory=%s skill=%s skill_evidence_messages=%s pending=%s",
+            "Submitted background review: trace_id=%s session_id=%s memory=%s skill=%s evidence_messages=%s pending=%s",
             trace.trace_id,
             trace.session_id,
             review_memory,
             review_skill,
-            len(skill_evidence.messages_snapshot) if skill_evidence is not None else 0,
+            len(review_evidence.messages_snapshot) if review_evidence is not None else 0,
             self._queue.qsize() + 1,
         )
         self._queue.put(task)

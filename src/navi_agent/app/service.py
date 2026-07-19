@@ -10,7 +10,6 @@ from navi_agent.evolution import (
     CandidateStore,
     EvolutionCandidate,
     EvolutionEngine,
-    MemoryReviewService,
     NudgeReviewTriggerPolicy,
     SimpleEvaluator,
     PromptOverlayStore,
@@ -18,8 +17,8 @@ from navi_agent.evolution import (
     EvalCaseStore,
     FileSkillStore,
     SkillProvenanceStore,
+    ReviewAgentService,
     SkillReviewEvidence,
-    SkillReviewAgentService,
     SkillReviewService,
     SkillUsageStore,
     ReviewTriggerPolicy,
@@ -58,8 +57,8 @@ class ApplicationService:
         skill_provenance_store: SkillProvenanceStore | None = None,
         skill_usage_store: SkillUsageStore | None = None,
         memory_store: MemoryStore | None = None,
-        memory_review_service: MemoryReviewService | None = None,
-        skill_review_service: SkillReviewService | SkillReviewAgentService | None = None,
+        review_agent_service: ReviewAgentService | None = None,
+        skill_review_service: SkillReviewService | None = None,
         review_trigger_policy: ReviewTriggerPolicy | None = None,
     ) -> None:
         self._runtime = runtime
@@ -71,14 +70,14 @@ class ApplicationService:
         self._skill_provenance_store = skill_provenance_store
         self._skill_usage_store = skill_usage_store
         self._memory_store = memory_store
-        self._memory_review_service = memory_review_service
+        self._review_agent_service = review_agent_service
         self._skill_review_service = skill_review_service
         self._review_trigger_policy = review_trigger_policy or NudgeReviewTriggerPolicy()
         self._evaluator = SimpleEvaluator()
         self._evolution_engine = EvolutionEngine()
         self._background_skill_review = (
             BackgroundSkillReviewWorker(review_trace=self._run_background_review_task)
-            if skill_review_service is not None or memory_review_service is not None
+            if skill_review_service is not None or review_agent_service is not None
             else None
         )
 
@@ -285,25 +284,44 @@ class ApplicationService:
         if auto_propose_skill:
             decision = self._review_trigger_policy.decide(
                 trace,
-                memory_available=self._memory_review_service is not None,
-                skill_available=self._skill_review_service is not None,
+                memory_available=self._review_agent_service is not None,
+                skill_available=self._review_agent_service is not None
+                or self._skill_review_service is not None,
             )
             if self._background_skill_review is not None and (
-                (decision.review_memory and self._memory_review_service is not None)
-                or (decision.review_skill and self._skill_review_service is not None)
+                (decision.review_memory and self._review_agent_service is not None)
+                or (
+                    decision.review_skill
+                    and (
+                        self._review_agent_service is not None
+                        or self._skill_review_service is not None
+                    )
+                )
             ):
+                review_with_agent = (
+                    self._review_agent_service is not None
+                    and (
+                        (decision.review_memory and self._review_agent_service is not None)
+                        or (decision.review_skill and self._review_agent_service is not None)
+                    )
+                )
                 self._background_skill_review.submit(
                     trace,
-                    skill_evidence=(
+                    review_evidence=(
                         self._build_skill_review_evidence(
                             trace,
                             result=result,
                         )
-                        if decision.review_skill and self._skill_review_service is not None
+                        if review_with_agent
+                        or (decision.review_skill and self._skill_review_service is not None)
                         else None
                     ),
-                    review_memory=decision.review_memory and self._memory_review_service is not None,
-                    review_skill=decision.review_skill and self._skill_review_service is not None,
+                    review_memory=decision.review_memory and self._review_agent_service is not None,
+                    review_skill=decision.review_skill
+                    and (
+                        self._review_agent_service is not None
+                        or self._skill_review_service is not None
+                    ),
                 )
             elif self._background_skill_review is None:
                 self._propose_and_add_skill_candidate(trace)
@@ -315,8 +333,9 @@ class ApplicationService:
         traces = self._runtime.get_session_traces(session_id, user_id=user_id)
         hydrate(
             traces,
-            memory_available=self._memory_review_service is not None,
-            skill_available=self._skill_review_service is not None,
+            memory_available=self._review_agent_service is not None,
+            skill_available=self._review_agent_service is not None
+            or self._skill_review_service is not None,
         )
 
     def wait_for_background_reviews(self) -> None:
@@ -373,12 +392,20 @@ class ApplicationService:
             self._skill_usage_store.record_create(skill_name)
 
     def _run_background_review_task(self, task: BackgroundReviewTask) -> None:
-        if task.review_memory and self._memory_review_service is not None:
-            self._memory_review_service.review_and_write(task.trace)
-        if task.review_skill:
-            if task.skill_evidence is None:
+        if self._review_agent_service is not None:
+            if task.review_evidence is None:
                 return
-            evidence = task.skill_evidence
+            result = self._review_agent_service.review_and_write(
+                task.review_evidence,
+                review_memory=task.review_memory,
+                review_skill=task.review_skill,
+            )
+            self._record_review_agent_skill_actions(result)
+            return
+        if task.review_skill:
+            if task.review_evidence is None:
+                return
+            evidence = task.review_evidence
             review_and_write = getattr(self._skill_review_service, "review_and_write", None)
             if callable(review_and_write):
                 result = review_and_write(evidence)

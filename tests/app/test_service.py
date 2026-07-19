@@ -201,16 +201,22 @@ class FakeSkillReviewService:
         return self.candidate
 
 
-class FakeMemoryReviewService:
+class FakeReviewAgentService:
     def __init__(self, unblock_event: threading.Event | None = None) -> None:
         self.unblock_event = unblock_event
-        self.reviewed_traces = []
+        self.reviewed_calls = []
 
-    def review_and_write(self, trace):
-        self.reviewed_traces.append(trace)
+    def review_and_write(self, evidence, *, review_memory, review_skill):
+        self.reviewed_calls.append(
+            {
+                "evidence": evidence,
+                "review_memory": review_memory,
+                "review_skill": review_skill,
+            }
+        )
         if self.unblock_event is not None:
             self.unblock_event.wait(timeout=2)
-        return True
+        return RuntimeResult(session_id="review:s1", status="success", final_response="done")
 
 
 class FakeSkillReviewAgentService:
@@ -681,7 +687,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertIn("- Verify README after editing.", skill_store.items["readme-summary"])
         self.assertEqual(usage_store.updated, ["readme-summary"])
 
-    def test_handle_runs_memory_review_service_in_background(self) -> None:
+    def test_handle_runs_memory_review_agent_in_background(self) -> None:
         runtime = FakeRuntime()
         runtime.latest_trace = RuntimeTrace(
             session_id="s1",
@@ -692,11 +698,15 @@ class ApplicationServiceTests(unittest.TestCase):
             trace_id="trace-1",
         )
         unblock_review = threading.Event()
-        memory_review_service = FakeMemoryReviewService(unblock_event=unblock_review)
+        review_agent_service = FakeReviewAgentService(unblock_event=unblock_review)
+        runtime.result_messages = [
+            Message(role="user", content="记住：我喜欢简洁直接"),
+            Message(role="assistant", content="已记住。"),
+        ]
         service = ApplicationService(
             runtime=runtime,
             candidate_store=FakeCandidateStore(),
-            memory_review_service=memory_review_service,
+            review_agent_service=review_agent_service,
             review_trigger_policy=NudgeReviewTriggerPolicy(
                 memory_turn_interval=1,
                 skill_tool_interval=0,
@@ -710,7 +720,11 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(status.submitted_count, 1)
         unblock_review.set()
         service.wait_for_background_reviews()
-        self.assertEqual(memory_review_service.reviewed_traces, [runtime.latest_trace])
+        self.assertEqual(len(review_agent_service.reviewed_calls), 1)
+        call = review_agent_service.reviewed_calls[0]
+        self.assertTrue(call["review_memory"])
+        self.assertFalse(call["review_skill"])
+        self.assertEqual(call["evidence"].messages_snapshot, runtime.result_messages)
 
     def test_handle_hydrates_review_trigger_from_session_traces(self) -> None:
         runtime = FakeRuntime()
@@ -732,11 +746,15 @@ class ApplicationServiceTests(unittest.TestCase):
             status="success",
             trace_id="trace-1",
         )
-        memory_review_service = FakeMemoryReviewService()
+        review_agent_service = FakeReviewAgentService()
+        runtime.result_messages = [
+            Message(role="user", content="current"),
+            Message(role="assistant", content="done"),
+        ]
         service = ApplicationService(
             runtime=runtime,
             candidate_store=FakeCandidateStore(),
-            memory_review_service=memory_review_service,
+            review_agent_service=review_agent_service,
             review_trigger_policy=NudgeReviewTriggerPolicy(
                 memory_turn_interval=2,
                 skill_tool_interval=0,
@@ -746,7 +764,8 @@ class ApplicationServiceTests(unittest.TestCase):
         service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
         service.wait_for_background_reviews()
 
-        self.assertEqual(memory_review_service.reviewed_traces, [runtime.latest_trace])
+        self.assertEqual(len(review_agent_service.reviewed_calls), 1)
+        self.assertTrue(review_agent_service.reviewed_calls[0]["review_memory"])
 
     def test_add_and_list_candidates_use_store(self) -> None:
         service = ApplicationService(
