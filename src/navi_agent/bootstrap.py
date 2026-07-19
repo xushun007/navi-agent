@@ -10,9 +10,8 @@ from navi_agent.evolution import (
     JsonlCandidateStore,
     JsonlEvalCaseStore,
     PromptOverlayStore,
-    MemoryReviewService,
+    ReviewAgentService,
     SkillProvenanceStore,
-    SkillReviewAgentService,
     SkillUsageStore,
 )
 from navi_agent.logging import setup_logging
@@ -112,12 +111,9 @@ def build_application(
         skill_provenance_store=SkillProvenanceStore(get_skills_dir()),
         skill_usage_store=SkillUsageStore(get_skills_dir()),
         memory_store=memory_store,
-        memory_review_service=MemoryReviewService(
+        review_agent_service=ReviewAgentService(
             transport=build_transport(review_model_settings),
             memory_store=memory_store,
-        ),
-        skill_review_service=SkillReviewAgentService(
-            transport=build_transport(review_model_settings),
             skill_store=skill_store,
         ),
     )
