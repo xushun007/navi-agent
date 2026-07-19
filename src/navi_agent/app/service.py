@@ -18,6 +18,7 @@ from navi_agent.evolution import (
     EvalCaseStore,
     FileSkillStore,
     SkillProvenanceStore,
+    SkillReviewEvidence,
     SkillReviewService,
     SkillUsageStore,
     ReviewTriggerPolicy,
@@ -290,6 +291,11 @@ class ApplicationService:
             ):
                 self._background_skill_review.submit(
                     trace,
+                    skill_evidence=(
+                        self._build_skill_review_evidence(trace, user_id=user_id)
+                        if decision.review_skill and self._skill_review_service is not None
+                        else None
+                    ),
                     review_memory=decision.review_memory and self._memory_review_service is not None,
                     review_skill=decision.review_skill and self._skill_review_service is not None,
                 )
@@ -317,7 +323,10 @@ class ApplicationService:
             return None
         return self._background_skill_review.status()
 
-    def _propose_and_add_skill_candidate(self, trace: RuntimeTrace) -> None:
+    def _propose_and_add_skill_candidate(
+        self,
+        trace: RuntimeTrace | SkillReviewEvidence,
+    ) -> None:
         if self._skill_review_service is not None:
             candidate = self._skill_review_service.propose_candidate(trace)
             if candidate is not None:
@@ -361,7 +370,20 @@ class ApplicationService:
         if task.review_memory and self._memory_review_service is not None:
             self._memory_review_service.review_and_write(task.trace)
         if task.review_skill:
-            self._propose_and_add_skill_candidate(task.trace)
+            self._propose_and_add_skill_candidate(
+                task.skill_evidence or SkillReviewEvidence(traces=[task.trace])
+            )
+
+    def _build_skill_review_evidence(
+        self,
+        trace: RuntimeTrace,
+        *,
+        user_id: str,
+    ) -> SkillReviewEvidence:
+        traces = self._runtime.get_session_traces(trace.session_id, user_id=user_id)
+        if not traces:
+            traces = [trace]
+        return SkillReviewEvidence(traces=traces)
 
     def _find_superseded_candidates(
         self,

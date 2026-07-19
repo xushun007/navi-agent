@@ -2,7 +2,12 @@ import threading
 import unittest
 
 from navi_agent.app import AppRequest, ApplicationService
-from navi_agent.evolution import EvolutionCandidate, EvalCase, NudgeReviewTriggerPolicy
+from navi_agent.evolution import (
+    EvolutionCandidate,
+    EvalCase,
+    NudgeReviewTriggerPolicy,
+    SkillReviewEvidence,
+)
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
@@ -185,10 +190,10 @@ class FakeSkillReviewService:
     ) -> None:
         self.candidate = candidate
         self.unblock_event = unblock_event
-        self.reviewed_traces = []
+        self.reviewed_inputs = []
 
     def propose_candidate(self, trace):
-        self.reviewed_traces.append(trace)
+        self.reviewed_inputs.append(trace)
         if self.unblock_event is not None:
             self.unblock_event.wait(timeout=2)
         return self.candidate
@@ -431,11 +436,67 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertIsNotNone(completed_status)
         self.assertEqual(completed_status.completed_count, 1)
         self.assertEqual(completed_status.failed_count, 0)
-        self.assertEqual(review_service.reviewed_traces, [runtime.latest_trace])
+        self.assertEqual(len(review_service.reviewed_inputs), 1)
+        skill_evidence = review_service.reviewed_inputs[0]
+        self.assertIsInstance(skill_evidence, SkillReviewEvidence)
+        self.assertEqual(skill_evidence.traces, [runtime.latest_trace])
         self.assertEqual(candidate_store.items, [])
         self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
         self.assertEqual(provenance_store.records, [("readme-summary", review_candidate.candidate_id)])
         self.assertEqual(usage_store.created, ["readme-summary"])
+
+    def test_background_skill_review_uses_session_trace_evidence(self) -> None:
+        runtime = FakeRuntime()
+        first_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Read README",
+            final_response="read",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="read_file",
+                    status="success",
+                )
+            ],
+        )
+        latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Verify README",
+            final_response="done",
+            status="success",
+            trace_id="trace-2",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-2",
+                    tool_name="search_files",
+                    status="success",
+                )
+            ],
+        )
+        runtime.latest_trace = latest_trace
+        runtime.session_traces = [first_trace, latest_trace]
+        review_service = FakeSkillReviewService()
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            skill_store=FakeSkillStore(),
+            skill_review_service=review_service,
+            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+        service.wait_for_background_reviews()
+
+        self.assertEqual(len(review_service.reviewed_inputs), 1)
+        skill_evidence = review_service.reviewed_inputs[0]
+        self.assertIsInstance(skill_evidence, SkillReviewEvidence)
+        self.assertEqual(skill_evidence.traces, [first_trace, latest_trace])
 
     def test_background_skill_review_does_not_overwrite_existing_skill(self) -> None:
         runtime = FakeRuntime()
