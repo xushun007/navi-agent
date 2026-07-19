@@ -147,8 +147,17 @@ class PromptBuilder:
             "If one matches or is partially relevant, call skill_view(skill_name='<name>') "
             "to load the full SKILL.md before using it.",
         ]
+        categories: dict[str, list] = {}
         for record in records:
-            lines.append(f"- {record.name}: {record.description}")
+            category = str(getattr(record, "category", "general") or "general")
+            categories.setdefault(category, []).append(record)
+        for category in sorted(categories):
+            lines.append(f"  {category}:")
+            for record in sorted(categories[category], key=lambda item: item.name):
+                if record.description:
+                    lines.append(f"    - {record.name}: {record.description}")
+                else:
+                    lines.append(f"    - {record.name}")
         return "\n".join(lines)
 
     def _build_project_context_block(self) -> str | None:

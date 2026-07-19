@@ -35,7 +35,12 @@ class SkillListTool(BaseTool):
             or "skills_empty",
             structured_content={
                 "skills": [
-                    {"name": item.name, "description": item.description} for item in records
+                    {
+                        "name": item.name,
+                        "description": item.description,
+                        "category": item.category,
+                    }
+                    for item in records
                 ],
                 "skill_count": len(records),
             },
@@ -84,6 +89,7 @@ class SkillViewTool(BaseTool):
             structured_content={
                 "skill_name": record.name,
                 "description": record.description,
+                "category": record.category,
                 "attachments": [attachment.path for attachment in record.attachments],
             },
         )

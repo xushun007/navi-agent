@@ -34,6 +34,7 @@ class SkillRecord:
     path: Path
     references: list[SkillReference]
     attachments: list[SkillAttachment]
+    category: str = "general"
 
 
 class FileSkillStore:
@@ -53,6 +54,7 @@ class FileSkillStore:
             path=skill_path,
             references=_read_references(skill_dir),
             attachments=_read_attachments(skill_dir),
+            category=_extract_category(content),
         )
 
     def update(self, *, name: str, content: str) -> SkillRecord | None:
@@ -68,6 +70,7 @@ class FileSkillStore:
             path=skill_path,
             references=_read_references(skill_path.parent),
             attachments=_read_attachments(skill_path.parent),
+            category=_extract_category(content),
         )
 
     def append_to_section(self, *, name: str, section: str, content: str) -> SkillRecord | None:
@@ -85,6 +88,7 @@ class FileSkillStore:
             path=skill_path,
             references=_read_references(skill_path.parent),
             attachments=_read_attachments(skill_path.parent),
+            category=_extract_category(updated),
         )
 
     def write_attachment(self, *, name: str, relative_path: str, content: str) -> SkillAttachment | None:
@@ -124,6 +128,7 @@ class FileSkillStore:
             path=skill_path,
             references=_read_references(skill_path.parent),
             attachments=_read_attachments(skill_path.parent),
+            category=_extract_category(content),
         )
 
     def remove(self, name: str) -> bool:
@@ -156,6 +161,7 @@ class FileSkillStore:
             path=archive_dir / "SKILL.md",
             references=_read_references(archive_dir),
             attachments=_read_attachments(archive_dir),
+            category=_extract_category(content),
         )
 
     def list(self) -> list[SkillRecord]:
@@ -172,26 +178,10 @@ class FileSkillStore:
                     path=skill_path,
                     references=_read_references(skill_path.parent),
                     attachments=_read_attachments(skill_path.parent),
+                    category=_extract_category(content),
                 )
             )
         return records
-
-    def search(self, query: str, *, limit: int = 3) -> list[SkillRecord]:
-        if limit <= 0:
-            raise ValueError("limit must be positive")
-        query_terms = set(_tokenize(query))
-        if not query_terms:
-            return []
-
-        scored: list[tuple[int, SkillRecord]] = []
-        for record in self.list():
-            searchable = " ".join([record.name, record.description, record.content])
-            score = len(query_terms.intersection(_tokenize(searchable)))
-            if score > 0:
-                scored.append((score, record))
-        scored.sort(key=lambda item: (-item[0], item[1].name))
-        return [record for _, record in scored[:limit]]
-
 
 class EvolutionEngine:
     def propose_skill_candidate(self, trace: RuntimeTrace) -> EvolutionCandidate | None:
@@ -296,10 +286,6 @@ def _slugify(value: str) -> str:
     return lowered.strip("-")
 
 
-def _tokenize(value: str) -> list[str]:
-    return [token for token in re.findall(r"[a-z0-9]+", value.lower()) if len(token) > 2]
-
-
 def _normalize_skill_name(name: str) -> str:
     normalized = _slugify(name)
     if not normalized:
@@ -312,9 +298,20 @@ def _normalize_skill_name(name: str) -> str:
 
 
 def _extract_description(content: str) -> str:
+    return _extract_frontmatter_value(content, "description")
+
+
+def _extract_category(content: str) -> str:
+    category = _extract_frontmatter_value(content, "category")
+    return _slugify(category) if category else "general"
+
+
+def _extract_frontmatter_value(content: str, key: str) -> str:
+    prefix = f"{key}:"
     for line in content.splitlines():
-        if line.startswith("description:"):
-            return line.removeprefix("description:").strip()
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            return stripped.removeprefix(prefix).strip().strip("'\"")
     return ""
 
 

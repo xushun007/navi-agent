@@ -12,6 +12,7 @@ def test_skill_list_returns_skill_summaries(tmp_path: Path) -> None:
         content=(
             "---\n"
             "description: Review README files.\n"
+            "category: coding\n"
             "---\n"
             "\n"
             "# README Review\n"
@@ -23,7 +24,7 @@ def test_skill_list_returns_skill_summaries(tmp_path: Path) -> None:
     assert result.status == "success"
     assert result.structured_content["skill_count"] == 1
     assert result.structured_content["skills"] == [
-        {"name": "readme-review", "description": "Review README files."}
+        {"name": "readme-review", "description": "Review README files.", "category": "coding"}
     ]
 
 

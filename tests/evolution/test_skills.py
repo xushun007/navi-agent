@@ -138,7 +138,7 @@ def test_append_to_existing_skill_section(tmp_path: Path) -> None:
     assert "## Procedure\n\n- Read README.\n\n- Verify README.\n\n## Evidence" in record.content
 
 
-def test_search_returns_relevant_skills(tmp_path: Path) -> None:
+def test_list_reads_skill_metadata(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
     store.create(
         name="readme-summary",
@@ -146,26 +146,18 @@ def test_search_returns_relevant_skills(tmp_path: Path) -> None:
             [
                 "---",
                 "description: Summarize README files and run tests",
+                "category: coding",
                 "---",
                 "Use read_file before bash.",
             ]
         ),
     )
-    store.create(
-        name="wechat-pairing",
-        content="\n".join(
-            [
-                "---",
-                "description: Handle Weixin pairing code flow",
-                "---",
-                "Use gateway traces.",
-            ]
-        ),
-    )
 
-    records = store.search("Please summarize README and test it")
+    records = store.list()
 
     assert [record.name for record in records] == ["readme-summary"]
+    assert records[0].description == "Summarize README files and run tests"
+    assert records[0].category == "coding"
 
 
 def test_reads_skill_references(tmp_path: Path) -> None:
@@ -285,17 +277,6 @@ def test_write_skill_attachment_rejects_unknown_directory(tmp_path: Path) -> Non
         )
     except ValueError as error:
         assert "references" in str(error)
-    else:
-        raise AssertionError("expected ValueError")
-
-
-def test_search_limit_must_be_positive(tmp_path: Path) -> None:
-    store = FileSkillStore(tmp_path)
-
-    try:
-        store.search("readme", limit=0)
-    except ValueError as error:
-        assert str(error) == "limit must be positive"
     else:
         raise AssertionError("expected ValueError")
 

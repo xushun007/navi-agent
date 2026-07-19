@@ -126,8 +126,20 @@ class PromptBuilderTest(unittest.TestCase):
                     [
                         "---",
                         "description: Summarize README files and run tests",
+                        "category: coding",
                         "---",
                         "Use read_file before bash.",
+                    ]
+                ),
+            )
+            skill_store.create(
+                name="wechat-pairing",
+                content="\n".join(
+                    [
+                        "---",
+                        "description: Handle Weixin pairing flow",
+                        "category: gateway",
+                        "---",
                     ]
                 ),
             )
@@ -140,7 +152,10 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn("[Skills]", msgs[0].content)
         self.assertIn("Available reusable procedures", msgs[0].content)
         self.assertIn("skill_view(skill_name=", msgs[0].content)
-        self.assertIn("readme-summary: Summarize README files and run tests", msgs[0].content)
+        self.assertIn("  coding:", msgs[0].content)
+        self.assertIn("    - readme-summary: Summarize README files and run tests", msgs[0].content)
+        self.assertIn("  gateway:", msgs[0].content)
+        self.assertIn("    - wechat-pairing: Handle Weixin pairing flow", msgs[0].content)
         self.assertNotIn("Use read_file before bash.", msgs[0].content)
         self.assertEqual(builder.last_injected_skill_names, [])
 
