@@ -30,6 +30,15 @@ class SkillReviewDecision:
     append_content: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class SkillReviewEvidence:
+    traces: list[RuntimeTrace]
+
+    @property
+    def latest_trace(self) -> RuntimeTrace:
+        return self.traces[-1]
+
+
 class SkillReviewService:
     def __init__(
         self,
@@ -40,18 +49,25 @@ class SkillReviewService:
         self._transport = transport
         self._skill_store = skill_store
 
-    def propose_candidate(self, trace: RuntimeTrace) -> EvolutionCandidate | None:
-        if trace.status != "success":
+    def propose_candidate(
+        self,
+        trace: RuntimeTrace | SkillReviewEvidence,
+    ) -> EvolutionCandidate | None:
+        evidence = _coerce_evidence(trace)
+        if not evidence.traces:
             return None
-        if not trace.final_response.strip():
+        latest_trace = evidence.latest_trace
+        if latest_trace.status != "success":
             return None
-        if not trace.tool_executions:
+        if not latest_trace.final_response.strip():
+            return None
+        if not _tool_executions(evidence):
             return None
 
         try:
-            decision = self._review_with_agent(trace)
+            decision = self._review_with_agent(evidence)
         except Exception:
-            logger.exception("Skill review failed: trace_id=%s", trace.trace_id)
+            logger.exception("Skill review failed: trace_id=%s", latest_trace.trace_id)
             return None
 
         if decision.action != "create_skill":
@@ -74,10 +90,11 @@ class SkillReviewService:
             return None
         metadata = {
             "operation": operation,
-            "source_session_id": trace.session_id,
-            "source_trace_id": trace.trace_id,
+            "source_session_id": latest_trace.session_id,
+            "source_trace_id": latest_trace.trace_id,
+            "source_trace_ids": [item.trace_id for item in evidence.traces],
             "skill_name": decision.skill_name,
-            "tool_names": [execution.tool_name for execution in trace.tool_executions],
+            "tool_names": [execution.tool_name for execution in _tool_executions(evidence)],
             "reviewer": "llm",
         }
         if operation == "update":
@@ -92,8 +109,8 @@ class SkillReviewService:
             metadata=metadata,
         )
 
-    def _review_with_agent(self, trace: RuntimeTrace) -> SkillReviewDecision:
-        plan = self._plan(trace)
+    def _review_with_agent(self, evidence: SkillReviewEvidence) -> SkillReviewDecision:
+        plan = self._plan(evidence)
         if plan.action == "nothing":
             return plan
         if not plan.skill_name:
@@ -104,7 +121,7 @@ class SkillReviewService:
             target = self._skill_store.get(plan.skill_name)
             if target is None:
                 return SkillReviewDecision(action="nothing", rationale="target skill not found")
-            patch = self._build_update(trace, plan=plan, existing_skill_content=target.content)
+            patch = self._build_update(evidence, plan=plan, existing_skill_content=target.content)
             return SkillReviewDecision(
                 action="update_skill",
                 skill_name=plan.skill_name,
@@ -116,7 +133,7 @@ class SkillReviewService:
         if plan.action == "create_skill":
             if self._skill_store is not None and self._skill_store.get(plan.skill_name) is not None:
                 return SkillReviewDecision(action="nothing", rationale="target skill already exists")
-            created = self._build_create(trace, plan=plan)
+            created = self._build_create(evidence, plan=plan)
             return SkillReviewDecision(
                 action="create_skill",
                 skill_name=plan.skill_name or created.skill_name,
@@ -126,12 +143,12 @@ class SkillReviewService:
             )
         return SkillReviewDecision(action="nothing")
 
-    def _plan(self, trace: RuntimeTrace) -> SkillReviewDecision:
+    def _plan(self, evidence: SkillReviewEvidence) -> SkillReviewDecision:
         response = self._transport.generate(
             ModelRequest(
                 messages=[
                     Message(role="system", content=_PLAN_SYSTEM_PROMPT),
-                    Message(role="user", content=self._build_planning_prompt(trace)),
+                    Message(role="user", content=self._build_planning_prompt(evidence)),
                 ]
             )
         )
@@ -147,7 +164,7 @@ class SkillReviewService:
 
     def _build_update(
         self,
-        trace: RuntimeTrace,
+        evidence: SkillReviewEvidence,
         *,
         plan: SkillReviewDecision,
         existing_skill_content: str,
@@ -159,7 +176,7 @@ class SkillReviewService:
                     Message(
                         role="user",
                         content=self._build_update_prompt(
-                            trace,
+                            evidence,
                             plan=plan,
                             existing_skill_content=existing_skill_content,
                         ),
@@ -176,12 +193,17 @@ class SkillReviewService:
             append_content=str(payload.get("append_content") or "").strip(),
         )
 
-    def _build_create(self, trace: RuntimeTrace, *, plan: SkillReviewDecision) -> SkillReviewDecision:
+    def _build_create(
+        self,
+        evidence: SkillReviewEvidence,
+        *,
+        plan: SkillReviewDecision,
+    ) -> SkillReviewDecision:
         response = self._transport.generate(
             ModelRequest(
                 messages=[
                     Message(role="system", content=_CREATE_SYSTEM_PROMPT),
-                    Message(role="user", content=self._build_create_prompt(trace, plan=plan)),
+                    Message(role="user", content=self._build_create_prompt(evidence, plan=plan)),
                 ]
             )
         )
@@ -194,36 +216,27 @@ class SkillReviewService:
             skill_content=str(payload.get("skill_content") or "").strip(),
         )
 
-    def _build_planning_prompt(self, trace: RuntimeTrace) -> str:
+    def _build_planning_prompt(self, evidence: SkillReviewEvidence) -> str:
         existing_skills = []
         if self._skill_store is not None:
             for skill in self._skill_store.list():
                 existing_skills.append(f"- {skill.name}: {skill.description}")
         existing_block = "\n".join(existing_skills) if existing_skills else "- none"
-        tool_lines = "\n".join(
-            f"- {execution.tool_name}: status={execution.status} output={_truncate(execution.content, 500)}"
-            for execution in trace.tool_executions
-        )
         return "\n".join(
             [
-                "Review this completed Navi Agent session for reusable skill knowledge.",
+                "Review this completed Navi Agent session evidence for reusable skill knowledge.",
                 "",
                 "[Existing Skills]",
                 existing_block,
                 "",
-                "[Session]",
-                f"session_id: {trace.session_id}",
-                f"user_message: {_truncate(trace.user_message, 1200)}",
-                f"final_response: {_truncate(trace.final_response, 1200)}",
-                "",
-                "[Tool Executions]",
-                tool_lines or "- none",
+                "[Evidence Window]",
+                _format_evidence(evidence),
             ]
         )
 
     def _build_update_prompt(
         self,
-        trace: RuntimeTrace,
+        evidence: SkillReviewEvidence,
         *,
         plan: SkillReviewDecision,
         existing_skill_content: str,
@@ -240,14 +253,17 @@ class SkillReviewService:
                 "[Existing SKILL.md]",
                 existing_skill_content,
                 "",
-                "[Session]",
-                f"session_id: {trace.session_id}",
-                f"user_message: {_truncate(trace.user_message, 1200)}",
-                f"final_response: {_truncate(trace.final_response, 1200)}",
+                "[Evidence Window]",
+                _format_evidence(evidence),
             ]
         )
 
-    def _build_create_prompt(self, trace: RuntimeTrace, *, plan: SkillReviewDecision) -> str:
+    def _build_create_prompt(
+        self,
+        evidence: SkillReviewEvidence,
+        *,
+        plan: SkillReviewDecision,
+    ) -> str:
         return "\n".join(
             [
                 "Create a class-level SKILL.md for the planned reusable skill.",
@@ -257,10 +273,8 @@ class SkillReviewService:
                 f"summary: {plan.summary}",
                 f"rationale: {plan.rationale}",
                 "",
-                "[Session]",
-                f"session_id: {trace.session_id}",
-                f"user_message: {_truncate(trace.user_message, 1200)}",
-                f"final_response: {_truncate(trace.final_response, 1200)}",
+                "[Evidence Window]",
+                _format_evidence(evidence),
             ]
         )
 
@@ -349,6 +363,45 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("skill review response must be a JSON object")
     return payload
+
+
+def _coerce_evidence(trace: RuntimeTrace | SkillReviewEvidence) -> SkillReviewEvidence:
+    if isinstance(trace, SkillReviewEvidence):
+        return trace
+    return SkillReviewEvidence(traces=[trace])
+
+
+def _tool_executions(evidence: SkillReviewEvidence) -> list[Any]:
+    executions = []
+    for trace in evidence.traces:
+        executions.extend(trace.tool_executions)
+    return executions
+
+
+def _format_evidence(evidence: SkillReviewEvidence) -> str:
+    blocks = []
+    for index, trace in enumerate(evidence.traces, start=1):
+        tool_lines = "\n".join(
+            (
+                f"  - {execution.tool_name}: status={execution.status} "
+                f"output={_truncate(execution.content, 500)}"
+            )
+            for execution in trace.tool_executions
+        )
+        blocks.append(
+            "\n".join(
+                [
+                    f"## Trace {index}",
+                    f"session_id: {trace.session_id}",
+                    f"trace_id: {trace.trace_id}",
+                    f"user_message: {_truncate(trace.user_message, 1200)}",
+                    f"final_response: {_truncate(trace.final_response, 1200)}",
+                    "tool_executions:",
+                    tool_lines or "  - none",
+                ]
+            )
+        )
+    return "\n\n".join(blocks)
 
 
 def _normalize_skill_name(name: str) -> str:

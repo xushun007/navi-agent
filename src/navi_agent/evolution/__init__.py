@@ -12,7 +12,7 @@ from .review import ReviewLoopService, ReviewLoopSummary
 from .review_trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, ReviewTriggerPolicy
 from .skill_curator import SkillCuratorArchiveResult, SkillCuratorRecord, SkillCuratorService, SkillCuratorStatus, SkillCuratorStatusService
 from .skill_provenance import SkillProvenanceRecord, SkillProvenanceStore
-from .skill_review import SkillReviewDecision, SkillReviewService
+from .skill_review import SkillReviewDecision, SkillReviewEvidence, SkillReviewService
 from .skill_usage import SkillUsageRecord, SkillUsageService, SkillUsageSidecarRecord, SkillUsageStore
 from .skills import EvolutionEngine, FileSkillStore, SkillRecord, SkillReference
 from .tool_use import (
@@ -85,6 +85,7 @@ __all__ = [
     "SkillProvenanceRecord",
     "SkillProvenanceStore",
     "SkillReviewDecision",
+    "SkillReviewEvidence",
     "SkillReviewService",
     "EvalCase",
     "EvalCaseStore",

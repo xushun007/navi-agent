@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from navi_agent.evolution import FileSkillStore, SkillReviewService
+from navi_agent.evolution import FileSkillStore, SkillReviewEvidence, SkillReviewService
 from navi_agent.runtime import ModelResponse
 from navi_agent.runtime.transports import ModelRequest
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
@@ -236,13 +236,57 @@ def test_planning_prompt_uses_skill_summaries_without_full_content(tmp_path: Pat
     assert "SECRET_LONG_CONTENT_SHOULD_NOT_BE_IN_PLANNING" in update_prompt
 
 
-def _tool_trace() -> RuntimeTrace:
+def test_review_accepts_multi_trace_evidence_window(tmp_path: Path) -> None:
+    transport = FakeTransport(
+        [
+            """
+            {
+              "action": "create_skill",
+              "skill_name": "readme-verification",
+              "summary": "Create README verification skill",
+              "rationale": "The evidence shows a reusable read then verify workflow."
+            }
+            """,
+            """
+            {
+              "skill_name": "readme-verification",
+              "summary": "Create README verification skill",
+              "rationale": "The evidence shows a reusable read then verify workflow.",
+              "skill_content": "# README Verification\\n\\n## When To Use\\n\\nUse for README checks.\\n\\n## Procedure\\n\\n- Read README.\\n- Verify result.\\n\\n## Evidence\\n\\n- multi-trace evidence."
+            }
+            """,
+        ]
+    )
+    first = _tool_trace(trace_id="trace-1", user_message="Read README")
+    second = _tool_trace(trace_id="trace-2", user_message="Verify README")
+
+    candidate = SkillReviewService(
+        transport=transport,
+        skill_store=FileSkillStore(tmp_path),
+    ).propose_candidate(SkillReviewEvidence(traces=[first, second]))
+
+    assert candidate is not None
+    assert candidate.metadata["source_trace_id"] == "trace-2"
+    assert candidate.metadata["source_trace_ids"] == ["trace-1", "trace-2"]
+    planning_prompt = transport.requests[0].messages[1].content
+    assert "## Trace 1" in planning_prompt
+    assert "Read README" in planning_prompt
+    assert "## Trace 2" in planning_prompt
+    assert "Verify README" in planning_prompt
+
+
+def _tool_trace(
+    *,
+    trace_id: str = "trace-1",
+    user_message: str = "Read README and verify the project goal",
+) -> RuntimeTrace:
     return RuntimeTrace(
         session_id="session-1",
         user_id="user-1",
-        user_message="Read README and verify the project goal",
+        user_message=user_message,
         final_response="Done.",
         status="success",
+        trace_id=trace_id,
         tool_executions=[
             ToolExecutionTrace(
                 iteration=1,
