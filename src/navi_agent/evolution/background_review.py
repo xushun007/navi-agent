@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from navi_agent.telemetry import RuntimeTrace
 
-from .skill_review import SkillReviewEvidence
+from .evidence import SkillReviewEvidence
 
 logger = logging.getLogger(__name__)
 

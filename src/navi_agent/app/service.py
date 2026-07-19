@@ -97,6 +97,7 @@ class ApplicationService:
         )
         if request.auto_propose_eval_case or request.auto_propose_skill:
             self._maybe_add_runtime_candidates(
+                result=result,
                 session_id=result.session_id,
                 user_id=request.user_id,
                 auto_propose_eval_case=request.auto_propose_eval_case,
@@ -266,6 +267,7 @@ class ApplicationService:
     def _maybe_add_runtime_candidates(
         self,
         *,
+        result: RuntimeResult,
         session_id: str,
         user_id: str,
         auto_propose_eval_case: bool,
@@ -293,7 +295,11 @@ class ApplicationService:
                 self._background_skill_review.submit(
                     trace,
                     skill_evidence=(
-                        self._build_skill_review_evidence(trace, user_id=user_id)
+                        self._build_skill_review_evidence(
+                            trace,
+                            user_id=user_id,
+                            result=result,
+                        )
                         if decision.review_skill and self._skill_review_service is not None
                         else None
                     ),
@@ -384,11 +390,15 @@ class ApplicationService:
         trace: RuntimeTrace,
         *,
         user_id: str,
+        result: RuntimeResult | None = None,
     ) -> SkillReviewEvidence:
         traces = self._runtime.get_session_traces(trace.session_id, user_id=user_id)
         if not traces:
             traces = [trace]
-        return SkillReviewEvidence(traces=traces)
+        return SkillReviewEvidence(
+            traces=traces,
+            messages_snapshot=list(result.messages) if result is not None else [],
+        )
 
     def _record_review_agent_skill_actions(self, result: RuntimeResult) -> None:
         for tool_result in result.tool_results:

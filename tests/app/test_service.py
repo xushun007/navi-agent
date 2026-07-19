@@ -8,7 +8,7 @@ from navi_agent.evolution import (
     NudgeReviewTriggerPolicy,
     SkillReviewEvidence,
 )
-from navi_agent.runtime import RuntimeResult
+from navi_agent.runtime import Message, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -17,6 +17,7 @@ class FakeRuntime:
         self.calls = []
         self.latest_trace = None
         self.session_traces = []
+        self.result_messages = []
 
     def run_conversation(self, session_id, user_id, user_message, system_prompt=None):
         self.calls.append(
@@ -31,6 +32,7 @@ class FakeRuntime:
             session_id=session_id,
             status="success",
             final_response="done",
+            messages=list(self.result_messages),
         )
 
     def get_latest_trace(self, session_id=None, user_id=None):
@@ -424,6 +426,10 @@ class ApplicationServiceTests(unittest.TestCase):
         )
         unblock_review = threading.Event()
         review_service = FakeSkillReviewService(review_candidate, unblock_event=unblock_review)
+        runtime.result_messages = [
+            Message(role="user", content="Summarize README"),
+            Message(role="assistant", content="done"),
+        ]
         service = ApplicationService(
             runtime=runtime,
             candidate_store=candidate_store,
@@ -450,12 +456,13 @@ class ApplicationServiceTests(unittest.TestCase):
         skill_evidence = review_service.reviewed_inputs[0]
         self.assertIsInstance(skill_evidence, SkillReviewEvidence)
         self.assertEqual(skill_evidence.traces, [runtime.latest_trace])
+        self.assertEqual(skill_evidence.messages_snapshot, runtime.result_messages)
         self.assertEqual(candidate_store.items, [])
         self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
         self.assertEqual(provenance_store.records, [("readme-summary", review_candidate.candidate_id)])
         self.assertEqual(usage_store.created, ["readme-summary"])
 
-    def test_background_skill_review_uses_session_trace_evidence(self) -> None:
+    def test_background_skill_review_uses_raw_messages_snapshot_with_trace_metadata(self) -> None:
         runtime = FakeRuntime()
         first_trace = RuntimeTrace(
             session_id="s1",
@@ -491,6 +498,12 @@ class ApplicationServiceTests(unittest.TestCase):
         )
         runtime.latest_trace = latest_trace
         runtime.session_traces = [first_trace, latest_trace]
+        runtime.result_messages = [
+            Message(role="user", content="Read README"),
+            Message(role="assistant", content="read"),
+            Message(role="user", content="Verify README"),
+            Message(role="assistant", content="done"),
+        ]
         review_service = FakeSkillReviewService()
         service = ApplicationService(
             runtime=runtime,
@@ -507,6 +520,7 @@ class ApplicationServiceTests(unittest.TestCase):
         skill_evidence = review_service.reviewed_inputs[0]
         self.assertIsInstance(skill_evidence, SkillReviewEvidence)
         self.assertEqual(skill_evidence.traces, [first_trace, latest_trace])
+        self.assertEqual(skill_evidence.messages_snapshot, runtime.result_messages)
 
     def test_background_skill_review_agent_records_written_skill(self) -> None:
         runtime = FakeRuntime()

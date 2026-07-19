@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from navi_agent.runtime import Message
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
 @dataclass(frozen=True, slots=True)
 class SkillReviewEvidence:
     traces: list[RuntimeTrace]
+    messages_snapshot: list[Message] = field(default_factory=list)
 
     @property
     def latest_trace(self) -> RuntimeTrace:
@@ -23,118 +25,89 @@ class SkillReviewEvidence:
         return executions
 
 
-@dataclass(frozen=True, slots=True)
-class EvidenceRenderConfig:
-    user_message_limit: int = 1200
-    final_response_limit: int = 1200
-    tool_arguments_limit: int = 300
-    tool_output_limit: int = 900
-    tool_output_head: int = 350
-    tool_output_tail: int = 500
-    error_message_limit: int = 500
-
-
 def coerce_skill_review_evidence(
     trace: RuntimeTrace | SkillReviewEvidence,
 ) -> SkillReviewEvidence:
     if isinstance(trace, SkillReviewEvidence):
         return trace
-    return SkillReviewEvidence(traces=[trace])
+    return SkillReviewEvidence(traces=[trace], messages_snapshot=[])
 
 
 def render_skill_review_evidence(
     evidence: SkillReviewEvidence,
-    *,
-    config: EvidenceRenderConfig | None = None,
 ) -> str:
-    render_config = config or EvidenceRenderConfig()
+    if evidence.messages_snapshot:
+        return _render_messages_snapshot(evidence.messages_snapshot)
     blocks = []
     for index, trace in enumerate(evidence.traces, start=1):
-        blocks.append(_render_trace(index, trace, config=render_config))
+        blocks.append(_render_trace(index, trace))
     return "\n\n".join(blocks)
 
 
-def smart_truncate(
-    value: Any,
-    *,
-    limit: int,
-    head: int | None = None,
-    tail: int | None = None,
-) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    if limit <= 0:
-        return ""
+def _render_messages_snapshot(messages: list[Message]) -> str:
+    blocks = []
+    for index, message in enumerate(messages, start=1):
+        parts = [
+            f"## Message {index}",
+            f"role: {message.role}",
+        ]
+        if message.tool_call_id:
+            parts.append(f"tool_call_id: {message.tool_call_id}")
+        if message.tool_calls:
+            parts.extend(
+                [
+                    "tool_calls:",
+                    _indent(
+                        _json_dumps(
+                            [
+                                {
+                                    "id": tool_call.id,
+                                    "name": tool_call.name,
+                                    "arguments": tool_call.arguments,
+                                }
+                                for tool_call in message.tool_calls
+                            ]
+                        ),
+                        prefix="  ",
+                    ),
+                ]
+            )
+        parts.extend(["content:", _indent(message.content, prefix="  ")])
+        blocks.append("\n".join(parts))
+    return "\n\n".join(blocks)
 
-    marker = "\n...[truncated]...\n"
-    available = max(limit - len(marker), 0)
-    if available <= 0:
-        return text[-limit:]
 
-    if head is None or tail is None:
-        tail = min(max(available // 2, 1), available)
-        head = max(available - tail, 0)
-    if head + tail > available:
-        tail = min(tail, available)
-        head = max(available - tail, 0)
-
-    return f"{text[:head].rstrip()}{marker}{text[-tail:].lstrip()}"
-
-
-def _render_trace(
-    index: int,
-    trace: RuntimeTrace,
-    *,
-    config: EvidenceRenderConfig,
-) -> str:
+def _render_trace(index: int, trace: RuntimeTrace) -> str:
     return "\n".join(
         [
             f"## Trace {index}",
             f"session_id: {trace.session_id}",
             f"trace_id: {trace.trace_id}",
             f"status: {trace.status}",
-            f"user_message: {smart_truncate(trace.user_message, limit=config.user_message_limit)}",
-            f"final_response: {smart_truncate(trace.final_response, limit=config.final_response_limit)}",
+            f"user_message: {trace.user_message}",
+            f"final_response: {trace.final_response}",
             "tool_executions:",
-            _render_tool_executions(trace.tool_executions, config=config),
+            _render_tool_executions(trace.tool_executions),
         ]
     )
 
 
-def _render_tool_executions(
-    executions: list[ToolExecutionTrace],
-    *,
-    config: EvidenceRenderConfig,
-) -> str:
+def _render_tool_executions(executions: list[ToolExecutionTrace]) -> str:
     if not executions:
         return "  - none"
-    return "\n".join(_render_tool_execution(execution, config=config) for execution in executions)
+    return "\n".join(_render_tool_execution(execution) for execution in executions)
 
 
-def _render_tool_execution(
-    execution: ToolExecutionTrace,
-    *,
-    config: EvidenceRenderConfig,
-) -> str:
+def _render_tool_execution(execution: ToolExecutionTrace) -> str:
     lines = [
         f"  - tool: {execution.tool_name}",
         f"    status: {execution.status}",
-        "    arguments: "
-        + smart_truncate(
-            _json_dumps(execution.arguments),
-            limit=config.tool_arguments_limit,
-        ),
+        "    arguments: " + _json_dumps(execution.arguments),
     ]
-    error_line = _render_error_line(execution, config=config)
+    error_line = _render_error_line(execution)
     if error_line:
         lines.append(error_line)
-    output = smart_truncate(
-        execution.content,
-        limit=config.tool_output_limit,
-        head=config.tool_output_head,
-        tail=config.tool_output_tail,
-    )
+    output = execution.content.strip()
     if output:
         lines.extend(["    output:", _indent(output, prefix="      ")])
     else:
@@ -142,11 +115,7 @@ def _render_tool_execution(
     return "\n".join(lines)
 
 
-def _render_error_line(
-    execution: ToolExecutionTrace,
-    *,
-    config: EvidenceRenderConfig,
-) -> str:
+def _render_error_line(execution: ToolExecutionTrace) -> str:
     parts = []
     if execution.error_category:
         parts.append(f"category={execution.error_category}")
@@ -157,19 +126,13 @@ def _render_error_line(
     if execution.retryable is not None:
         parts.append(f"retryable={execution.retryable}")
     if execution.error_message:
-        parts.append(
-            "message="
-            + smart_truncate(
-                execution.error_message,
-                limit=config.error_message_limit,
-            )
-        )
+        parts.append("message=" + execution.error_message)
     if not parts:
         return ""
     return "    error: " + " ".join(parts)
 
 
-def _json_dumps(value: dict[str, Any]) -> str:
+def _json_dumps(value: Any) -> str:
     if not value:
         return "{}"
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
