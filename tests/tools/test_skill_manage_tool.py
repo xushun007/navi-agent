@@ -10,7 +10,11 @@ def test_skill_manage_create_and_view(tmp_path: Path) -> None:
     created = tool.invoke(
         action="create",
         skill_name="readme-review",
-        skill_content="# README Review\n\n## When To Use\n\nUse for README review.",
+        skill_content=(
+            "# README Review\n\n"
+            "## When To Use\n\nUse for README review.\n\n"
+            "## Procedure\n\n- Read the README.\n- Verify the summary."
+        ),
     )
     viewed = tool.invoke(action="view", skill_name="readme-review")
 
@@ -61,3 +65,56 @@ def test_skill_manage_list_returns_skill_summaries(tmp_path: Path) -> None:
     assert result.status == "success"
     assert result.structured_content["skill_count"] == 1
     assert "readme-review" in result.content
+
+
+def test_skill_manage_rejects_create_without_required_sections(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="create",
+        skill_name="readme-review",
+        skill_content="# README Review\n\nUse for README review without enough structure.",
+    )
+
+    assert result.status == "error"
+    assert "missing required section" in result.content
+    assert store.get("readme-review") is None
+
+
+def test_skill_manage_rejects_placeholder_append(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="readme-review",
+        content="# README Review\n\n## Procedure\n\n- Read README.",
+    )
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="append",
+        skill_name="readme-review",
+        section="## Procedure",
+        append_content="- ... keep existing content unchanged.",
+    )
+
+    assert result.status == "error"
+    assert "placeholder" in result.content
+
+
+def test_skill_manage_rejects_negative_tool_claim(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="readme-review",
+        content="# README Review\n\n## Procedure\n\n- Read README.",
+    )
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="append",
+        skill_name="readme-review",
+        section="## Pitfalls",
+        append_content="- The read_file tool does not work.",
+    )
+
+    assert result.status == "error"
+    assert "negative tool claim" in result.content

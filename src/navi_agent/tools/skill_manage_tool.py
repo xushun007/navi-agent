@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from navi_agent.evolution.skills import FileSkillStore
@@ -88,6 +89,12 @@ class SkillManageTool(BaseTool):
                     name=self.name,
                     content=f"skill_manage_error: skill already exists: {skill_name}",
                 )
+            validation_error = _validate_new_skill(skill_name, skill_content)
+            if validation_error:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"skill_manage_error: {validation_error}",
+                )
             record = self._skill_store.create(name=skill_name, content=skill_content)
             return ToolResult.ok(
                 name=self.name,
@@ -111,6 +118,12 @@ class SkillManageTool(BaseTool):
                 return ToolResult.error(
                     name=self.name,
                     content="skill_manage_error: append_content is required for append",
+                )
+            validation_error = _validate_append_content(append_content)
+            if validation_error:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"skill_manage_error: {validation_error}",
                 )
             record = self._skill_store.append_to_section(
                 name=skill_name,
@@ -136,3 +149,74 @@ class SkillManageTool(BaseTool):
             name=self.name,
             content=f"skill_manage_error: unsupported action: {action}",
         )
+
+
+def _validate_new_skill(skill_name: str, content: str) -> str:
+    if not content.lstrip().startswith("#"):
+        return "skill_content must start with a markdown title"
+    required_sections = ["## When To Use", "## Procedure"]
+    missing = [section for section in required_sections if section.lower() not in content.lower()]
+    if missing:
+        return f"skill_content missing required section: {missing[0]}"
+    if len(content) < 80:
+        return "skill_content is too short for a reusable skill"
+    if len(content) > 12000:
+        return "skill_content is too large"
+    polluted = _validate_persistent_content(content)
+    if polluted:
+        return polluted
+    if _looks_like_micro_skill_name(skill_name):
+        return "skill_name looks session-specific rather than class-level"
+    return ""
+
+
+def _validate_append_content(content: str) -> str:
+    if len(content) < 12:
+        return "append_content is too short"
+    if len(content) > 4000:
+        return "append_content is too large"
+    if _has_placeholder(content):
+        return "append_content contains placeholder text"
+    return _validate_persistent_content(content)
+
+
+def _validate_persistent_content(content: str) -> str:
+    lowered = content.lower()
+    blocked_phrases = [
+        "does not work",
+        "doesn't work",
+        "cannot use",
+        "can't use",
+        "is broken",
+        "not available",
+        "command not found",
+        "missing binary",
+        "unconfigured credential",
+        "unconfigured credentials",
+    ]
+    for phrase in blocked_phrases:
+        if phrase in lowered:
+            return "content contains transient or negative tool claim"
+    return ""
+
+
+def _has_placeholder(content: str) -> bool:
+    lowered = content.lower()
+    placeholder_patterns = [
+        r"\.\.\.",
+        r"keep existing",
+        r"保持不变",
+        r"其余.*不变",
+        r"same as before",
+        r"todo",
+    ]
+    return any(re.search(pattern, lowered) for pattern in placeholder_patterns)
+
+
+def _looks_like_micro_skill_name(skill_name: str) -> bool:
+    lowered = skill_name.lower()
+    if re.search(r"\b(trace|session|today|tmp|temp|pr-\d+|issue-\d+)\b", lowered):
+        return True
+    if re.search(r"\d{4,}", lowered):
+        return True
+    return False
