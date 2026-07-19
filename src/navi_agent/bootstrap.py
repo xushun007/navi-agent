@@ -9,6 +9,7 @@ from navi_agent.evolution import (
     FileSkillStore,
     JsonlCandidateStore,
     JsonlEvalCaseStore,
+    JsonlReviewRunStore,
     PromptOverlayStore,
     ReviewAgentService,
     SkillProvenanceStore,
@@ -22,6 +23,7 @@ from navi_agent.paths import (
     get_memories_dir,
     get_prompt_overlay_path,
     get_prompt_overlay_snapshots_dir,
+    get_review_run_store_path,
     get_skills_dir,
     get_state_db_path,
     get_trace_store_path,
@@ -111,6 +113,7 @@ def build_application(
         skill_provenance_store=SkillProvenanceStore(get_skills_dir()),
         skill_usage_store=SkillUsageStore(get_skills_dir()),
         memory_store=memory_store,
+        review_run_store=JsonlReviewRunStore(get_review_run_store_path()),
         review_agent_service=ReviewAgentService(
             transport=build_transport(review_model_settings),
             memory_store=memory_store,

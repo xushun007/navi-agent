@@ -184,6 +184,14 @@ class FakeSkillUsageStore:
         self.archived.append(skill_name)
 
 
+class FakeReviewRunStore:
+    def __init__(self) -> None:
+        self.records = []
+
+    def add(self, record) -> None:
+        self.records.append(record)
+
+
 class FakeSkillReviewService:
     def __init__(
         self,
@@ -216,7 +224,32 @@ class FakeReviewAgentService:
         )
         if self.unblock_event is not None:
             self.unblock_event.wait(timeout=2)
-        return RuntimeResult(session_id="review:s1", status="success", final_response="done")
+        return RuntimeResult(
+            session_id="review:s1",
+            status="success",
+            final_response="done",
+            tool_results=[
+                type(
+                    "FakeToolResult",
+                    (),
+                    {
+                        "name": "memory",
+                        "status": "success",
+                        "structured_content": {
+                            "action": "add",
+                            "target": "user",
+                            "kind": "preference",
+                            "content": "用户喜欢简洁直接。",
+                        },
+                    },
+                )()
+            ],
+        )
+
+
+class FailingReviewAgentService:
+    def review_and_write(self, evidence, *, review_memory, review_skill):
+        raise RuntimeError("review failed")
 
 
 class FakeSkillReviewAgentService:
@@ -699,6 +732,7 @@ class ApplicationServiceTests(unittest.TestCase):
         )
         unblock_review = threading.Event()
         review_agent_service = FakeReviewAgentService(unblock_event=unblock_review)
+        review_run_store = FakeReviewRunStore()
         runtime.result_messages = [
             Message(role="user", content="记住：我喜欢简洁直接"),
             Message(role="assistant", content="已记住。"),
@@ -707,6 +741,7 @@ class ApplicationServiceTests(unittest.TestCase):
             runtime=runtime,
             candidate_store=FakeCandidateStore(),
             review_agent_service=review_agent_service,
+            review_run_store=review_run_store,
             review_trigger_policy=NudgeReviewTriggerPolicy(
                 memory_turn_interval=1,
                 skill_tool_interval=0,
@@ -725,6 +760,15 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertTrue(call["review_memory"])
         self.assertFalse(call["review_skill"])
         self.assertEqual(call["evidence"].messages_snapshot, runtime.result_messages)
+        self.assertEqual(len(review_run_store.records), 1)
+        review_run = review_run_store.records[0]
+        self.assertEqual(review_run.session_id, "s1")
+        self.assertEqual(review_run.trace_id, "trace-1")
+        self.assertTrue(review_run.review_memory)
+        self.assertFalse(review_run.review_skill)
+        self.assertEqual(review_run.review_session_id, "review:s1")
+        self.assertEqual(review_run.memory_writes[0]["target"], "user")
+        self.assertEqual(review_run.tool_results[0].name, "memory")
 
     def test_handle_hydrates_review_trigger_from_session_traces(self) -> None:
         runtime = FakeRuntime()
@@ -766,6 +810,42 @@ class ApplicationServiceTests(unittest.TestCase):
 
         self.assertEqual(len(review_agent_service.reviewed_calls), 1)
         self.assertTrue(review_agent_service.reviewed_calls[0]["review_memory"])
+
+    def test_background_review_records_failed_run(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="current",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+        )
+        runtime.result_messages = [
+            Message(role="user", content="current"),
+            Message(role="assistant", content="done"),
+        ]
+        review_run_store = FakeReviewRunStore()
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            review_agent_service=FailingReviewAgentService(),
+            review_run_store=review_run_store,
+            review_trigger_policy=NudgeReviewTriggerPolicy(
+                memory_turn_interval=1,
+                skill_tool_interval=0,
+            ),
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+        service.wait_for_background_reviews()
+
+        self.assertEqual(len(review_run_store.records), 1)
+        self.assertEqual(review_run_store.records[0].status, "error")
+        self.assertEqual(review_run_store.records[0].error, "review failed")
+        status = service.get_background_review_status()
+        self.assertIsNotNone(status)
+        self.assertEqual(status.failed_count, 1)
 
     def test_add_and_list_candidates_use_store(self) -> None:
         service = ApplicationService(

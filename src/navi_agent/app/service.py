@@ -16,8 +16,11 @@ from navi_agent.evolution import (
     EvalCase,
     EvalCaseStore,
     FileSkillStore,
+    JsonlReviewRunStore,
     SkillProvenanceStore,
     ReviewAgentService,
+    ReviewRunRecord,
+    ReviewToolResultRecord,
     SkillReviewEvidence,
     SkillReviewService,
     SkillUsageStore,
@@ -58,6 +61,7 @@ class ApplicationService:
         skill_usage_store: SkillUsageStore | None = None,
         memory_store: MemoryStore | None = None,
         review_agent_service: ReviewAgentService | None = None,
+        review_run_store: JsonlReviewRunStore | None = None,
         skill_review_service: SkillReviewService | None = None,
         review_trigger_policy: ReviewTriggerPolicy | None = None,
     ) -> None:
@@ -71,6 +75,7 @@ class ApplicationService:
         self._skill_usage_store = skill_usage_store
         self._memory_store = memory_store
         self._review_agent_service = review_agent_service
+        self._review_run_store = review_run_store
         self._skill_review_service = skill_review_service
         self._review_trigger_policy = review_trigger_policy or NudgeReviewTriggerPolicy()
         self._evaluator = SimpleEvaluator()
@@ -395,11 +400,16 @@ class ApplicationService:
         if self._review_agent_service is not None:
             if task.review_evidence is None:
                 return
-            result = self._review_agent_service.review_and_write(
-                task.review_evidence,
-                review_memory=task.review_memory,
-                review_skill=task.review_skill,
-            )
+            try:
+                result = self._review_agent_service.review_and_write(
+                    task.review_evidence,
+                    review_memory=task.review_memory,
+                    review_skill=task.review_skill,
+                )
+            except Exception as error:
+                self._record_review_run(task, status="error", error=str(error))
+                raise
+            self._record_review_run(task, status=result.status, result=result)
             self._record_review_agent_skill_actions(result)
             return
         if task.review_skill:
@@ -451,6 +461,55 @@ class ApplicationService:
             elif action == "append":
                 if self._skill_usage_store is not None:
                     self._skill_usage_store.record_update(skill_name)
+
+    def _record_review_run(
+        self,
+        task: BackgroundReviewTask,
+        *,
+        status: str,
+        result: RuntimeResult | None = None,
+        error: str = "",
+    ) -> None:
+        if self._review_run_store is None:
+            return
+        trace = task.trace
+        tool_results = []
+        memory_writes = []
+        skill_writes = []
+        for tool_result in result.tool_results if result is not None else []:
+            action = str(tool_result.structured_content.get("action") or "").strip()
+            record = ReviewToolResultRecord(
+                name=tool_result.name,
+                status=tool_result.status,
+                action=action,
+                structured_content=dict(tool_result.structured_content),
+            )
+            tool_results.append(record)
+            if tool_result.status != "success":
+                continue
+            if tool_result.name == "memory" and action in {"add", "update", "remove"}:
+                memory_writes.append(dict(tool_result.structured_content))
+            if tool_result.name == "skill_manage" and action in {
+                "create",
+                "append",
+                "write_attachment",
+            }:
+                skill_writes.append(dict(tool_result.structured_content))
+        self._review_run_store.add(
+            ReviewRunRecord(
+                session_id=trace.session_id,
+                trace_id=trace.trace_id,
+                user_id=trace.user_id,
+                review_memory=task.review_memory,
+                review_skill=task.review_skill,
+                status=status,
+                review_session_id=result.session_id if result is not None else "",
+                tool_results=tool_results,
+                memory_writes=memory_writes,
+                skill_writes=skill_writes,
+                error=error,
+            )
+        )
 
     def _find_superseded_candidates(
         self,
