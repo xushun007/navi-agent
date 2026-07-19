@@ -183,6 +183,71 @@ def test_reads_skill_references(tmp_path: Path) -> None:
     assert "README checks" in record.references[0].content
 
 
+def test_writes_skill_attachment(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="description: Summarize README files")
+
+    attachment = store.write_attachment(
+        name="readme-summary",
+        relative_path="templates/report.md",
+        content="# Report\n\n{summary}\n",
+    )
+
+    assert attachment is not None
+    assert attachment.path == "templates/report.md"
+    assert attachment.kind == "templates"
+    assert (tmp_path / "readme-summary" / "templates" / "report.md").read_text(
+        encoding="utf-8"
+    ) == "# Report\n\n{summary}\n"
+    record = store.get("readme-summary")
+    assert record is not None
+    assert [item.path for item in record.attachments] == ["templates/report.md"]
+
+
+def test_write_skill_attachment_requires_existing_skill(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+
+    attachment = store.write_attachment(
+        name="missing-skill",
+        relative_path="references/error.md",
+        content="details",
+    )
+
+    assert attachment is None
+
+
+def test_write_skill_attachment_rejects_unsafe_path(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="description: Summarize README files")
+
+    try:
+        store.write_attachment(
+            name="readme-summary",
+            relative_path="../outside.md",
+            content="bad",
+        )
+    except ValueError as error:
+        assert "parent segments" in str(error)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_write_skill_attachment_rejects_unknown_directory(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="description: Summarize README files")
+
+    try:
+        store.write_attachment(
+            name="readme-summary",
+            relative_path="notes/detail.md",
+            content="bad",
+        )
+    except ValueError as error:
+        assert "references" in str(error)
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def test_search_limit_must_be_positive(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
 

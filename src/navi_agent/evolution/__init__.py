@@ -16,7 +16,7 @@ from .skill_provenance import SkillProvenanceRecord, SkillProvenanceStore
 from .skill_review_agent import SkillReviewAgentService
 from .skill_review import SkillReviewDecision, SkillReviewService
 from .skill_usage import SkillUsageRecord, SkillUsageService, SkillUsageSidecarRecord, SkillUsageStore
-from .skills import EvolutionEngine, FileSkillStore, SkillRecord, SkillReference
+from .skills import EvolutionEngine, FileSkillStore, SkillAttachment, SkillRecord, SkillReference
 from .tool_use import (
     ToolUseEvalCase,
     ToolUseEvalCaseStore,
@@ -77,6 +77,7 @@ __all__ = [
     "IfevalWorkflowResult",
     "IfevalWorkflowService",
     "SimpleEvaluator",
+    "SkillAttachment",
     "SkillRecord",
     "SkillReference",
     "SkillCuratorRecord",

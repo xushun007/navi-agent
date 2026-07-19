@@ -10,6 +10,7 @@ from navi_agent.telemetry import RuntimeTrace
 from .models import EvolutionCandidate
 
 _VALID_SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+_ALLOWED_ATTACHMENT_DIRS = frozenset({"references", "templates", "scripts"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,12 +20,20 @@ class SkillReference:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillAttachment:
+    path: str
+    kind: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class SkillRecord:
     name: str
     description: str
     content: str
     path: Path
     references: list[SkillReference]
+    attachments: list[SkillAttachment]
 
 
 class FileSkillStore:
@@ -43,6 +52,7 @@ class FileSkillStore:
             content=content,
             path=skill_path,
             references=_read_references(skill_dir),
+            attachments=_read_attachments(skill_dir),
         )
 
     def update(self, *, name: str, content: str) -> SkillRecord | None:
@@ -57,6 +67,7 @@ class FileSkillStore:
             content=content,
             path=skill_path,
             references=_read_references(skill_path.parent),
+            attachments=_read_attachments(skill_path.parent),
         )
 
     def append_to_section(self, *, name: str, section: str, content: str) -> SkillRecord | None:
@@ -73,6 +84,21 @@ class FileSkillStore:
             content=updated,
             path=skill_path,
             references=_read_references(skill_path.parent),
+            attachments=_read_attachments(skill_path.parent),
+        )
+
+    def write_attachment(self, *, name: str, relative_path: str, content: str) -> SkillAttachment | None:
+        name = _normalize_skill_name(name)
+        skill_dir = self._root / name
+        if not (skill_dir / "SKILL.md").exists():
+            return None
+        path = _resolve_attachment_path(skill_dir, relative_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return SkillAttachment(
+            path=path.relative_to(skill_dir).as_posix(),
+            kind=path.relative_to(skill_dir).parts[0],
+            size_bytes=path.stat().st_size,
         )
 
     def get(self, name: str) -> SkillRecord | None:
@@ -87,6 +113,7 @@ class FileSkillStore:
             content=content,
             path=skill_path,
             references=_read_references(skill_path.parent),
+            attachments=_read_attachments(skill_path.parent),
         )
 
     def remove(self, name: str) -> bool:
@@ -118,6 +145,7 @@ class FileSkillStore:
             content=content,
             path=archive_dir / "SKILL.md",
             references=_read_references(archive_dir),
+            attachments=_read_attachments(archive_dir),
         )
 
     def list(self) -> list[SkillRecord]:
@@ -133,6 +161,7 @@ class FileSkillStore:
                     content=content,
                     path=skill_path,
                     references=_read_references(skill_path.parent),
+                    attachments=_read_attachments(skill_path.parent),
                 )
             )
         return records
@@ -336,3 +365,42 @@ def _read_references(skill_dir: Path) -> list[SkillReference]:
             )
         )
     return records
+
+
+def _read_attachments(skill_dir: Path) -> list[SkillAttachment]:
+    records: list[SkillAttachment] = []
+    for directory in sorted(_ALLOWED_ATTACHMENT_DIRS):
+        root = skill_dir / directory
+        if not root.is_dir():
+            continue
+        for path in sorted(item for item in root.rglob("*") if item.is_file()):
+            relative = path.relative_to(skill_dir).as_posix()
+            records.append(
+                SkillAttachment(
+                    path=relative,
+                    kind=directory,
+                    size_bytes=path.stat().st_size,
+                )
+            )
+    return records
+
+
+def _resolve_attachment_path(skill_dir: Path, relative_path: str) -> Path:
+    raw_path = relative_path.strip()
+    if not raw_path:
+        raise ValueError("attachment path is required")
+    path = Path(raw_path)
+    if path.is_absolute():
+        raise ValueError("attachment path must be relative")
+    if any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("attachment path must not contain empty, current, or parent segments")
+    if path.parts[0] not in _ALLOWED_ATTACHMENT_DIRS:
+        allowed = ", ".join(sorted(_ALLOWED_ATTACHMENT_DIRS))
+        raise ValueError(f"attachment path must start with one of: {allowed}")
+    resolved = (skill_dir / path).resolve()
+    skill_root = skill_dir.resolve()
+    try:
+        resolved.relative_to(skill_root)
+    except ValueError as error:
+        raise ValueError("attachment path escapes skill directory") from error
+    return resolved
