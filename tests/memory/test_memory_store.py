@@ -98,6 +98,20 @@ class FileMemoryStoreTests(unittest.TestCase):
         self.assertIn("Likes short answers", user_text)
         self.assertNotIn("Likes short answers", memory_text)
 
+    def test_explicit_target_routes_to_user_file(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            store = FileMemoryStore(root)
+
+            record = store.add_for_user("u1", "User prefers direct answers", target="user")
+
+            records = FileMemoryStore(root).list_for_user("u1")
+            user_text = (root / "USER.md").read_text(encoding="utf-8")
+
+        self.assertEqual(record.target, "user")
+        self.assertEqual(records[0].target, "user")
+        self.assertIn("- [fact] User prefers direct answers", user_text)
+
     def test_reads_manually_edited_markdown_entries(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

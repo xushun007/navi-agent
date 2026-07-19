@@ -13,6 +13,7 @@ class MemoryToolTests(unittest.TestCase):
         add_result = tool.invoke(
             context=ToolContext(session_id="s1", user_id="u1", iteration=1),
             action="add",
+            target="user",
             kind="preference",
             content="Likes short answers",
         )
@@ -24,9 +25,11 @@ class MemoryToolTests(unittest.TestCase):
         self.assertIn("stored", add_result.content)
         self.assertEqual(add_result.structured_content["content"], "Likes short answers")
         self.assertEqual(add_result.structured_content["kind"], "preference")
+        self.assertEqual(add_result.structured_content["target"], "user")
         self.assertIn("Likes short answers", list_result.content)
         self.assertIn("[preference]", list_result.content)
         self.assertEqual(list_result.structured_content["records"][0]["content"], "Likes short answers")
+        self.assertEqual(list_result.structured_content["records"][0]["target"], "user")
         self.assertEqual(list_result.structured_content["record_count"], 1)
 
     def test_updates_and_removes_records(self) -> None:

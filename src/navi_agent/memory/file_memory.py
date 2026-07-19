@@ -20,12 +20,19 @@ class FileMemoryStore:
     def list_for_user(self, user_id: str) -> list[MemoryRecord]:
         return [record for record in self._read_all() if record.user_id == user_id]
 
-    def add_for_user(self, user_id: str, content: str, kind: str = "fact") -> MemoryRecord:
+    def add_for_user(
+        self,
+        user_id: str,
+        content: str,
+        kind: str = "fact",
+        target: str = "",
+    ) -> MemoryRecord:
         record = MemoryRecord(
             id=uuid.uuid4().hex[:12],
             user_id=user_id,
             kind=self._normalize_kind(kind),
             content=content,
+            target=self._normalize_target(target, kind=kind),
         )
         records = self._read_all()
         records.append(record)
@@ -68,6 +75,7 @@ class FileMemoryStore:
         for path in [self._memory_path, self._user_path]:
             if not path.exists():
                 continue
+            target = "user" if path == self._user_path else "memory"
             text = path.read_text(encoding="utf-8")
             for match in _ENTRY_RE.finditer(text):
                 records.append(
@@ -76,6 +84,7 @@ class FileMemoryStore:
                         user_id=match.group("user_id"),
                         kind=self._normalize_kind(match.group("kind")),
                         content=match.group("content").strip(),
+                        target=target,
                     )
                 )
         return records
@@ -83,8 +92,8 @@ class FileMemoryStore:
     def _write_all(self, records: list[MemoryRecord]) -> None:
         self._root.mkdir(parents=True, exist_ok=True)
         grouped = {
-            self._memory_path: [record for record in records if record.kind != "preference"],
-            self._user_path: [record for record in records if record.kind == "preference"],
+            self._memory_path: [record for record in records if record.target == "memory"],
+            self._user_path: [record for record in records if record.target == "user"],
         }
         for path, items in grouped.items():
             with path.open("w", encoding="utf-8") as handle:
@@ -109,6 +118,15 @@ class FileMemoryStore:
         if kind not in {"fact", "preference", "task"}:
             return "fact"
         return kind
+
+    @staticmethod
+    def _normalize_target(target: str, *, kind: str = "fact") -> str:
+        target = target.strip().lower()
+        if target in {"memory", "user"}:
+            return target
+        if kind.strip().lower() == "preference":
+            return "user"
+        return "memory"
 
     @staticmethod
     def _single_line(content: str) -> str:

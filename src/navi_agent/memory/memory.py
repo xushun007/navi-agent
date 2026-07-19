@@ -12,12 +12,19 @@ class InMemoryMemoryStore:
     def list_for_user(self, user_id: str) -> list[MemoryRecord]:
         return [record for record in self._records if record.user_id == user_id]
 
-    def add_for_user(self, user_id: str, content: str, kind: str = "fact") -> MemoryRecord:
+    def add_for_user(
+        self,
+        user_id: str,
+        content: str,
+        kind: str = "fact",
+        target: str = "",
+    ) -> MemoryRecord:
         record = MemoryRecord(
             id=uuid.uuid4().hex[:12],
             user_id=user_id,
             kind=kind,
             content=content,
+            target=target or ("user" if kind == "preference" else "memory"),
         )
         self._records.append(record)
         return record

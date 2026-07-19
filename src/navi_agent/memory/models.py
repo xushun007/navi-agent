@@ -9,3 +9,4 @@ class MemoryRecord:
     user_id: str
     kind: str
     content: str
+    target: str = "memory"
