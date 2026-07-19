@@ -64,12 +64,12 @@ class BackgroundSkillReviewWorker:
         with self._lock:
             self._submitted_count += 1
         logger.info(
-            "Submitted background review: trace_id=%s session_id=%s memory=%s skill=%s skill_evidence_traces=%s pending=%s",
+            "Submitted background review: trace_id=%s session_id=%s memory=%s skill=%s skill_evidence_messages=%s pending=%s",
             trace.trace_id,
             trace.session_id,
             review_memory,
             review_skill,
-            len(skill_evidence.traces) if skill_evidence is not None else 0,
+            len(skill_evidence.messages_snapshot) if skill_evidence is not None else 0,
             self._queue.qsize() + 1,
         )
         self._queue.put(task)

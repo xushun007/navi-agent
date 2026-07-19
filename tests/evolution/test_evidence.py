@@ -1,12 +1,13 @@
 from navi_agent.evolution import SkillReviewEvidence, render_skill_review_evidence
 from navi_agent.runtime import Message, ToolCall
-from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
 def test_render_skill_review_evidence_prefers_raw_messages_snapshot() -> None:
     long_tool_output = "start\n" + ("middle\n" * 200) + "FAILED tests/test_core.py\nAssertionError: boom"
     evidence = SkillReviewEvidence(
-        traces=[_trace_with_tool_output("trace output should not be used when messages exist")],
+        session_id="s1",
+        trace_id="trace-1",
+        user_id="u1",
         messages_snapshot=[
             Message(role="user", content="Run tests"),
             Message(
@@ -41,44 +42,24 @@ def test_render_skill_review_evidence_prefers_raw_messages_snapshot() -> None:
     assert "[truncated" not in rendered
 
 
-def test_render_skill_review_evidence_does_not_fall_back_to_trace() -> None:
+def test_render_skill_review_evidence_requires_messages_snapshot() -> None:
     evidence = SkillReviewEvidence(
-        traces=[_trace_with_tool_output("trace output must not be rendered")],
+        session_id="s1",
+        trace_id="trace-1",
+        user_id="u1",
         messages_snapshot=[],
     )
 
     rendered = render_skill_review_evidence(evidence)
 
     assert rendered == ""
-    assert "trace output must not be rendered" not in rendered
 
 
-def test_render_skill_review_evidence_includes_http_error_metadata() -> None:
+def test_render_skill_review_evidence_does_not_mix_trace_metadata() -> None:
     evidence = SkillReviewEvidence(
-        traces=[
-            RuntimeTrace(
-                session_id="s1",
-                user_id="u1",
-                user_message="Call API",
-                final_response="Rate limited.",
-                status="success",
-                trace_id="trace-1",
-                tool_executions=[
-                    ToolExecutionTrace(
-                        iteration=1,
-                        tool_call_id="call-1",
-                        tool_name="web_api",
-                        status="error",
-                        arguments={"url": "https://api.example.test"},
-                        content="429 Too Many Requests",
-                        error_category="rate_limit",
-                        error_type="HTTPError",
-                        http_status=429,
-                        retryable=True,
-                    )
-                ],
-            )
-        ],
+        session_id="s1",
+        trace_id="trace-1",
+        user_id="u1",
         messages_snapshot=[
             Message(role="tool", tool_call_id="call-1", content="429 Too Many Requests")
         ],
@@ -89,23 +70,3 @@ def test_render_skill_review_evidence_includes_http_error_metadata() -> None:
     assert "429 Too Many Requests" in rendered
     assert "http_status=429" not in rendered
     assert "retryable=True" not in rendered
-
-
-def _trace_with_tool_output(content: str) -> RuntimeTrace:
-    return RuntimeTrace(
-        session_id="s1",
-        user_id="u1",
-        user_message="Run tests",
-        final_response="Tests failed.",
-        status="success",
-        trace_id="trace-1",
-        tool_executions=[
-            ToolExecutionTrace(
-                iteration=1,
-                tool_call_id="call-1",
-                tool_name="bash",
-                status="error",
-                content=content,
-            )
-        ],
-    )

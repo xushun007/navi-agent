@@ -8,9 +8,8 @@ from typing import Any
 
 from navi_agent.runtime import Message
 from navi_agent.runtime.transports import ModelRequest, ModelTransport
-from navi_agent.telemetry import RuntimeTrace
 
-from .evidence import SkillReviewEvidence, coerce_skill_review_evidence, render_skill_review_evidence
+from .evidence import SkillReviewEvidence, render_skill_review_evidence
 from .models import EvolutionCandidate
 from .skills import FileSkillStore
 
@@ -43,23 +42,15 @@ class SkillReviewService:
 
     def propose_candidate(
         self,
-        trace: RuntimeTrace | SkillReviewEvidence,
+        evidence: SkillReviewEvidence,
     ) -> EvolutionCandidate | None:
-        evidence = coerce_skill_review_evidence(trace)
-        if not evidence.traces:
-            return None
-        latest_trace = evidence.latest_trace
-        if latest_trace.status != "success":
-            return None
-        if not latest_trace.final_response.strip():
-            return None
-        if not _tool_executions(evidence):
+        if not evidence.messages_snapshot:
             return None
 
         try:
             decision = self._review_with_agent(evidence)
         except Exception:
-            logger.exception("Skill review failed: trace_id=%s", latest_trace.trace_id)
+            logger.exception("Skill review failed: trace_id=%s", evidence.trace_id)
             return None
 
         if decision.action != "create_skill":
@@ -82,11 +73,10 @@ class SkillReviewService:
             return None
         metadata = {
             "operation": operation,
-            "source_session_id": latest_trace.session_id,
-            "source_trace_id": latest_trace.trace_id,
-            "source_trace_ids": [item.trace_id for item in evidence.traces],
+            "source_session_id": evidence.session_id,
+            "source_trace_id": evidence.trace_id,
             "skill_name": decision.skill_name,
-            "tool_names": [execution.tool_name for execution in _tool_executions(evidence)],
+            "tool_names": _tool_call_names(evidence),
             "reviewer": "llm",
         }
         if operation == "update":
@@ -357,11 +347,13 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     return payload
 
 
-def _tool_executions(evidence: SkillReviewEvidence) -> list[Any]:
-    executions = []
-    for trace in evidence.traces:
-        executions.extend(trace.tool_executions)
-    return executions
+def _tool_call_names(evidence: SkillReviewEvidence) -> list[str]:
+    names: list[str] = []
+    for message in evidence.messages_snapshot:
+        for tool_call in message.tool_calls:
+            if tool_call.name not in names:
+                names.append(tool_call.name)
+    return names
 
 
 def _normalize_skill_name(name: str) -> str:

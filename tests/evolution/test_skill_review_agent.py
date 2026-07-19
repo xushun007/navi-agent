@@ -2,7 +2,6 @@ from pathlib import Path
 
 from navi_agent.evolution import FileSkillStore, SkillReviewAgentService, SkillReviewEvidence
 from navi_agent.runtime import Message, ModelRequest, ModelResponse, ToolCall
-from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
 class ScriptedTransport:
@@ -55,7 +54,9 @@ def test_skill_review_agent_creates_skill_via_tool(tmp_path: Path) -> None:
         skill_store=store,
     ).review_and_write(
         SkillReviewEvidence(
-            traces=[_tool_trace()],
+            session_id="session-1",
+            trace_id="trace-1",
+            user_id="user-1",
             messages_snapshot=[Message(role="user", content="Read README")],
         )
     )
@@ -117,7 +118,9 @@ def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> N
         skill_store=store,
     ).review_and_write(
         SkillReviewEvidence(
-            traces=[_tool_trace()],
+            session_id="session-1",
+            trace_id="trace-1",
+            user_id="user-1",
             messages_snapshot=[Message(role="user", content="Read README")],
         )
     )
@@ -135,27 +138,9 @@ def test_skill_review_agent_prompt_contains_arguments_and_error_tail(tmp_path: P
     output = "start\n" + ("middle\n" * 200) + "FAILED tests/test_skill.py\nAssertionError: tail"
     transport = ScriptedTransport([ModelResponse(content="Nothing to save.")])
     evidence = SkillReviewEvidence(
-        traces=[
-            RuntimeTrace(
-                session_id="session-1",
-                user_id="user-1",
-                user_message="Run tests",
-                final_response="Tests failed.",
-                status="success",
-                trace_id="trace-1",
-                tool_executions=[
-                    ToolExecutionTrace(
-                        iteration=1,
-                        tool_call_id="call-1",
-                        tool_name="bash",
-                        status="error",
-                        arguments={"command": "uv run pytest tests/test_skill.py"},
-                        content=output,
-                        error_type="AssertionError",
-                    )
-                ],
-            )
-        ],
+        session_id="session-1",
+        trace_id="trace-1",
+        user_id="user-1",
         messages_snapshot=[
             Message(role="user", content="Run tests"),
             Message(
@@ -183,23 +168,3 @@ def test_skill_review_agent_prompt_contains_arguments_and_error_tail(tmp_path: P
     assert '"command": "uv run pytest tests/test_skill.py"' in prompt
     assert "FAILED tests/test_skill.py" in prompt
     assert "AssertionError: tail" in prompt
-
-
-def _tool_trace() -> RuntimeTrace:
-    return RuntimeTrace(
-        session_id="session-1",
-        user_id="user-1",
-        user_message="Read README and verify the project goal",
-        final_response="Done.",
-        status="success",
-        trace_id="trace-1",
-        tool_executions=[
-            ToolExecutionTrace(
-                iteration=1,
-                tool_call_id="call-1",
-                tool_name="read_file",
-                status="success",
-                content="README content",
-            )
-        ],
-    )

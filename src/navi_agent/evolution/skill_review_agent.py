@@ -36,10 +36,9 @@ class SkillReviewAgentService:
         )
 
     def review_and_write(self, evidence: SkillReviewEvidence):
-        latest = evidence.latest_trace
         return self._runtime.run_conversation(
-            session_id=f"skill-review:{latest.session_id}:{latest.trace_id}",
-            user_id=latest.user_id,
+            session_id=f"skill-review:{evidence.session_id}:{evidence.trace_id}",
+            user_id=evidence.user_id,
             user_message=_build_review_prompt(evidence),
             system_prompt=_SKILL_REVIEW_AGENT_SYSTEM_PROMPT,
         )

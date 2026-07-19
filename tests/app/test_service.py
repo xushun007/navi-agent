@@ -455,7 +455,9 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(len(review_service.reviewed_inputs), 1)
         skill_evidence = review_service.reviewed_inputs[0]
         self.assertIsInstance(skill_evidence, SkillReviewEvidence)
-        self.assertEqual(skill_evidence.traces, [runtime.latest_trace])
+        self.assertEqual(skill_evidence.session_id, "s1")
+        self.assertEqual(skill_evidence.trace_id, "trace-1")
+        self.assertEqual(skill_evidence.user_id, "u1")
         self.assertEqual(skill_evidence.messages_snapshot, runtime.result_messages)
         self.assertEqual(candidate_store.items, [])
         self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
@@ -519,7 +521,9 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(len(review_service.reviewed_inputs), 1)
         skill_evidence = review_service.reviewed_inputs[0]
         self.assertIsInstance(skill_evidence, SkillReviewEvidence)
-        self.assertEqual(skill_evidence.traces, [first_trace, latest_trace])
+        self.assertEqual(skill_evidence.session_id, "s1")
+        self.assertEqual(skill_evidence.trace_id, "trace-2")
+        self.assertEqual(skill_evidence.user_id, "u1")
         self.assertEqual(skill_evidence.messages_snapshot, runtime.result_messages)
 
     def test_background_skill_review_agent_records_written_skill(self) -> None:

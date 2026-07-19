@@ -1,9 +1,8 @@
 from pathlib import Path
 
 from navi_agent.evolution import FileSkillStore, SkillReviewEvidence, SkillReviewService
-from navi_agent.runtime import Message, ModelResponse
+from navi_agent.runtime import Message, ModelResponse, ToolCall
 from navi_agent.runtime.transports import ModelRequest
-from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
 class FakeTransport:
@@ -41,7 +40,7 @@ def test_llm_review_proposes_skill_candidate(tmp_path: Path) -> None:
     candidate = SkillReviewService(
         transport=transport,
         skill_store=FileSkillStore(tmp_path),
-    ).propose_candidate(_tool_trace())
+    ).propose_candidate(_evidence())
 
     assert candidate is not None
     assert candidate.target == "skill"
@@ -59,7 +58,7 @@ def test_llm_review_skips_nothing_decision(tmp_path: Path) -> None:
     candidate = SkillReviewService(
         transport=transport,
         skill_store=FileSkillStore(tmp_path),
-    ).propose_candidate(_tool_trace())
+    ).propose_candidate(_evidence())
 
     assert candidate is None
     assert len(transport.requests) == 1
@@ -86,7 +85,7 @@ def test_llm_review_skips_existing_skill(tmp_path: Path) -> None:
     candidate = SkillReviewService(
         transport=transport,
         skill_store=store,
-    ).propose_candidate(_tool_trace())
+    ).propose_candidate(_evidence())
 
     assert candidate is None
     assert len(transport.requests) == 1
@@ -122,7 +121,7 @@ def test_llm_review_proposes_update_skill_candidate(tmp_path: Path) -> None:
     candidate = SkillReviewService(
         transport=transport,
         skill_store=store,
-    ).propose_candidate(_tool_trace())
+    ).propose_candidate(_evidence())
 
     assert candidate is not None
     assert candidate.metadata["operation"] == "update"
@@ -136,7 +135,7 @@ def test_llm_review_invalid_response_returns_none(tmp_path: Path) -> None:
     candidate = SkillReviewService(
         transport=FakeTransport("not json"),
         skill_store=FileSkillStore(tmp_path),
-    ).propose_candidate(_tool_trace())
+    ).propose_candidate(_evidence())
 
     assert candidate is None
 
@@ -149,7 +148,7 @@ def test_skill_review_prompt_discourages_micro_skills(tmp_path: Path) -> None:
     SkillReviewService(
         transport=transport,
         skill_store=FileSkillStore(tmp_path),
-    ).propose_candidate(_tool_trace())
+    ).propose_candidate(_evidence())
 
     system_prompt = transport.requests[0].messages[0].content
     assert "not one-session micro skills" in system_prompt
@@ -187,7 +186,7 @@ def test_update_prompt_is_append_only(tmp_path: Path) -> None:
     SkillReviewService(
         transport=transport,
         skill_store=store,
-    ).propose_candidate(_tool_trace())
+    ).propose_candidate(_evidence())
 
     system_prompt = transport.requests[1].messages[0].content
     assert "Never rewrite the full SKILL.md" in system_prompt
@@ -228,7 +227,7 @@ def test_planning_prompt_uses_skill_summaries_without_full_content(tmp_path: Pat
     SkillReviewService(
         transport=transport,
         skill_store=store,
-    ).propose_candidate(_tool_trace())
+    ).propose_candidate(_evidence())
 
     planning_prompt = transport.requests[0].messages[1].content
     update_prompt = transport.requests[1].messages[1].content
@@ -257,15 +256,14 @@ def test_review_accepts_multi_trace_evidence_window(tmp_path: Path) -> None:
             """,
         ]
     )
-    first = _tool_trace(trace_id="trace-1", user_message="Read README")
-    second = _tool_trace(trace_id="trace-2", user_message="Verify README")
-
     candidate = SkillReviewService(
         transport=transport,
         skill_store=FileSkillStore(tmp_path),
     ).propose_candidate(
         SkillReviewEvidence(
-            traces=[first, second],
+            session_id="session-1",
+            trace_id="trace-2",
+            user_id="user-1",
             messages_snapshot=[
                 Message(role="user", content="Read README"),
                 Message(role="assistant", content="Done."),
@@ -277,7 +275,6 @@ def test_review_accepts_multi_trace_evidence_window(tmp_path: Path) -> None:
 
     assert candidate is not None
     assert candidate.metadata["source_trace_id"] == "trace-2"
-    assert candidate.metadata["source_trace_ids"] == ["trace-1", "trace-2"]
     planning_prompt = transport.requests[0].messages[1].content
     assert "## Message 1" in planning_prompt
     assert "Read README" in planning_prompt
@@ -285,25 +282,25 @@ def test_review_accepts_multi_trace_evidence_window(tmp_path: Path) -> None:
     assert "Verify README" in planning_prompt
 
 
-def _tool_trace(
-    *,
-    trace_id: str = "trace-1",
-    user_message: str = "Read README and verify the project goal",
-) -> RuntimeTrace:
-    return RuntimeTrace(
+def _evidence() -> SkillReviewEvidence:
+    return SkillReviewEvidence(
         session_id="session-1",
+        trace_id="trace-1",
         user_id="user-1",
-        user_message=user_message,
-        final_response="Done.",
-        status="success",
-        trace_id=trace_id,
-        tool_executions=[
-            ToolExecutionTrace(
-                iteration=1,
-                tool_call_id="call-1",
-                tool_name="read_file",
-                status="success",
-                content="README content",
-            )
+        messages_snapshot=[
+            Message(role="user", content="Read README and verify the project goal"),
+            Message(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call-1",
+                        name="read_file",
+                        arguments={"path": "README.md"},
+                    )
+                ],
+            ),
+            Message(role="tool", tool_call_id="call-1", content="README content"),
+            Message(role="assistant", content="Done."),
         ],
     )

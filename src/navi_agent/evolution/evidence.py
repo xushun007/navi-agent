@@ -5,28 +5,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from navi_agent.runtime import Message
-from navi_agent.telemetry import RuntimeTrace
 
 
 @dataclass(frozen=True, slots=True)
 class SkillReviewEvidence:
-    traces: list[RuntimeTrace]
+    session_id: str
+    trace_id: str
+    user_id: str
     messages_snapshot: list[Message]
-
-    @property
-    def latest_trace(self) -> RuntimeTrace:
-        return self.traces[-1]
-
-
-def coerce_skill_review_evidence(
-    trace: RuntimeTrace | SkillReviewEvidence,
-) -> SkillReviewEvidence:
-    if isinstance(trace, SkillReviewEvidence):
-        return trace
-    return SkillReviewEvidence(
-        traces=[trace],
-        messages_snapshot=[],
-    )
 
 
 def render_skill_review_evidence(
@@ -66,6 +52,7 @@ def _render_messages_snapshot(messages: list[Message]) -> str:
         parts.extend(["content:", _indent(message.content, prefix="  ")])
         blocks.append("\n".join(parts))
     return "\n\n".join(blocks)
+
 
 def _json_dumps(value: Any) -> str:
     if not value:

@@ -297,7 +297,6 @@ class ApplicationService:
                     skill_evidence=(
                         self._build_skill_review_evidence(
                             trace,
-                            user_id=user_id,
                             result=result,
                         )
                         if decision.review_skill and self._skill_review_service is not None
@@ -391,14 +390,12 @@ class ApplicationService:
         self,
         trace: RuntimeTrace,
         *,
-        user_id: str,
         result: RuntimeResult,
     ) -> SkillReviewEvidence:
-        traces = self._runtime.get_session_traces(trace.session_id, user_id=user_id)
-        if not traces:
-            traces = [trace]
         return SkillReviewEvidence(
-            traces=traces,
+            session_id=trace.session_id,
+            trace_id=trace.trace_id,
+            user_id=trace.user_id,
             messages_snapshot=list(result.messages),
         )
 
