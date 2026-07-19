@@ -59,6 +59,10 @@ def get_eval_case_store_path() -> Path:
     return get_evolution_dir() / "eval-cases.jsonl"
 
 
+def get_review_run_store_path() -> Path:
+    return get_evolution_dir() / "review-runs.jsonl"
+
+
 def get_eval_seed_dir() -> Path:
     return get_repo_root() / "data" / "eval"
 

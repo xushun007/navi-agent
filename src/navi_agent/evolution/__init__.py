@@ -10,6 +10,7 @@ from .prompt_overlay import PromptOverlayEntry, PromptOverlayStore
 from .report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
 from .review import ReviewLoopService, ReviewLoopSummary
 from .review_agent import ReviewAgentService
+from .review_run import JsonlReviewRunStore, ReviewRunRecord, ReviewToolResultRecord
 from .review_trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, ReviewTriggerPolicy
 from .skill_curator import SkillCuratorArchiveResult, SkillCuratorRecord, SkillCuratorService, SkillCuratorStatus, SkillCuratorStatusService
 from .skill_provenance import SkillProvenanceRecord, SkillProvenanceStore
@@ -63,6 +64,9 @@ __all__ = [
     "ReviewLoopService",
     "ReviewLoopSummary",
     "ReviewAgentService",
+    "JsonlReviewRunStore",
+    "ReviewRunRecord",
+    "ReviewToolResultRecord",
     "ReviewTriggerDecision",
     "ReviewTriggerPolicy",
     "SkillUsageRecord",
