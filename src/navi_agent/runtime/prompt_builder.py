@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 from navi_agent.memory import MemoryStore
+from navi_agent.memory.validation import sanitize_memory_for_prompt
 
 from .models import ConversationState, Message
 
@@ -131,7 +132,9 @@ class PromptBuilder:
         if not records:
             return None
         lines = ["[Memory]"]
-        lines.extend(f"- [{record.kind}] {record.content}" for record in records)
+        lines.extend(
+            f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}" for record in records
+        )
         return "\n".join(lines)
 
     def _build_skill_block(self, user_message: str) -> str | None:

@@ -24,8 +24,20 @@ def validate_memory_content(content: str) -> str:
         return "memory content is required"
     if len(normalized) > MAX_MEMORY_CONTENT_CHARS:
         return "memory content is too large"
+    return validate_memory_prompt_content(normalized)
+
+
+def validate_memory_prompt_content(content: str) -> str:
+    normalized = normalize_memory_content(content)
     lowered = normalized.lower()
     for phrase in _BLOCKED_PHRASES:
         if phrase in lowered:
             return "memory content contains prompt-injection text"
     return ""
+
+
+def sanitize_memory_for_prompt(content: str) -> str:
+    validation_error = validate_memory_prompt_content(content)
+    if not validation_error:
+        return content
+    return "[BLOCKED: memory entry contained prompt-injection text. Inspect memory files manually.]"
