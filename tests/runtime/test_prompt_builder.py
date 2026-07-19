@@ -122,6 +122,35 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn("readme-summary: Summarize README files and run tests", msgs[0].content)
         self.assertEqual(builder.last_injected_skill_names, ["readme-summary"])
 
+    def test_new_session_with_skill_reference(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            skill_store = FileSkillStore(root)
+            skill_store.create(
+                name="readme-summary",
+                content="\n".join(
+                    [
+                        "---",
+                        "description: Summarize README files",
+                        "---",
+                        "Use read_file before bash.",
+                    ]
+                ),
+            )
+            references_dir = root / "readme-summary" / "references"
+            references_dir.mkdir()
+            (references_dir / "checks.md").write_text(
+                "Run README checks after editing and cite the verified result.",
+                encoding="utf-8",
+            )
+            builder = PromptBuilder(skill_store=skill_store)
+            session = ConversationState(session_id="s1", user_id="u1")
+
+            msgs = builder.build_initial_messages(session, "summarize README")
+
+        self.assertIn("reference references/checks.md", msgs[0].content)
+        self.assertIn("Run README checks after editing", msgs[0].content)
+
     def test_injected_skill_names_reset_between_builds(self) -> None:
         with TemporaryDirectory() as tmpdir:
             skill_store = FileSkillStore(Path(tmpdir))

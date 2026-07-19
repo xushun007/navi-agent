@@ -13,11 +13,18 @@ _VALID_SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
 @dataclass(frozen=True, slots=True)
+class SkillReference:
+    path: str
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
 class SkillRecord:
     name: str
     description: str
     content: str
     path: Path
+    references: list[SkillReference]
 
 
 class FileSkillStore:
@@ -35,6 +42,7 @@ class FileSkillStore:
             description=_extract_description(content),
             content=content,
             path=skill_path,
+            references=_read_references(skill_dir),
         )
 
     def update(self, *, name: str, content: str) -> SkillRecord | None:
@@ -48,6 +56,7 @@ class FileSkillStore:
             description=_extract_description(content),
             content=content,
             path=skill_path,
+            references=_read_references(skill_path.parent),
         )
 
     def get(self, name: str) -> SkillRecord | None:
@@ -61,6 +70,7 @@ class FileSkillStore:
             description=_extract_description(content),
             content=content,
             path=skill_path,
+            references=_read_references(skill_path.parent),
         )
 
     def remove(self, name: str) -> bool:
@@ -91,6 +101,7 @@ class FileSkillStore:
             description=_extract_description(content),
             content=content,
             path=archive_dir / "SKILL.md",
+            references=_read_references(archive_dir),
         )
 
     def list(self) -> list[SkillRecord]:
@@ -105,6 +116,7 @@ class FileSkillStore:
                     description=_extract_description(content),
                     content=content,
                     path=skill_path,
+                    references=_read_references(skill_path.parent),
                 )
             )
         return records
@@ -239,3 +251,21 @@ def _extract_description(content: str) -> str:
         if line.startswith("description:"):
             return line.removeprefix("description:").strip()
     return ""
+
+
+def _read_references(skill_dir: Path) -> list[SkillReference]:
+    references_dir = skill_dir / "references"
+    if not references_dir.is_dir():
+        return []
+    records: list[SkillReference] = []
+    for path in sorted(references_dir.rglob("*.md")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(skill_dir).as_posix()
+        records.append(
+            SkillReference(
+                path=relative,
+                content=path.read_text(encoding="utf-8"),
+            )
+        )
+    return records

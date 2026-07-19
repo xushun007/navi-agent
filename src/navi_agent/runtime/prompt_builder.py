@@ -32,6 +32,7 @@ SKILL_GUIDANCE = (
 
 PROJECT_CONTEXT_MAX_CHARS = 20_000
 PROJECT_CONTEXT_FILE_NAMES = (".navi.md", "AGENTS.md")
+SKILL_REFERENCE_MAX_CHARS = 600
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,9 @@ class PromptBuilder:
         lines = ["[Skills]", "Relevant reusable procedures:"]
         for record in records:
             lines.append(f"- {record.name}: {record.description}")
+            for reference in getattr(record, "references", [])[:3]:
+                preview = self._truncate_skill_reference(reference.content)
+                lines.append(f"  reference {reference.path}: {preview}")
         return "\n".join(lines)
 
     def _build_project_context_block(self) -> str | None:
@@ -181,3 +185,10 @@ class PromptBuilder:
                 content[-tail_size:].lstrip(),
             ]
         )
+
+    @staticmethod
+    def _truncate_skill_reference(content: str) -> str:
+        text = " ".join(content.strip().split())
+        if len(text) <= SKILL_REFERENCE_MAX_CHARS:
+            return text
+        return text[:SKILL_REFERENCE_MAX_CHARS].rstrip() + "..."

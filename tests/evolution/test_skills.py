@@ -149,6 +149,21 @@ def test_search_returns_relevant_skills(tmp_path: Path) -> None:
     assert [record.name for record in records] == ["readme-summary"]
 
 
+def test_reads_skill_references(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="description: Summarize README files")
+    references_dir = tmp_path / "readme-summary" / "references"
+    references_dir.mkdir()
+    (references_dir / "checks.md").write_text("Run README checks after editing.", encoding="utf-8")
+
+    record = store.get("readme-summary")
+
+    assert record is not None
+    assert len(record.references) == 1
+    assert record.references[0].path == "references/checks.md"
+    assert "README checks" in record.references[0].content
+
+
 def test_search_limit_must_be_positive(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
 
