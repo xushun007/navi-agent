@@ -101,6 +101,16 @@ class FileSkillStore:
             size_bytes=path.stat().st_size,
         )
 
+    def read_attachment(self, *, name: str, relative_path: str) -> str | None:
+        name = _normalize_skill_name(name)
+        skill_dir = self._root / name
+        if not (skill_dir / "SKILL.md").exists():
+            return None
+        path = _resolve_attachment_path(skill_dir, relative_path)
+        if not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8")
+
     def get(self, name: str) -> SkillRecord | None:
         name = _normalize_skill_name(name)
         skill_path = self._root / name / "SKILL.md"

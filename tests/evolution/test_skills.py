@@ -204,6 +204,47 @@ def test_writes_skill_attachment(tmp_path: Path) -> None:
     assert [item.path for item in record.attachments] == ["templates/report.md"]
 
 
+def test_reads_skill_attachment(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="description: Summarize README files")
+    store.write_attachment(
+        name="readme-summary",
+        relative_path="references/checks.md",
+        content="Run README checks after editing.",
+    )
+
+    content = store.read_attachment(
+        name="readme-summary",
+        relative_path="references/checks.md",
+    )
+
+    assert content == "Run README checks after editing."
+
+
+def test_read_skill_attachment_returns_none_for_missing_file(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="description: Summarize README files")
+
+    content = store.read_attachment(
+        name="readme-summary",
+        relative_path="references/missing.md",
+    )
+
+    assert content is None
+
+
+def test_read_skill_attachment_rejects_unsafe_path(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(name="readme-summary", content="description: Summarize README files")
+
+    try:
+        store.read_attachment(name="readme-summary", relative_path="../outside.md")
+    except ValueError as error:
+        assert "parent segments" in str(error)
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def test_write_skill_attachment_requires_existing_skill(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
 
