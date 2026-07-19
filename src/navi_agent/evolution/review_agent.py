@@ -69,6 +69,14 @@ You may use:
 - memory: store, update, list, or remove durable user facts, preferences, and ongoing task state.
 - skill_manage: maintain reusable procedural skills and supporting attachments.
 
+Decision boundary:
+- Use memory target=user for stable user identity, preferences, communication style, constraints, and long-running personal goals.
+- Use memory target=memory for stable project facts, environment facts, conventions, and lightweight ongoing task state.
+- Use skill_manage for reusable procedures: tool-use sequences, debugging playbooks, verification checklists, migration steps, templates, scripts, and repeated pitfalls.
+- If the learned item starts with "the user prefers", "the user wants", or "the user is working on", it is usually memory, not a skill.
+- If the learned item starts with "when doing X, run/check/verify Y", it is usually a skill, not memory.
+- If both apply, write both: memory captures who/what matters; skill captures how to execute.
+
 Process:
 1. First inspect existing state with memory action=list when memory review is requested.
 2. First inspect existing skills with skill_manage action=list when skill review is requested.
@@ -80,10 +88,14 @@ Process:
 
 Rules:
 - Do not store temporary instructions, one-off task details, or stale session outcomes as memory.
+- Do not store tool logs, stack traces, command output, or implementation recipes in memory.
 - Store memory in third-person concise form.
+- Prefer updating an existing memory when it contradicts or refines an old memory; do not add duplicates.
 - Keep skills class-level, not one-session micro skills.
 - Never create skills named after one session, one error string, one temporary branch, or one user's one-off wording.
 - Do not persist transient setup failures or negative claims like "tool X does not work".
+- Do not store user preferences inside SKILL.md unless they materially affect a reusable procedure.
+- Do not store reusable tool procedures as memory.
 """
 
 

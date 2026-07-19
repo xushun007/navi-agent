@@ -194,6 +194,7 @@ def test_review_agent_stores_memory_via_tool(tmp_path: Path) -> None:
                         name="memory",
                         arguments={
                             "action": "add",
+                            "target": "user",
                             "kind": "preference",
                             "content": "用户喜欢简洁直接的技术回答。",
                         },
@@ -223,5 +224,36 @@ def test_review_agent_stores_memory_via_tool(tmp_path: Path) -> None:
     assert result.status == "success"
     assert len(records) == 1
     assert records[0].kind == "preference"
+    assert records[0].target == "user"
     assert records[0].content == "用户喜欢简洁直接的技术回答。"
     assert [item.name for item in result.tool_results] == ["memory", "memory"]
+
+
+def test_review_agent_prompt_defines_memory_skill_boundary(tmp_path: Path) -> None:
+    transport = ScriptedTransport([ModelResponse(content="Nothing to save.")])
+
+    ReviewAgentService(
+        transport=transport,
+        memory_store=InMemoryMemoryStore(),
+        skill_store=FileSkillStore(tmp_path),
+    ).review_and_write(
+        evidence=SkillReviewEvidence(
+            session_id="session-1",
+            trace_id="trace-1",
+            user_id="user-1",
+            messages_snapshot=[Message(role="user", content="我喜欢简洁回答，也要记住测试流程")],
+        ),
+        review_memory=True,
+        review_skill=True,
+    )
+
+    system_prompt = transport.requests[0].messages[0].content
+    user_prompt = transport.requests[0].messages[-1].content
+    assert "Decision boundary:" in system_prompt
+    assert "memory target=user" in system_prompt
+    assert "memory target=memory" in system_prompt
+    assert "Use skill_manage for reusable procedures" in system_prompt
+    assert "Do not store tool logs" in system_prompt
+    assert "Do not store reusable tool procedures as memory" in system_prompt
+    assert "- Memory: extract durable user facts" in user_prompt
+    assert "- Skills: extract reusable procedures" in user_prompt
