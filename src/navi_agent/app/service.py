@@ -19,6 +19,7 @@ from navi_agent.evolution import (
     FileSkillStore,
     SkillProvenanceStore,
     SkillReviewEvidence,
+    SkillReviewAgentService,
     SkillReviewService,
     SkillUsageStore,
     ReviewTriggerPolicy,
@@ -58,7 +59,7 @@ class ApplicationService:
         skill_usage_store: SkillUsageStore | None = None,
         memory_store: MemoryStore | None = None,
         memory_review_service: MemoryReviewService | None = None,
-        skill_review_service: SkillReviewService | None = None,
+        skill_review_service: SkillReviewService | SkillReviewAgentService | None = None,
         review_trigger_policy: ReviewTriggerPolicy | None = None,
     ) -> None:
         self._runtime = runtime
@@ -370,9 +371,13 @@ class ApplicationService:
         if task.review_memory and self._memory_review_service is not None:
             self._memory_review_service.review_and_write(task.trace)
         if task.review_skill:
-            self._propose_and_add_skill_candidate(
-                task.skill_evidence or SkillReviewEvidence(traces=[task.trace])
-            )
+            evidence = task.skill_evidence or SkillReviewEvidence(traces=[task.trace])
+            review_and_write = getattr(self._skill_review_service, "review_and_write", None)
+            if callable(review_and_write):
+                result = review_and_write(evidence)
+                self._record_review_agent_skill_actions(result)
+            else:
+                self._propose_and_add_skill_candidate(evidence)
 
     def _build_skill_review_evidence(
         self,
@@ -384,6 +389,32 @@ class ApplicationService:
         if not traces:
             traces = [trace]
         return SkillReviewEvidence(traces=traces)
+
+    def _record_review_agent_skill_actions(self, result: RuntimeResult) -> None:
+        for tool_result in result.tool_results:
+            if tool_result.name != "skill_manage" or tool_result.status != "success":
+                continue
+            action = str(tool_result.structured_content.get("action") or "").strip()
+            skill_name = str(tool_result.structured_content.get("skill_name") or "").strip()
+            if not action or not skill_name:
+                continue
+            if action == "create":
+                if self._skill_provenance_store is not None:
+                    self._skill_provenance_store.mark_agent_created(
+                        skill_name=skill_name,
+                        candidate=EvolutionCandidate(
+                            target="skill",
+                            summary=f"Background review agent created skill `{skill_name}`",
+                            rationale="Tool-using skill review agent wrote this skill.",
+                            metadata={"skill_name": skill_name, "reviewer": "agent"},
+                            status="applied",
+                        ),
+                    )
+                if self._skill_usage_store is not None:
+                    self._skill_usage_store.record_create(skill_name)
+            elif action == "append":
+                if self._skill_usage_store is not None:
+                    self._skill_usage_store.record_update(skill_name)
 
     def _find_superseded_candidates(
         self,

@@ -211,6 +211,16 @@ class FakeMemoryReviewService:
         return True
 
 
+class FakeSkillReviewAgentService:
+    def __init__(self, result: RuntimeResult) -> None:
+        self.result = result
+        self.reviewed_evidence = []
+
+    def review_and_write(self, evidence):
+        self.reviewed_evidence.append(evidence)
+        return self.result
+
+
 class ApplicationServiceTests(unittest.TestCase):
     def test_handle_uses_existing_session_id(self) -> None:
         runtime = FakeRuntime()
@@ -497,6 +507,64 @@ class ApplicationServiceTests(unittest.TestCase):
         skill_evidence = review_service.reviewed_inputs[0]
         self.assertIsInstance(skill_evidence, SkillReviewEvidence)
         self.assertEqual(skill_evidence.traces, [first_trace, latest_trace])
+
+    def test_background_skill_review_agent_records_written_skill(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Summarize README",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="read_file",
+                    status="success",
+                )
+            ],
+        )
+        provenance_store = FakeSkillProvenanceStore()
+        usage_store = FakeSkillUsageStore()
+        review_service = FakeSkillReviewAgentService(
+            RuntimeResult(
+                session_id="review:s1",
+                status="success",
+                final_response="Skill updated.",
+                tool_results=[
+                    type(
+                        "FakeToolResult",
+                        (),
+                        {
+                            "name": "skill_manage",
+                            "status": "success",
+                            "structured_content": {
+                                "action": "create",
+                                "skill_name": "readme-summary",
+                            },
+                        },
+                    )()
+                ],
+            )
+        )
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            skill_store=FakeSkillStore(),
+            skill_provenance_store=provenance_store,
+            skill_usage_store=usage_store,
+            skill_review_service=review_service,
+            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+        service.wait_for_background_reviews()
+
+        self.assertEqual(len(review_service.reviewed_evidence), 1)
+        self.assertEqual(provenance_store.records[0][0], "readme-summary")
+        self.assertEqual(usage_store.created, ["readme-summary"])
 
     def test_background_skill_review_does_not_overwrite_existing_skill(self) -> None:
         runtime = FakeRuntime()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from navi_agent.evolution import FileSkillStore
+from navi_agent.evolution.skills import FileSkillStore
 from navi_agent.tooling import ToolContext, ToolResult
 
 from .base import BaseTool

@@ -12,7 +12,7 @@ from navi_agent.evolution import (
     PromptOverlayStore,
     MemoryReviewService,
     SkillProvenanceStore,
-    SkillReviewService,
+    SkillReviewAgentService,
     SkillUsageStore,
 )
 from navi_agent.logging import setup_logging
@@ -116,7 +116,7 @@ def build_application(
             transport=build_transport(review_model_settings),
             memory_store=memory_store,
         ),
-        skill_review_service=SkillReviewService(
+        skill_review_service=SkillReviewAgentService(
             transport=build_transport(review_model_settings),
             skill_store=skill_store,
         ),
