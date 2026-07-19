@@ -8,6 +8,8 @@ from navi_agent.tooling import ToolContext, ToolResult
 
 from .base import BaseTool
 
+_MAX_ATTACHMENT_CHARS = 200_000
+
 
 class SkillManageTool(BaseTool):
     def __init__(self, skill_store: FileSkillStore) -> None:
@@ -27,12 +29,14 @@ class SkillManageTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "view", "create", "append"],
+                    "enum": ["list", "view", "create", "append", "write_attachment"],
                 },
                 "skill_name": {"type": "string"},
                 "skill_content": {"type": "string"},
                 "section": {"type": "string"},
                 "append_content": {"type": "string"},
+                "attachment_path": {"type": "string"},
+                "attachment_content": {"type": "string"},
             },
             "required": ["action"],
             "additionalProperties": False,
@@ -74,6 +78,7 @@ class SkillManageTool(BaseTool):
                 structured_content={
                     "skill_name": record.name,
                     "description": record.description,
+                    "attachments": [attachment.path for attachment in record.attachments],
                 },
             )
 
@@ -145,6 +150,48 @@ class SkillManageTool(BaseTool):
                 },
             )
 
+        if action == "write_attachment":
+            attachment_path = str(kwargs.get("attachment_path") or "").strip()
+            attachment_content = str(kwargs.get("attachment_content") or "")
+            if not attachment_path:
+                return ToolResult.error(
+                    name=self.name,
+                    content="skill_manage_error: attachment_path is required for write_attachment",
+                )
+            validation_error = _validate_attachment_content(attachment_content)
+            if validation_error:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"skill_manage_error: {validation_error}",
+                )
+            try:
+                attachment = self._skill_store.write_attachment(
+                    name=skill_name,
+                    relative_path=attachment_path,
+                    content=attachment_content,
+                )
+            except ValueError as error:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"skill_manage_error: {error}",
+                )
+            if attachment is None:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"skill_manage_error: skill not found: {skill_name}",
+                )
+            return ToolResult.ok(
+                name=self.name,
+                content=f"skill_attachment_written: {attachment.path}",
+                structured_content={
+                    "action": "write_attachment",
+                    "skill_name": skill_name,
+                    "attachment_path": attachment.path,
+                    "attachment_kind": attachment.kind,
+                    "size_bytes": attachment.size_bytes,
+                },
+            )
+
         return ToolResult.error(
             name=self.name,
             content=f"skill_manage_error: unsupported action: {action}",
@@ -178,6 +225,16 @@ def _validate_append_content(content: str) -> str:
     if _has_placeholder(content):
         return "append_content contains placeholder text"
     return _validate_persistent_content(content)
+
+
+def _validate_attachment_content(content: str) -> str:
+    if not content.strip():
+        return "attachment_content is required for write_attachment"
+    if len(content) > _MAX_ATTACHMENT_CHARS:
+        return "attachment_content is too large"
+    if _has_placeholder(content):
+        return "attachment_content contains placeholder text"
+    return ""
 
 
 def _validate_persistent_content(content: str) -> str:

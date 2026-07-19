@@ -118,3 +118,65 @@ def test_skill_manage_rejects_negative_tool_claim(tmp_path: Path) -> None:
 
     assert result.status == "error"
     assert "negative tool claim" in result.content
+
+
+def test_skill_manage_writes_attachment(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="dogfood",
+        content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
+    )
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="write_attachment",
+        skill_name="dogfood",
+        attachment_path="templates/report.md",
+        attachment_content="# Report\n\n{issues}\n",
+    )
+    viewed = tool.invoke(action="view", skill_name="dogfood")
+
+    assert result.status == "success"
+    assert result.structured_content["attachment_path"] == "templates/report.md"
+    assert (tmp_path / "dogfood" / "templates" / "report.md").read_text(
+        encoding="utf-8"
+    ) == "# Report\n\n{issues}\n"
+    assert viewed.structured_content["attachments"] == ["templates/report.md"]
+
+
+def test_skill_manage_rejects_attachment_path_escape(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="dogfood",
+        content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
+    )
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="write_attachment",
+        skill_name="dogfood",
+        attachment_path="../bad.md",
+        attachment_content="bad",
+    )
+
+    assert result.status == "error"
+    assert "parent segments" in result.content
+
+
+def test_skill_manage_rejects_placeholder_attachment(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    store.create(
+        name="dogfood",
+        content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
+    )
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="write_attachment",
+        skill_name="dogfood",
+        attachment_path="references/notes.md",
+        attachment_content="... keep existing content unchanged.",
+    )
+
+    assert result.status == "error"
+    assert "placeholder" in result.content
