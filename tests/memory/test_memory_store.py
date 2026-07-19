@@ -62,7 +62,13 @@ class FileMemoryStoreTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             store = FileMemoryStore(root)
-            fact = store.add_for_user("u1", "Uses Python", kind="fact")
+            fact = store.add_for_user(
+                "u1",
+                "Uses Python",
+                kind="fact",
+                source="background_review",
+                source_session_id="review:s1",
+            )
             preference = store.add_for_user("u1", "Prefers concise replies", kind="preference")
 
             reloaded = FileMemoryStore(root)
@@ -70,6 +76,8 @@ class FileMemoryStoreTests(unittest.TestCase):
 
         self.assertEqual([record.id for record in records], [fact.id, preference.id])
         self.assertEqual(records[0].content, "Uses Python")
+        self.assertEqual(records[0].source, "background_review")
+        self.assertEqual(records[0].source_session_id, "review:s1")
         self.assertEqual(records[1].content, "Prefers concise replies")
 
     def test_update_and_remove_persist(self) -> None:
@@ -103,6 +111,7 @@ class FileMemoryStoreTests(unittest.TestCase):
         self.assertIn("- [fact] Project uses uv", memory_text)
         self.assertIn("- [preference] Likes short answers", user_text)
         self.assertIn("<!-- id:", memory_text)
+        self.assertIn("source:unknown", memory_text)
         self.assertIn("Project uses uv", memory_text)
         self.assertIn("Likes short answers", user_text)
         self.assertNotIn("Likes short answers", memory_text)
@@ -161,7 +170,7 @@ class FileMemoryStoreTests(unittest.TestCase):
                         "# Memory",
                         "",
                         "- [fact] Project uses uv",
-                        "  <!-- id:m1 user:u1 -->",
+                        "  <!-- id:m1 user:u1 source:manual session:s1 -->",
                         "",
                     ]
                 ),
@@ -170,7 +179,19 @@ class FileMemoryStoreTests(unittest.TestCase):
 
             records = FileMemoryStore(root).list_for_user("u1")
 
-        self.assertEqual(records, [MemoryRecord(id="m1", user_id="u1", kind="fact", content="Project uses uv")])
+        self.assertEqual(
+            records,
+            [
+                MemoryRecord(
+                    id="m1",
+                    user_id="u1",
+                    kind="fact",
+                    content="Project uses uv",
+                    source="manual",
+                    source_session_id="s1",
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":

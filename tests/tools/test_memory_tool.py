@@ -26,6 +26,8 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(add_result.structured_content["content"], "Likes short answers")
         self.assertEqual(add_result.structured_content["kind"], "preference")
         self.assertEqual(add_result.structured_content["target"], "user")
+        self.assertEqual(add_result.structured_content["source"], "assistant_tool")
+        self.assertEqual(add_result.structured_content["source_session_id"], "s1")
         self.assertIn("Likes short answers", list_result.content)
         self.assertIn("[preference]", list_result.content)
         self.assertEqual(list_result.structured_content["records"][0]["content"], "Likes short answers")

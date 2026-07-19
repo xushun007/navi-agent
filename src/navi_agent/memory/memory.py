@@ -19,6 +19,8 @@ class InMemoryMemoryStore:
         content: str,
         kind: str = "fact",
         target: str = "",
+        source: str = "unknown",
+        source_session_id: str = "",
     ) -> MemoryRecord:
         content = normalize_memory_content(content)
         validation_error = validate_memory_content(content)
@@ -39,6 +41,8 @@ class InMemoryMemoryStore:
             kind=kind,
             content=content,
             target=target,
+            source=source,
+            source_session_id=source_session_id,
         )
         self._records.append(record)
         return record

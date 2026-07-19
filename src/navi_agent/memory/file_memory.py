@@ -10,7 +10,10 @@ from .validation import normalize_memory_content, validate_memory_content
 
 _ENTRY_RE = re.compile(
     r"^- \[(?P<kind>[a-z]+)\]\s+(?P<content>.*)\n"
-    r"  <!-- id:(?P<id>[^ ]+) user:(?P<user_id>[^ ]+) -->$",
+    r"  <!-- id:(?P<id>[^ ]+) user:(?P<user_id>[^ ]+)"
+    r"(?: source:(?P<source>[^ ]+))?"
+    r"(?: session:(?P<source_session_id>[^ ]+))?"
+    r" -->$",
     re.MULTILINE,
 )
 
@@ -28,6 +31,8 @@ class FileMemoryStore:
         content: str,
         kind: str = "fact",
         target: str = "",
+        source: str = "unknown",
+        source_session_id: str = "",
     ) -> MemoryRecord:
         normalized_kind = self._normalize_kind(kind)
         normalized_target = self._normalize_target(target, kind=normalized_kind)
@@ -50,6 +55,8 @@ class FileMemoryStore:
             kind=normalized_kind,
             content=content,
             target=normalized_target,
+            source=self._single_line(source) or "unknown",
+            source_session_id=self._single_line(source_session_id),
         )
         records.append(record)
         self._write_all(records)
@@ -104,6 +111,8 @@ class FileMemoryStore:
                         kind=self._normalize_kind(match.group("kind")),
                         content=match.group("content").strip(),
                         target=target,
+                        source=match.group("source") or "unknown",
+                        source_session_id=match.group("source_session_id") or "",
                     )
                 )
         return records
@@ -160,7 +169,12 @@ class FileMemoryStore:
             handle.write(f"# {path.stem.title()}\n\n")
             for record in records:
                 handle.write(f"- [{record.kind}] {FileMemoryStore._single_line(record.content)}\n")
-                handle.write(f"  <!-- id:{record.id} user:{record.user_id} -->\n")
+                handle.write(
+                    f"  <!-- id:{record.id} user:{record.user_id}"
+                    f" source:{FileMemoryStore._single_line(record.source) or 'unknown'}"
+                    f"{f' session:{FileMemoryStore._single_line(record.source_session_id)}' if record.source_session_id else ''}"
+                    " -->\n"
+                )
             if records:
                 handle.write("\n")
         temp_path.replace(path)

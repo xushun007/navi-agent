@@ -56,6 +56,8 @@ class MemoryTool(BaseTool):
                     content,
                     kind=kind,
                     target=target,
+                    source=str(kwargs.get("source") or "assistant_tool"),
+                    source_session_id=context.session_id,
                 )
             except ValueError as error:
                 return ToolResult.error(name=self.name, content=f"memory_error: {error}")
@@ -66,6 +68,8 @@ class MemoryTool(BaseTool):
                     "user_id": record.user_id,
                     "kind": record.kind,
                     "target": record.target,
+                    "source": record.source,
+                    "source_session_id": record.source_session_id,
                     "content": record.content,
                 },
             )
@@ -86,6 +90,8 @@ class MemoryTool(BaseTool):
                             "id": record.id,
                             "kind": record.kind,
                             "target": record.target,
+                            "source": record.source,
+                            "source_session_id": record.source_session_id,
                             "content": record.content,
                         }
                         for record in records

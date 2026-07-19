@@ -10,3 +10,5 @@ class MemoryRecord:
     kind: str
     content: str
     target: str = "memory"
+    source: str = "unknown"
+    source_session_id: str = ""
