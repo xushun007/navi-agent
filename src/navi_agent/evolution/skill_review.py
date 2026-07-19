@@ -49,7 +49,7 @@ class SkillReviewService:
             return None
 
         try:
-            decision = self._review(trace)
+            decision = self._review_with_agent(trace)
         except Exception:
             logger.exception("Skill review failed: trace_id=%s", trace.trace_id)
             return None
@@ -92,12 +92,46 @@ class SkillReviewService:
             metadata=metadata,
         )
 
-    def _review(self, trace: RuntimeTrace) -> SkillReviewDecision:
+    def _review_with_agent(self, trace: RuntimeTrace) -> SkillReviewDecision:
+        plan = self._plan(trace)
+        if plan.action == "nothing":
+            return plan
+        if not plan.skill_name:
+            return SkillReviewDecision(action="nothing", rationale="missing skill name")
+        if plan.action == "update_skill":
+            if self._skill_store is None:
+                return SkillReviewDecision(action="nothing", rationale="no skill store available")
+            target = self._skill_store.get(plan.skill_name)
+            if target is None:
+                return SkillReviewDecision(action="nothing", rationale="target skill not found")
+            patch = self._build_update(trace, plan=plan, existing_skill_content=target.content)
+            return SkillReviewDecision(
+                action="update_skill",
+                skill_name=plan.skill_name,
+                summary=patch.summary or plan.summary,
+                rationale=patch.rationale or plan.rationale,
+                section=patch.section,
+                append_content=patch.append_content,
+            )
+        if plan.action == "create_skill":
+            if self._skill_store is not None and self._skill_store.get(plan.skill_name) is not None:
+                return SkillReviewDecision(action="nothing", rationale="target skill already exists")
+            created = self._build_create(trace, plan=plan)
+            return SkillReviewDecision(
+                action="create_skill",
+                skill_name=plan.skill_name or created.skill_name,
+                summary=created.summary or plan.summary,
+                rationale=created.rationale or plan.rationale,
+                skill_content=created.skill_content,
+            )
+        return SkillReviewDecision(action="nothing")
+
+    def _plan(self, trace: RuntimeTrace) -> SkillReviewDecision:
         response = self._transport.generate(
             ModelRequest(
                 messages=[
-                    Message(role="system", content=_REVIEW_SYSTEM_PROMPT),
-                    Message(role="user", content=self._build_user_prompt(trace)),
+                    Message(role="system", content=_PLAN_SYSTEM_PROMPT),
+                    Message(role="user", content=self._build_planning_prompt(trace)),
                 ]
             )
         )
@@ -109,25 +143,62 @@ class SkillReviewService:
             skill_name=skill_name,
             summary=str(payload.get("summary") or "").strip(),
             rationale=str(payload.get("rationale") or "").strip(),
-            skill_content=str(payload.get("skill_content") or "").strip(),
+        )
+
+    def _build_update(
+        self,
+        trace: RuntimeTrace,
+        *,
+        plan: SkillReviewDecision,
+        existing_skill_content: str,
+    ) -> SkillReviewDecision:
+        response = self._transport.generate(
+            ModelRequest(
+                messages=[
+                    Message(role="system", content=_UPDATE_SYSTEM_PROMPT),
+                    Message(
+                        role="user",
+                        content=self._build_update_prompt(
+                            trace,
+                            plan=plan,
+                            existing_skill_content=existing_skill_content,
+                        ),
+                    ),
+                ]
+            )
+        )
+        payload = _parse_json_object(response.content)
+        return SkillReviewDecision(
+            action="update_skill",
+            summary=str(payload.get("summary") or "").strip(),
+            rationale=str(payload.get("rationale") or "").strip(),
             section=str(payload.get("section") or "").strip(),
             append_content=str(payload.get("append_content") or "").strip(),
         )
 
-    def _build_user_prompt(self, trace: RuntimeTrace) -> str:
+    def _build_create(self, trace: RuntimeTrace, *, plan: SkillReviewDecision) -> SkillReviewDecision:
+        response = self._transport.generate(
+            ModelRequest(
+                messages=[
+                    Message(role="system", content=_CREATE_SYSTEM_PROMPT),
+                    Message(role="user", content=self._build_create_prompt(trace, plan=plan)),
+                ]
+            )
+        )
+        payload = _parse_json_object(response.content)
+        return SkillReviewDecision(
+            action="create_skill",
+            skill_name=_normalize_skill_name(str(payload.get("skill_name") or plan.skill_name)),
+            summary=str(payload.get("summary") or "").strip(),
+            rationale=str(payload.get("rationale") or "").strip(),
+            skill_content=str(payload.get("skill_content") or "").strip(),
+        )
+
+    def _build_planning_prompt(self, trace: RuntimeTrace) -> str:
         existing_skills = []
         if self._skill_store is not None:
             for skill in self._skill_store.list():
-                existing_skills.append(
-                    "\n".join(
-                        [
-                            f"## {skill.name}",
-                            f"description: {skill.description}",
-                            "content:",
-                            _truncate(skill.content, 1600),
-                        ]
-                    )
-                )
+                existing_skills.append(f"- {skill.name}: {skill.description}")
         existing_block = "\n".join(existing_skills) if existing_skills else "- none"
         tool_lines = "\n".join(
             f"- {execution.tool_name}: status={execution.status} output={_truncate(execution.content, 500)}"
@@ -150,10 +221,53 @@ class SkillReviewService:
             ]
         )
 
+    def _build_update_prompt(
+        self,
+        trace: RuntimeTrace,
+        *,
+        plan: SkillReviewDecision,
+        existing_skill_content: str,
+    ) -> str:
+        return "\n".join(
+            [
+                "Build an append-only update for the selected skill.",
+                "",
+                "[Plan]",
+                f"skill_name: {plan.skill_name}",
+                f"summary: {plan.summary}",
+                f"rationale: {plan.rationale}",
+                "",
+                "[Existing SKILL.md]",
+                existing_skill_content,
+                "",
+                "[Session]",
+                f"session_id: {trace.session_id}",
+                f"user_message: {_truncate(trace.user_message, 1200)}",
+                f"final_response: {_truncate(trace.final_response, 1200)}",
+            ]
+        )
 
-_REVIEW_SYSTEM_PROMPT = """You are Navi Agent's skill reviewer.
+    def _build_create_prompt(self, trace: RuntimeTrace, *, plan: SkillReviewDecision) -> str:
+        return "\n".join(
+            [
+                "Create a class-level SKILL.md for the planned reusable skill.",
+                "",
+                "[Plan]",
+                f"skill_name: {plan.skill_name}",
+                f"summary: {plan.summary}",
+                f"rationale: {plan.rationale}",
+                "",
+                "[Session]",
+                f"session_id: {trace.session_id}",
+                f"user_message: {_truncate(trace.user_message, 1200)}",
+                f"final_response: {_truncate(trace.final_response, 1200)}",
+            ]
+        )
 
-Decide whether this completed session should update or create one reusable skill.
+
+_PLAN_SYSTEM_PROMPT = """You are Navi Agent's skill review planning agent.
+
+Decide whether this completed session should update an existing skill, create one new skill, or do nothing.
 
 Rules:
 - Return only one JSON object. No markdown.
@@ -169,19 +283,55 @@ Rules:
 - User corrections about style, sequence, approval, verification, or tool choice are valid skill updates when they affect a class of future tasks.
 - Prefer broad reusable procedures: debugging pattern, tool workflow, project convention, user-corrected workflow, or repeatable verification path.
 - skill_name must be lowercase kebab-case.
-- For create_skill, skill_content must be the complete SKILL.md body with sections: # title, ## When To Use, ## Procedure, ## Evidence.
-- For update_skill, do not rewrite the full SKILL.md. Return a target section and append_content only.
-- update_skill must be append-only. append_content should be concise Markdown bullets or paragraphs that preserve existing content.
 
 Schema:
 {
   "action": "update_skill" | "create_skill" | "nothing",
   "skill_name": "short-kebab-name-or-empty",
   "summary": "short candidate summary",
-  "rationale": "why this should or should not become a skill",
-  "skill_content": "complete SKILL.md content for create_skill, otherwise empty string",
+  "rationale": "why this should or should not become a skill"
+}
+"""
+
+
+_UPDATE_SYSTEM_PROMPT = """You are Navi Agent's append-only skill patch agent.
+
+Return only one JSON object. No markdown outside JSON.
+
+Rules:
+- Never rewrite the full SKILL.md.
+- Never use placeholders like "... keep existing content".
+- Return a target section and append_content only.
+- append_content must be concise Markdown bullets or paragraphs.
+- Preserve all existing content by construction.
+- Prefer sections like ## Procedure, ## Pitfalls, ## Verification, or ## Evidence.
+
+Schema:
+{
+  "summary": "short update summary",
+  "rationale": "why this append belongs in the target skill",
   "section": "target section heading for update_skill, for example ## Pitfalls",
   "append_content": "append-only Markdown for update_skill"
+}
+"""
+
+
+_CREATE_SYSTEM_PROMPT = """You are Navi Agent's skill creation agent.
+
+Return only one JSON object. No markdown outside JSON.
+
+Rules:
+- Create one class-level SKILL.md, not a one-session micro skill.
+- skill_name must be lowercase kebab-case.
+- skill_content must be complete and include: # title, ## When To Use, ## Procedure, ## Evidence.
+- Do not create skills for transient setup failures or one-off answers.
+
+Schema:
+{
+  "skill_name": "short-kebab-name",
+  "summary": "short creation summary",
+  "rationale": "why this reusable skill should exist",
+  "skill_content": "complete SKILL.md content"
 }
 """
 
