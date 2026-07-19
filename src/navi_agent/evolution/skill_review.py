@@ -53,7 +53,7 @@ class SkillReviewService:
             return None
         if not latest_trace.final_response.strip():
             return None
-        if not evidence.tool_executions:
+        if not _tool_executions(evidence):
             return None
 
         try:
@@ -86,7 +86,7 @@ class SkillReviewService:
             "source_trace_id": latest_trace.trace_id,
             "source_trace_ids": [item.trace_id for item in evidence.traces],
             "skill_name": decision.skill_name,
-            "tool_names": [execution.tool_name for execution in evidence.tool_executions],
+            "tool_names": [execution.tool_name for execution in _tool_executions(evidence)],
             "reviewer": "llm",
         }
         if operation == "update":
@@ -355,6 +355,13 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("skill review response must be a JSON object")
     return payload
+
+
+def _tool_executions(evidence: SkillReviewEvidence) -> list[Any]:
+    executions = []
+    for trace in evidence.traces:
+        executions.extend(trace.tool_executions)
+    return executions
 
 
 def _normalize_skill_name(name: str) -> str:

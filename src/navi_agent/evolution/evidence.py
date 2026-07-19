@@ -1,28 +1,21 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from navi_agent.runtime import Message
-from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
+from navi_agent.telemetry import RuntimeTrace
 
 
 @dataclass(frozen=True, slots=True)
 class SkillReviewEvidence:
     traces: list[RuntimeTrace]
-    messages_snapshot: list[Message] = field(default_factory=list)
+    messages_snapshot: list[Message]
 
     @property
     def latest_trace(self) -> RuntimeTrace:
         return self.traces[-1]
-
-    @property
-    def tool_executions(self) -> list[ToolExecutionTrace]:
-        executions: list[ToolExecutionTrace] = []
-        for trace in self.traces:
-            executions.extend(trace.tool_executions)
-        return executions
 
 
 def coerce_skill_review_evidence(
@@ -30,18 +23,16 @@ def coerce_skill_review_evidence(
 ) -> SkillReviewEvidence:
     if isinstance(trace, SkillReviewEvidence):
         return trace
-    return SkillReviewEvidence(traces=[trace], messages_snapshot=[])
+    return SkillReviewEvidence(
+        traces=[trace],
+        messages_snapshot=[],
+    )
 
 
 def render_skill_review_evidence(
     evidence: SkillReviewEvidence,
 ) -> str:
-    if evidence.messages_snapshot:
-        return _render_messages_snapshot(evidence.messages_snapshot)
-    blocks = []
-    for index, trace in enumerate(evidence.traces, start=1):
-        blocks.append(_render_trace(index, trace))
-    return "\n\n".join(blocks)
+    return _render_messages_snapshot(evidence.messages_snapshot)
 
 
 def _render_messages_snapshot(messages: list[Message]) -> str:
@@ -75,62 +66,6 @@ def _render_messages_snapshot(messages: list[Message]) -> str:
         parts.extend(["content:", _indent(message.content, prefix="  ")])
         blocks.append("\n".join(parts))
     return "\n\n".join(blocks)
-
-
-def _render_trace(index: int, trace: RuntimeTrace) -> str:
-    return "\n".join(
-        [
-            f"## Trace {index}",
-            f"session_id: {trace.session_id}",
-            f"trace_id: {trace.trace_id}",
-            f"status: {trace.status}",
-            f"user_message: {trace.user_message}",
-            f"final_response: {trace.final_response}",
-            "tool_executions:",
-            _render_tool_executions(trace.tool_executions),
-        ]
-    )
-
-
-def _render_tool_executions(executions: list[ToolExecutionTrace]) -> str:
-    if not executions:
-        return "  - none"
-    return "\n".join(_render_tool_execution(execution) for execution in executions)
-
-
-def _render_tool_execution(execution: ToolExecutionTrace) -> str:
-    lines = [
-        f"  - tool: {execution.tool_name}",
-        f"    status: {execution.status}",
-        "    arguments: " + _json_dumps(execution.arguments),
-    ]
-    error_line = _render_error_line(execution)
-    if error_line:
-        lines.append(error_line)
-    output = execution.content.strip()
-    if output:
-        lines.extend(["    output:", _indent(output, prefix="      ")])
-    else:
-        lines.append("    output: <empty>")
-    return "\n".join(lines)
-
-
-def _render_error_line(execution: ToolExecutionTrace) -> str:
-    parts = []
-    if execution.error_category:
-        parts.append(f"category={execution.error_category}")
-    if execution.error_type:
-        parts.append(f"type={execution.error_type}")
-    if execution.http_status is not None:
-        parts.append(f"http_status={execution.http_status}")
-    if execution.retryable is not None:
-        parts.append(f"retryable={execution.retryable}")
-    if execution.error_message:
-        parts.append("message=" + execution.error_message)
-    if not parts:
-        return ""
-    return "    error: " + " ".join(parts)
-
 
 def _json_dumps(value: Any) -> str:
     if not value:

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from navi_agent.evolution import FileSkillStore, SkillReviewAgentService, SkillReviewEvidence
-from navi_agent.runtime import ModelRequest, ModelResponse, ToolCall
+from navi_agent.runtime import Message, ModelRequest, ModelResponse, ToolCall
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -53,7 +53,12 @@ def test_skill_review_agent_creates_skill_via_tool(tmp_path: Path) -> None:
     result = SkillReviewAgentService(
         transport=transport,
         skill_store=store,
-    ).review_and_write(SkillReviewEvidence(traces=[_tool_trace()]))
+    ).review_and_write(
+        SkillReviewEvidence(
+            traces=[_tool_trace()],
+            messages_snapshot=[Message(role="user", content="Read README")],
+        )
+    )
 
     record = store.get("readme-verification")
     assert result.status == "success"
@@ -110,7 +115,12 @@ def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> N
     result = SkillReviewAgentService(
         transport=transport,
         skill_store=store,
-    ).review_and_write(SkillReviewEvidence(traces=[_tool_trace()]))
+    ).review_and_write(
+        SkillReviewEvidence(
+            traces=[_tool_trace()],
+            messages_snapshot=[Message(role="user", content="Read README")],
+        )
+    )
 
     record = store.get("readme-verification")
     assert result.status == "success"
@@ -145,7 +155,23 @@ def test_skill_review_agent_prompt_contains_arguments_and_error_tail(tmp_path: P
                     )
                 ],
             )
-        ]
+        ],
+        messages_snapshot=[
+            Message(role="user", content="Run tests"),
+            Message(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call-1",
+                        name="bash",
+                        arguments={"command": "uv run pytest tests/test_skill.py"},
+                    )
+                ],
+            ),
+            Message(role="tool", tool_call_id="call-1", content=output),
+            Message(role="assistant", content="Tests failed."),
+        ],
     )
 
     SkillReviewAgentService(

@@ -41,44 +41,16 @@ def test_render_skill_review_evidence_prefers_raw_messages_snapshot() -> None:
     assert "[truncated" not in rendered
 
 
-def test_render_skill_review_evidence_falls_back_to_full_trace_evidence() -> None:
-    output = "pytest start\n" + ("middle\n" * 200) + "FAILED tests/test_core.py::test_core\nAssertionError: boom"
+def test_render_skill_review_evidence_does_not_fall_back_to_trace() -> None:
     evidence = SkillReviewEvidence(
-        traces=[
-            RuntimeTrace(
-                session_id="s1",
-                user_id="u1",
-                user_message="Run tests",
-                final_response="Tests failed.",
-                status="success",
-                trace_id="trace-1",
-                tool_executions=[
-                    ToolExecutionTrace(
-                        iteration=1,
-                        tool_call_id="call-1",
-                        tool_name="bash",
-                        status="error",
-                        arguments={"command": "uv run pytest tests/test_core.py"},
-                        content=output,
-                        error_category="timeout",
-                        error_type="TimeoutError",
-                        error_message="command timed out after 30 seconds",
-                        retryable=True,
-                    )
-                ],
-            )
-        ]
+        traces=[_trace_with_tool_output("trace output must not be rendered")],
+        messages_snapshot=[],
     )
 
     rendered = render_skill_review_evidence(evidence)
 
-    assert "tool: bash" in rendered
-    assert '"command": "uv run pytest tests/test_core.py"' in rendered
-    assert "error: category=timeout type=TimeoutError retryable=True" in rendered
-    assert "pytest start" in rendered
-    assert "FAILED tests/test_core.py::test_core" in rendered
-    assert "AssertionError: boom" in rendered
-    assert "[truncated" not in rendered
+    assert rendered == ""
+    assert "trace output must not be rendered" not in rendered
 
 
 def test_render_skill_review_evidence_includes_http_error_metadata() -> None:
@@ -106,13 +78,17 @@ def test_render_skill_review_evidence_includes_http_error_metadata() -> None:
                     )
                 ],
             )
-        ]
+        ],
+        messages_snapshot=[
+            Message(role="tool", tool_call_id="call-1", content="429 Too Many Requests")
+        ],
     )
 
     rendered = render_skill_review_evidence(evidence)
 
-    assert "http_status=429" in rendered
-    assert "retryable=True" in rendered
+    assert "429 Too Many Requests" in rendered
+    assert "http_status=429" not in rendered
+    assert "retryable=True" not in rendered
 
 
 def _trace_with_tool_output(content: str) -> RuntimeTrace:

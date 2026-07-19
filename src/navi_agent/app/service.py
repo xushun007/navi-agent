@@ -377,7 +377,9 @@ class ApplicationService:
         if task.review_memory and self._memory_review_service is not None:
             self._memory_review_service.review_and_write(task.trace)
         if task.review_skill:
-            evidence = task.skill_evidence or SkillReviewEvidence(traces=[task.trace])
+            if task.skill_evidence is None:
+                return
+            evidence = task.skill_evidence
             review_and_write = getattr(self._skill_review_service, "review_and_write", None)
             if callable(review_and_write):
                 result = review_and_write(evidence)
@@ -390,14 +392,14 @@ class ApplicationService:
         trace: RuntimeTrace,
         *,
         user_id: str,
-        result: RuntimeResult | None = None,
+        result: RuntimeResult,
     ) -> SkillReviewEvidence:
         traces = self._runtime.get_session_traces(trace.session_id, user_id=user_id)
         if not traces:
             traces = [trace]
         return SkillReviewEvidence(
             traces=traces,
-            messages_snapshot=list(result.messages) if result is not None else [],
+            messages_snapshot=list(result.messages),
         )
 
     def _record_review_agent_skill_actions(self, result: RuntimeResult) -> None:

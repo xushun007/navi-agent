@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from navi_agent.evolution import FileSkillStore, SkillReviewEvidence, SkillReviewService
-from navi_agent.runtime import ModelResponse
+from navi_agent.runtime import Message, ModelResponse
 from navi_agent.runtime.transports import ModelRequest
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
@@ -263,15 +263,25 @@ def test_review_accepts_multi_trace_evidence_window(tmp_path: Path) -> None:
     candidate = SkillReviewService(
         transport=transport,
         skill_store=FileSkillStore(tmp_path),
-    ).propose_candidate(SkillReviewEvidence(traces=[first, second]))
+    ).propose_candidate(
+        SkillReviewEvidence(
+            traces=[first, second],
+            messages_snapshot=[
+                Message(role="user", content="Read README"),
+                Message(role="assistant", content="Done."),
+                Message(role="user", content="Verify README"),
+                Message(role="assistant", content="Done."),
+            ],
+        )
+    )
 
     assert candidate is not None
     assert candidate.metadata["source_trace_id"] == "trace-2"
     assert candidate.metadata["source_trace_ids"] == ["trace-1", "trace-2"]
     planning_prompt = transport.requests[0].messages[1].content
-    assert "## Trace 1" in planning_prompt
+    assert "## Message 1" in planning_prompt
     assert "Read README" in planning_prompt
-    assert "## Trace 2" in planning_prompt
+    assert "## Message 3" in planning_prompt
     assert "Verify README" in planning_prompt
 
 
