@@ -319,7 +319,9 @@ Return only one JSON object. No markdown outside JSON.
 Rules:
 - Create one class-level SKILL.md, not a one-session micro skill.
 - skill_name must be lowercase kebab-case.
-- skill_content must be complete and include: # title, ## When To Use, ## Procedure, ## Evidence.
+- skill_content must be complete and start with YAML frontmatter containing name, description, and category.
+- The frontmatter name must exactly match skill_name.
+- After frontmatter, include: # title, ## When To Use, ## Procedure, ## Evidence.
 - Do not create skills for transient setup failures or one-off answers.
 
 Schema:

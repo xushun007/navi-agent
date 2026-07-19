@@ -11,6 +11,11 @@ def test_skill_manage_create_and_view(tmp_path: Path) -> None:
         action="create",
         skill_name="readme-review",
         skill_content=(
+            "---\n"
+            "name: readme-review\n"
+            "description: Review README files.\n"
+            "category: coding\n"
+            "---\n\n"
             "# README Review\n\n"
             "## When To Use\n\nUse for README review.\n\n"
             "## Procedure\n\n- Read the README.\n- Verify the summary."
@@ -20,7 +25,10 @@ def test_skill_manage_create_and_view(tmp_path: Path) -> None:
 
     assert created.status == "success"
     assert created.structured_content["skill_name"] == "readme-review"
+    assert created.structured_content["category"] == "coding"
     assert viewed.status == "success"
+    assert viewed.structured_content["description"] == "Review README files."
+    assert viewed.structured_content["category"] == "coding"
     assert "# README Review" in viewed.content
 
 
@@ -67,7 +75,7 @@ def test_skill_manage_list_returns_skill_summaries(tmp_path: Path) -> None:
     assert "readme-review" in result.content
 
 
-def test_skill_manage_rejects_create_without_required_sections(tmp_path: Path) -> None:
+def test_skill_manage_rejects_create_without_frontmatter(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
     tool = SkillManageTool(store)
 
@@ -75,6 +83,75 @@ def test_skill_manage_rejects_create_without_required_sections(tmp_path: Path) -
         action="create",
         skill_name="readme-review",
         skill_content="# README Review\n\nUse for README review without enough structure.",
+    )
+
+    assert result.status == "error"
+    assert "must start with YAML frontmatter" in result.content
+    assert store.get("readme-review") is None
+
+
+def test_skill_manage_rejects_create_without_required_frontmatter_fields(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="create",
+        skill_name="readme-review",
+        skill_content=(
+            "---\n"
+            "name: readme-review\n"
+            "description: Review README files.\n"
+            "---\n\n"
+            "# README Review\n\n"
+            "## When To Use\n\nUse for README review.\n\n"
+            "## Procedure\n\n- Read README."
+        ),
+    )
+
+    assert result.status == "error"
+    assert "missing required field: category" in result.content
+    assert store.get("readme-review") is None
+
+
+def test_skill_manage_rejects_create_when_frontmatter_name_mismatches(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="create",
+        skill_name="readme-review",
+        skill_content=(
+            "---\n"
+            "name: other-skill\n"
+            "description: Review README files.\n"
+            "category: coding\n"
+            "---\n\n"
+            "# README Review\n\n"
+            "## When To Use\n\nUse for README review.\n\n"
+            "## Procedure\n\n- Read README."
+        ),
+    )
+
+    assert result.status == "error"
+    assert "frontmatter name must match skill_name" in result.content
+    assert store.get("readme-review") is None
+
+
+def test_skill_manage_rejects_create_without_required_sections(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    tool = SkillManageTool(store)
+
+    result = tool.invoke(
+        action="create",
+        skill_name="readme-review",
+        skill_content=(
+            "---\n"
+            "name: readme-review\n"
+            "description: Review README files.\n"
+            "category: coding\n"
+            "---\n\n"
+            "# README Review\n\nUse for README review without enough structure."
+        ),
     )
 
     assert result.status == "error"

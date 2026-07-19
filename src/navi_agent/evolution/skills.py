@@ -257,6 +257,7 @@ class EvolutionEngine:
                 "---",
                 f"name: {skill_name}",
                 f"description: Reusable procedure learned from session {trace.session_id}",
+                "category: learned",
                 "source: navi-agent",
                 "---",
                 "",
@@ -307,12 +308,28 @@ def _extract_category(content: str) -> str:
 
 
 def _extract_frontmatter_value(content: str, key: str) -> str:
+    frontmatter = _extract_frontmatter(content)
+    if frontmatter is None:
+        return ""
     prefix = f"{key}:"
-    for line in content.splitlines():
+    for line in frontmatter.splitlines():
         stripped = line.strip()
         if stripped.startswith(prefix):
             return stripped.removeprefix(prefix).strip().strip("'\"")
     return ""
+
+
+def _extract_frontmatter(content: str) -> str | None:
+    stripped = content.lstrip()
+    if not stripped.startswith("---"):
+        return None
+    lines = stripped.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return "\n".join(lines[1:index])
+    return None
 
 
 def append_to_markdown_section(markdown: str, *, section: str, content: str) -> str:

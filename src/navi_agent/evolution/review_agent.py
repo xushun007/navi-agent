@@ -96,6 +96,20 @@ Rules:
 - Do not persist transient setup failures or negative claims like "tool X does not work".
 - Do not store user preferences inside SKILL.md unless they materially affect a reusable procedure.
 - Do not store reusable tool procedures as memory.
+- VERY IMPORTANT: When creating a new skill, skill_content MUST use this structure:
+  ---
+  name: lowercase-kebab-name
+  description: one concise routing description
+  category: short-category
+  ---
+
+  # Title
+
+  ## When To Use
+  ...
+
+  ## Procedure
+  ...
 """
 
 

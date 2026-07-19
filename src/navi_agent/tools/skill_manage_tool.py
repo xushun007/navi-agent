@@ -153,6 +153,7 @@ class SkillManageTool(BaseTool):
                     "action": "create",
                     "skill_name": record.name,
                     "description": record.description,
+                    "category": record.category,
                 },
             )
 
@@ -244,10 +245,19 @@ class SkillManageTool(BaseTool):
 
 
 def _validate_new_skill(skill_name: str, content: str) -> str:
-    if not content.lstrip().startswith("#"):
-        return "skill_content must start with a markdown title"
+    stripped = content.lstrip()
+    frontmatter, body = _split_frontmatter(stripped)
+    if frontmatter is None:
+        return "skill_content must start with YAML frontmatter"
+    for field in ["name", "description", "category"]:
+        if not _frontmatter_value(frontmatter, field):
+            return f"skill_content frontmatter missing required field: {field}"
+    if _frontmatter_value(frontmatter, "name") != skill_name:
+        return "skill_content frontmatter name must match skill_name"
+    if not body.lstrip().startswith("#"):
+        return "skill_content markdown body must start with a title"
     required_sections = ["## When To Use", "## Procedure"]
-    missing = [section for section in required_sections if section.lower() not in content.lower()]
+    missing = [section for section in required_sections if section.lower() not in body.lower()]
     if missing:
         return f"skill_content missing required section: {missing[0]}"
     if len(content) < 80:
@@ -259,6 +269,27 @@ def _validate_new_skill(skill_name: str, content: str) -> str:
         return polluted
     if _looks_like_micro_skill_name(skill_name):
         return "skill_name looks session-specific rather than class-level"
+    return ""
+
+
+def _split_frontmatter(content: str) -> tuple[str | None, str]:
+    if not content.startswith("---"):
+        return None, content
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None, content
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return "\n".join(lines[1:index]), "\n".join(lines[index + 1 :])
+    return None, content
+
+
+def _frontmatter_value(frontmatter: str, key: str) -> str:
+    prefix = f"{key}:"
+    for line in frontmatter.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            return stripped.removeprefix(prefix).strip().strip("'\"")
     return ""
 
 

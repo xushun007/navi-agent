@@ -37,6 +37,11 @@ def test_skill_review_agent_creates_skill_via_tool(tmp_path: Path) -> None:
                             "action": "create",
                             "skill_name": "readme-verification",
                             "skill_content": (
+                                "---\n"
+                                "name: readme-verification\n"
+                                "description: Verify README changes.\n"
+                                "category: coding\n"
+                                "---\n\n"
                                 "# README Verification\n\n"
                                 "## When To Use\n\nUse for README checks.\n\n"
                                 "## Procedure\n\n- Read README.\n- Verify the result.\n\n"
