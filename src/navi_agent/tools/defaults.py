@@ -13,7 +13,7 @@ from .memory_tool import MemoryTool
 from .patch_tool import PatchTool
 from .read_file_tool import ReadFileTool
 from .search_files_tool import SearchFilesTool
-from .skill_manage_tool import SkillManageTool
+from .skill_view_tool import SkillListTool, SkillViewTool
 from .todo_tool import TodoTool
 from .write_file_tool import WriteFileTool
 
@@ -35,7 +35,14 @@ def build_default_tool_registry(
             ("file", WriteFileTool(root=workspace_root)),
             ("file", PatchTool(root=workspace_root)),
             ("memory", MemoryTool(memory_store=shared_memory_store)),
-            *([("skills", SkillManageTool(skill_store=skill_store))] if skill_store is not None else []),
+            *(
+                [
+                    ("skills", SkillListTool(skill_store=skill_store)),
+                    ("skills", SkillViewTool(skill_store=skill_store)),
+                ]
+                if skill_store is not None
+                else []
+            ),
             ("todo", TodoTool()),
         ],
         toolsets=[
@@ -43,7 +50,7 @@ def build_default_tool_registry(
             ToolsetDefinition(name="code", tools=["code_executor"]),
             ToolsetDefinition(name="file", tools=["read_file", "search_files", "write_file", "patch"]),
             ToolsetDefinition(name="memory", tools=["memory"]),
-            ToolsetDefinition(name="skills", tools=["skill_manage"]),
+            ToolsetDefinition(name="skills", tools=["skill_list", "skill_view"]),
             ToolsetDefinition(name="todo", tools=["todo"]),
             ToolsetDefinition(name="core", includes=["terminal", "code", "file", "memory", "skills", "todo"]),
         ],

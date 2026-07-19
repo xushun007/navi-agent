@@ -131,10 +131,7 @@ class SkillUsageService:
             for skill_name in trace.injected_skill_names:
                 _record_skill_usage(usage, skill_name, timestamp)
             for execution in trace.tool_executions:
-                if execution.tool_name != "skill_manage":
-                    continue
-                action = str(execution.arguments.get("action") or "").strip()
-                if action != "view":
+                if execution.tool_name != "skill_view":
                     continue
                 skill_name = str(execution.arguments.get("skill_name") or "").strip()
                 _record_skill_usage(usage, skill_name, timestamp)

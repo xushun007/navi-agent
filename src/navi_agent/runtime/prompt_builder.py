@@ -28,7 +28,7 @@ MEMORY_GUIDANCE = (
 
 SKILL_GUIDANCE = (
     "Skills are reusable procedures learned from prior work. Before execution, scan the available skill index. "
-    "If a skill is relevant or partially relevant, load its full instructions with skill_manage(action='view') "
+    "If a skill is relevant or partially relevant, load its full instructions with skill_view(skill_name='<name>') "
     "before following it. Only load attachment files when the loaded SKILL.md explicitly points to them. "
     "Prefer the user's current instruction when there is a conflict."
 )
@@ -144,7 +144,7 @@ class PromptBuilder:
         lines = [
             "[Skills]",
             "Available reusable procedures. Scan this index before execution. "
-            "If one matches or is partially relevant, call skill_manage(action='view', skill_name='<name>') "
+            "If one matches or is partially relevant, call skill_view(skill_name='<name>') "
             "to load the full SKILL.md before using it.",
         ]
         for record in records:

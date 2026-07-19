@@ -77,9 +77,9 @@ def test_summarizes_skill_usage_from_skill_view_tool_calls(tmp_path: Path) -> No
                 ToolExecutionTrace(
                     iteration=1,
                     tool_call_id="tc1",
-                    tool_name="skill_manage",
+                    tool_name="skill_view",
                     status="success",
-                    arguments={"action": "view", "skill_name": "debug-crash"},
+                    arguments={"skill_name": "debug-crash"},
                 )
             ],
             completed_at="2026-07-11T10:00:00+00:00",

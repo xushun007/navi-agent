@@ -90,7 +90,7 @@ class NudgeReviewTriggerPolicy:
                 reasons.append("memory_nudge_counter")
                 self._turns_since_memory = 0
 
-        if _has_tool_execution(trace, "skill_manage"):
+        if _has_tool_execution(trace, "skill_view"):
             self._tool_executions_since_skill = 0
         elif skill_available and self._skill_tool_interval > 0 and trace.tool_executions:
             self._tool_executions_since_skill += len(trace.tool_executions)
@@ -119,7 +119,7 @@ class NudgeReviewTriggerPolicy:
         elif memory_available and self._memory_turn_interval > 0:
             self._turns_since_memory = (self._turns_since_memory + 1) % self._memory_turn_interval
 
-        if _has_tool_execution(trace, "skill_manage"):
+        if _has_tool_execution(trace, "skill_view"):
             self._tool_executions_since_skill = 0
         elif skill_available and self._skill_tool_interval > 0 and trace.tool_executions:
             self._tool_executions_since_skill = (

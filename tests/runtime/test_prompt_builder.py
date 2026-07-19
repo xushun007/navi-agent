@@ -139,7 +139,7 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertEqual(len(msgs), 2)
         self.assertIn("[Skills]", msgs[0].content)
         self.assertIn("Available reusable procedures", msgs[0].content)
-        self.assertIn("skill_manage(action='view'", msgs[0].content)
+        self.assertIn("skill_view(skill_name=", msgs[0].content)
         self.assertIn("readme-summary: Summarize README files and run tests", msgs[0].content)
         self.assertNotIn("Use read_file before bash.", msgs[0].content)
         self.assertEqual(builder.last_injected_skill_names, [])

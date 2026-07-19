@@ -68,11 +68,11 @@ def test_skill_nudge_does_not_count_when_skill_unavailable() -> None:
     assert policy.tool_executions_since_skill == 0
 
 
-def test_skill_manage_execution_resets_skill_nudge() -> None:
+def test_skill_view_execution_resets_skill_nudge() -> None:
     policy = NudgeReviewTriggerPolicy(memory_turn_interval=0, skill_tool_interval=3)
     policy.decide(_trace(tool_count=2))
 
-    decision = policy.decide(_trace(tool_names=["skill_manage"]))
+    decision = policy.decide(_trace(tool_names=["skill_view"]))
 
     assert not decision.should_review
     assert policy.tool_executions_since_skill == 0
