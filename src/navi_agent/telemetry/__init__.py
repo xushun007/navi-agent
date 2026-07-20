@@ -6,6 +6,7 @@ from .events import (
     RuntimeStreamEvent,
 )
 from .jsonl import JsonlTraceStore
+from .health import RuntimeHealthService, RuntimeHealthSummary
 from .langfuse import LangfuseTraceExporter, is_langfuse_sdk_available
 from .memory import InMemoryTraceStore
 from .models import ModelCallTrace, RuntimeTrace, ToolExecutionTrace
@@ -24,6 +25,8 @@ __all__ = [
     "ModelCallTrace",
     "RuntimeTrace",
     "RuntimeEventStore",
+    "RuntimeHealthService",
+    "RuntimeHealthSummary",
     "RuntimeStreamEvent",
     "RuntimeTrajectory",
     "RuntimeTrajectoryService",

@@ -261,6 +261,9 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.runtime_events)
         self.assertEqual(args.session_id, "s1")
         self.assertEqual(args.runtime_run_id, "r1")
+        args = parser.parse_args(["--runtime-health", "--session-id", "s1"])
+        self.assertTrue(args.runtime_health)
+        self.assertEqual(args.session_id, "s1")
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -1256,6 +1259,21 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("--runtime-events requires --session-id", stdout.getvalue())
+
+    def test_main_prints_runtime_health(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.RuntimeHealthService") as service_cls:
+            service_cls.return_value.render.return_value = "runtime_health:\nrun_count: 1"
+            with patch("navi_agent.cli.get_runtime_event_store_path", return_value=Path("/tmp/events.jsonl")):
+                with patch("sys.argv", ["navi-agent", "--runtime-health", "--session-id", "s1"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        service_cls.return_value.render.assert_called_once_with(session_id="s1")
+        self.assertIn("runtime_event_store_path: /tmp/events.jsonl", stdout.getvalue())
+        self.assertIn("runtime_health:", stdout.getvalue())
 
     def test_main_prints_disabled_background_review_status(self) -> None:
         fake_app = FakeApp()

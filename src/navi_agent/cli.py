@@ -56,7 +56,12 @@ from navi_agent.paths import get_state_db_path
 from navi_agent.paths import get_trace_store_path
 from navi_agent.paths import get_tool_use_eval_reports_dir
 from navi_agent.paths import get_tool_use_reports_dir
-from navi_agent.telemetry import JsonlRuntimeEventStore, JsonlTraceStore, RuntimeTrajectoryService
+from navi_agent.telemetry import (
+    JsonlRuntimeEventStore,
+    JsonlTraceStore,
+    RuntimeHealthService,
+    RuntimeTrajectoryService,
+)
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.runtime import ConversationState
 from navi_agent.runtime import SQLiteSessionStore
@@ -133,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skill-curator-archive-unused", action="store_true")
     parser.add_argument("--background-review-status", action="store_true")
     parser.add_argument("--runtime-events", action="store_true")
+    parser.add_argument("--runtime-health", action="store_true")
     parser.add_argument("--runtime-run-id")
     return parser
 
@@ -188,6 +194,8 @@ def main() -> int:
             session_id=args.session_id,
             run_id=args.runtime_run_id,
         )
+    if args.runtime_health:
+        return _print_runtime_health(session_id=args.session_id)
     if args.eval_seed_status:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
@@ -1131,6 +1139,13 @@ def _print_runtime_events(*, session_id: str | None, run_id: str | None = None) 
     service = RuntimeTrajectoryService(JsonlRuntimeEventStore(get_runtime_event_store_path()))
     print(f"runtime_event_store_path: {get_runtime_event_store_path()}")
     print(service.render(session_id=session_id, run_id=run_id))
+    return 0
+
+
+def _print_runtime_health(*, session_id: str | None = None) -> int:
+    service = RuntimeHealthService(JsonlRuntimeEventStore(get_runtime_event_store_path()))
+    print(f"runtime_event_store_path: {get_runtime_event_store_path()}")
+    print(service.render(session_id=session_id))
     return 0
 
 
