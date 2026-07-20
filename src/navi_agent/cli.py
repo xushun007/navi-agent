@@ -27,6 +27,8 @@ from navi_agent.evolution import (
     ToolUseEvalWorkflowService,
     ToolUseRunStore,
     ToolUseWorkflowService,
+    build_tool_use_case_from_trajectory,
+    render_tool_use_case_jsonl,
     FileSkillStore,
     SkillCuratorService,
     SkillCuratorStatusService,
@@ -139,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--background-review-status", action="store_true")
     parser.add_argument("--runtime-events", action="store_true")
     parser.add_argument("--runtime-health", action="store_true")
+    parser.add_argument("--runtime-export-tool-use-case", action="store_true")
     parser.add_argument("--runtime-run-id")
     return parser
 
@@ -196,6 +199,11 @@ def main() -> int:
         )
     if args.runtime_health:
         return _print_runtime_health(session_id=args.session_id)
+    if args.runtime_export_tool_use_case:
+        return _export_runtime_tool_use_case(
+            session_id=args.session_id,
+            run_id=args.runtime_run_id,
+        )
     if args.eval_seed_status:
         return _print_eval_seed_status()
     if args.list_eval_seeds:
@@ -1146,6 +1154,22 @@ def _print_runtime_health(*, session_id: str | None = None) -> int:
     service = RuntimeHealthService(JsonlRuntimeEventStore(get_runtime_event_store_path()))
     print(f"runtime_event_store_path: {get_runtime_event_store_path()}")
     print(service.render(session_id=session_id))
+    return 0
+
+
+def _export_runtime_tool_use_case(*, session_id: str | None, run_id: str | None = None) -> int:
+    if not session_id:
+        print("--runtime-export-tool-use-case requires --session-id")
+        return 1
+    trajectory = RuntimeTrajectoryService(JsonlRuntimeEventStore(get_runtime_event_store_path())).load(
+        session_id=session_id,
+        run_id=run_id,
+    )
+    case = build_tool_use_case_from_trajectory(trajectory)
+    if case is None:
+        print("tool_use_case: none")
+        return 1
+    print(render_tool_use_case_jsonl(case))
     return 0
 
 

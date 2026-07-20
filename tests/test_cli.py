@@ -264,6 +264,9 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["--runtime-health", "--session-id", "s1"])
         self.assertTrue(args.runtime_health)
         self.assertEqual(args.session_id, "s1")
+        args = parser.parse_args(["--runtime-export-tool-use-case", "--session-id", "s1"])
+        self.assertTrue(args.runtime_export_tool_use_case)
+        self.assertEqual(args.session_id, "s1")
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -1274,6 +1277,32 @@ class CliTests(unittest.TestCase):
         service_cls.return_value.render.assert_called_once_with(session_id="s1")
         self.assertIn("runtime_event_store_path: /tmp/events.jsonl", stdout.getvalue())
         self.assertIn("runtime_health:", stdout.getvalue())
+
+    def test_main_exports_runtime_tool_use_case(self) -> None:
+        stdout = io.StringIO()
+        fake_case = object()
+
+        with patch("navi_agent.cli.RuntimeTrajectoryService") as trajectory_cls:
+            trajectory_cls.return_value.load.return_value = "trajectory"
+            with patch("navi_agent.cli.build_tool_use_case_from_trajectory", return_value=fake_case):
+                with patch("navi_agent.cli.render_tool_use_case_jsonl", return_value='{"id":"case-1"}'):
+                    with patch("sys.argv", ["navi-agent", "--runtime-export-tool-use-case", "--session-id", "s1"]):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        trajectory_cls.return_value.load.assert_called_once_with(session_id="s1", run_id=None)
+        self.assertEqual(stdout.getvalue().strip(), '{"id":"case-1"}')
+
+    def test_main_requires_session_id_for_runtime_tool_use_export(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("sys.argv", ["navi-agent", "--runtime-export-tool-use-case"]):
+            with redirect_stdout(stdout):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("--runtime-export-tool-use-case requires --session-id", stdout.getvalue())
 
     def test_main_prints_disabled_background_review_status(self) -> None:
         fake_app = FakeApp()

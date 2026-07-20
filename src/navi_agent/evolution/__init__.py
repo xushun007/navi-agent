@@ -28,6 +28,7 @@ from .tool_use import (
     ToolUseRunWriter,
     ToolUseWorkflowService,
 )
+from .tool_use_import import build_tool_use_case_from_trajectory, render_tool_use_case_jsonl
 from .workflow import IfevalReviewResult, IfevalRunSummary, IfevalStatusSummary, IfevalWorkflowResult, IfevalWorkflowService
 from .store import CandidateStore, EvalCaseStore
 
@@ -104,4 +105,6 @@ __all__ = [
     "ToolUseRunSummary",
     "ToolUseRunWriter",
     "ToolUseWorkflowService",
+    "build_tool_use_case_from_trajectory",
+    "render_tool_use_case_jsonl",
 ]
