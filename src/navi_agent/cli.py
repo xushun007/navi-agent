@@ -1483,37 +1483,92 @@ def _build_interactive_prompt_session():
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return None
     try:
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.history import InMemoryHistory
+        from prompt_toolkit.application import Application
         from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import Layout
+        from prompt_toolkit.layout.containers import HSplit, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+        from prompt_toolkit.layout.dimension import Dimension
+        from prompt_toolkit.styles import Style
+        from prompt_toolkit.widgets import Frame, TextArea
     except ImportError:
         return None
-    bindings = KeyBindings()
-
-    @bindings.add("enter")
-    def _(event):
-        event.current_buffer.validate_and_handle()
-
-    @bindings.add("escape", "enter")
-    def _(event):
-        event.current_buffer.insert_text("\n")
-
-    return PromptSession(
-        history=InMemoryHistory(),
-        multiline=True,
-        key_bindings=bindings,
-        prompt_continuation="  ",
-    )
+    return {
+        "Application": Application,
+        "KeyBindings": KeyBindings,
+        "Layout": Layout,
+        "HSplit": HSplit,
+        "Window": Window,
+        "FormattedTextControl": FormattedTextControl,
+        "Dimension": Dimension,
+        "Style": Style,
+        "Frame": Frame,
+        "TextArea": TextArea,
+    }
 
 
 def _read_interactive_message(prompt_session) -> str:
     if prompt_session is None:
         return input("> ")
-    print("╭─ message")
-    return prompt_session.prompt(
-        "╰─> ",
-        bottom_toolbar="Enter submits · Esc+Enter inserts newline · exit quits",
+    if not isinstance(prompt_session, dict):
+        return prompt_session.prompt(
+            "╰─> ",
+            bottom_toolbar="Enter submits · Esc+Enter inserts newline · exit quits",
+        )
+    return _read_interactive_message_box(prompt_session)
+
+
+def _read_interactive_message_box(ui: dict) -> str:
+    key_bindings = ui["KeyBindings"]()
+    text_area = ui["TextArea"](
+        text="",
+        height=ui["Dimension"](min=3, preferred=5),
+        multiline=True,
+        wrap_lines=True,
+        scrollbar=True,
+        focus_on_click=True,
     )
+
+    @key_bindings.add("enter")
+    def _(event):
+        event.app.exit(result=text_area.text)
+
+    @key_bindings.add("escape", "enter")
+    def _(event):
+        text_area.buffer.insert_text("\n")
+
+    @key_bindings.add("c-c")
+    def _(event):
+        event.app.exit(result="exit")
+
+    body = ui["HSplit"](
+        [
+            ui["Frame"](
+                text_area,
+                title="Navi Agent · message",
+            ),
+            ui["Window"](
+                content=ui["FormattedTextControl"](
+                    " Enter submits · Esc+Enter newline · Ctrl-C exits "
+                ),
+                height=1,
+            ),
+        ]
+    )
+    app = ui["Application"](
+        layout=ui["Layout"](body, focused_element=text_area),
+        key_bindings=key_bindings,
+        mouse_support=False,
+        full_screen=False,
+        style=ui["Style"].from_dict(
+            {
+                "frame.border": "ansiblue",
+                "frame.label": "ansibrightblue",
+            }
+        ),
+    )
+    result = app.run()
+    return result if isinstance(result, str) else ""
 
 
 def _drain_background_reviews(app) -> None:
