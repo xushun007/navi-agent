@@ -95,51 +95,6 @@ class FakePromptSession:
         return self.message
 
 
-class FakeKeyBindings:
-    def __init__(self) -> None:
-        self.bindings = []
-
-    def add(self, *keys):
-        def decorator(handler):
-            self.bindings.append((keys, handler))
-            return handler
-
-        return decorator
-
-
-class FakeTextArea:
-    def __init__(self, **kwargs) -> None:
-        self.kwargs = kwargs
-        self.text = "boxed hello"
-        self.buffer = self
-
-    def insert_text(self, text: str) -> None:
-        self.text += text
-
-
-class FakeApplication:
-    def __init__(self, **kwargs) -> None:
-        self.kwargs = kwargs
-
-    def run(self):
-        return "boxed hello"
-
-
-def fake_box_ui() -> dict:
-    return {
-        "Application": FakeApplication,
-        "KeyBindings": FakeKeyBindings,
-        "Layout": lambda *args, **kwargs: ("layout", args, kwargs),
-        "HSplit": lambda children: ("hsplit", children),
-        "Window": lambda **kwargs: ("window", kwargs),
-        "FormattedTextControl": lambda text: ("formatted", text),
-        "Dimension": lambda **kwargs: ("dimension", kwargs),
-        "Style": type("Style", (), {"from_dict": staticmethod(lambda value: ("style", value))}),
-        "Frame": lambda body, title=None: ("frame", body, title),
-        "TextArea": FakeTextArea,
-    }
-
-
 class CliTests(unittest.TestCase):
     def test_build_parser_parses_expected_arguments(self) -> None:
         parser = build_parser()
@@ -997,14 +952,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(message, "hello")
         self.assertEqual(len(session.calls), 1)
         self.assertEqual(
-            session.calls[0][1]["bottom_toolbar"],
-            "Enter submits · Esc+Enter inserts newline · exit quits",
+            session.calls[0][0][0],
+            [("class:prompt", "❯ ")],
         )
-
-    def test_read_interactive_message_uses_box_ui(self) -> None:
-        message = _read_interactive_message(fake_box_ui())
-
-        self.assertEqual(message, "boxed hello")
+        self.assertEqual(session.calls[0][1]["placeholder"], "Message Navi Agent")
 
     def test_main_runs_interactive_mode_with_first_message(self) -> None:
         fake_app = FakeApp()
