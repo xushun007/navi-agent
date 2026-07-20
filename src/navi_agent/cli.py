@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from uuid import uuid4
 
 from navi_agent.app import AppRequest
@@ -1449,15 +1450,16 @@ def _run_interactive(
 ) -> int:
     print(render_banner())
     print(f"Interactive session: {session_id}")
-    print("Type 'exit' or 'quit' to stop.")
+    print("Type 'exit' or 'quit' to stop. Use Esc+Enter for a newline.")
 
     pending_message = first_message
+    prompt_session = _build_interactive_prompt_session()
     while True:
         message = pending_message
         pending_message = None
         if message is None:
             try:
-                message = input("> ").strip()
+                message = _read_interactive_message(prompt_session).strip()
             except EOFError:
                 print()
                 return 0
@@ -1475,6 +1477,43 @@ def _run_interactive(
             )
         )
         print(result.final_response)
+
+
+def _build_interactive_prompt_session():
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return None
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.history import InMemoryHistory
+        from prompt_toolkit.key_binding import KeyBindings
+    except ImportError:
+        return None
+    bindings = KeyBindings()
+
+    @bindings.add("enter")
+    def _(event):
+        event.current_buffer.validate_and_handle()
+
+    @bindings.add("escape", "enter")
+    def _(event):
+        event.current_buffer.insert_text("\n")
+
+    return PromptSession(
+        history=InMemoryHistory(),
+        multiline=True,
+        key_bindings=bindings,
+        prompt_continuation="  ",
+    )
+
+
+def _read_interactive_message(prompt_session) -> str:
+    if prompt_session is None:
+        return input("> ")
+    print("╭─ message")
+    return prompt_session.prompt(
+        "╰─> ",
+        bottom_toolbar="Enter submits · Esc+Enter inserts newline · exit quits",
+    )
 
 
 def _drain_background_reviews(app) -> None:

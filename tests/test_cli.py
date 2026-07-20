@@ -14,7 +14,7 @@ from navi_agent.evolution import (
     SkillUsageRecord,
 )
 from navi_agent.evolution import EvalSeedStore
-from navi_agent.cli import _run_interactive, build_parser, main
+from navi_agent.cli import _read_interactive_message, _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult, WorkspaceYoloApprovalProvider
 from navi_agent.smoke import SmokeCheckResult, SmokeRunSummary
 
@@ -83,6 +83,16 @@ class FakeSessionStore:
 
     def snapshot(self, session):
         return list(self._messages)
+
+
+class FakePromptSession:
+    def __init__(self, message: str) -> None:
+        self.message = message
+        self.calls = []
+
+    def prompt(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return self.message
 
 
 class CliTests(unittest.TestCase):
@@ -933,6 +943,18 @@ class CliTests(unittest.TestCase):
         self.assertIn("powered by xushun", stdout.getvalue())
         self.assertIn("Interactive session: s1", stdout.getvalue())
         self.assertEqual(stdout.getvalue().strip().splitlines()[-2:], ["done", "done"])
+
+    def test_read_interactive_message_uses_prompt_session(self) -> None:
+        session = FakePromptSession("hello")
+
+        message = _read_interactive_message(session)
+
+        self.assertEqual(message, "hello")
+        self.assertEqual(len(session.calls), 1)
+        self.assertEqual(
+            session.calls[0][1]["bottom_toolbar"],
+            "Enter submits · Esc+Enter inserts newline · exit quits",
+        )
 
     def test_main_runs_interactive_mode_with_first_message(self) -> None:
         fake_app = FakeApp()
