@@ -1,26 +1,21 @@
 from __future__ import annotations
 
 import logging
-import random
 import time
 from typing import Any
 
 from openai import (
-    APIConnectionError,
     APIError,
-    APITimeoutError,
     APIStatusError,
-    InternalServerError,
     OpenAI,
-    RateLimitError,
 )
+
+from navi_agent.errors import RETRYABLE_HTTP_STATUSES, is_retryable_exception, retry_delay
 
 from ..models import Message, ModelResponse, ToolCall
 from .base import ModelRequest
 
 logger = logging.getLogger("navi_agent.runtime.transport")
-
-_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class OpenAICompatibleTransport:
@@ -54,7 +49,7 @@ class OpenAICompatibleTransport:
                 last_error = exc
                 if attempt > self._max_retries or not _is_retryable_error(exc):
                     raise
-                delay = _retry_delay(
+                delay = retry_delay(
                     attempt=attempt,
                     base_seconds=self._base_backoff_seconds,
                     max_seconds=self._max_backoff_seconds,
@@ -147,16 +142,18 @@ class OpenAICompatibleTransport:
 
 
 def _retry_delay(*, attempt: int, base_seconds: float, max_seconds: float) -> float:
-    delay = min(max_seconds, base_seconds * (2 ** max(0, attempt - 1)))
-    jitter = delay * 0.1 * random.random()
-    return delay + jitter
+    return retry_delay(
+        attempt=attempt,
+        base_seconds=base_seconds,
+        max_seconds=max_seconds,
+    )
 
 
 def _is_retryable_error(exc: Exception) -> bool:
-    if isinstance(exc, (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError)):
+    if is_retryable_exception(exc):
         return True
     if isinstance(exc, APIStatusError):
-        return getattr(exc, "status_code", None) in _RETRYABLE_STATUS_CODES
+        return getattr(exc, "status_code", None) in RETRYABLE_HTTP_STATUSES
     if isinstance(exc, APIError):
         message = str(exc).lower()
         if "timeout" in message or "timed out" in message:

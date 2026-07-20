@@ -19,6 +19,7 @@ class TraceSerializerTests(unittest.TestCase):
             error_message="rate limit",
             retryable=True,
             http_status=429,
+            error_source="model",
             attempt_count=2,
             model_calls=[ModelCallTrace(iteration=1, response_content="done")],
             tool_executions=[
@@ -46,6 +47,7 @@ class TraceSerializerTests(unittest.TestCase):
         self.assertEqual(payload["injected_skill_names"], ["readme-summary"])
         self.assertEqual(payload["error_category"], "retryable")
         self.assertEqual(payload["http_status"], 429)
+        self.assertEqual(payload["error_source"], "model")
         self.assertEqual(payload["tool_executions"][0]["error_type"], "ValueError")
 
     def test_to_json_round_trips(self) -> None:

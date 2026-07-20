@@ -87,6 +87,7 @@ class LangfuseTraceExporterTests(unittest.TestCase):
             error_message="rate limit",
             retryable=True,
             http_status=429,
+            error_source="model",
             attempt_count=2,
             started_at="2026-06-10T10:00:00.000+00:00",
             completed_at="2026-06-10T10:00:00.030+00:00",
@@ -100,6 +101,7 @@ class LangfuseTraceExporterTests(unittest.TestCase):
         self.assertEqual(client.trace_calls[0]["metadata"]["approval_count"], 1)
         self.assertEqual(client.trace_calls[0]["metadata"]["error_category"], "retryable")
         self.assertEqual(client.trace_calls[0]["metadata"]["http_status"], 429)
+        self.assertEqual(client.trace_calls[0]["metadata"]["error_source"], "model")
         self.assertEqual(client.trace_calls[0]["metadata"]["duration_ms"], 30)
         self.assertEqual(client.traces[0].observations[0]["kwargs"]["name"], "model.iteration.1")
         self.assertEqual(client.traces[0].observations[0]["kwargs"]["metadata"]["duration_ms"], 10)

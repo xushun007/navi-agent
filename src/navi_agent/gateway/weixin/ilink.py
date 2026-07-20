@@ -4,13 +4,13 @@ from dataclasses import dataclass
 from http.client import HTTPConnection, HTTPSConnection
 import json
 import logging
-import socket
 from time import time
 from time import sleep
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from navi_agent.errors import RETRYABLE_HTTP_STATUSES, is_retryable_exception, retry_delay
 from navi_agent.paths import get_navi_home
 
 logger = logging.getLogger("navi_agent.gateway.weixin.ilink")
@@ -22,8 +22,6 @@ ILINK_APP_CLIENT_VERSION = (2 << 16) | (2 << 8) | 0
 
 EP_GET_UPDATES = "ilink/bot/getupdates"
 EP_SEND_MESSAGE = "ilink/bot/sendmessage"
-RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
-
 ITEM_TEXT = 1
 ITEM_VOICE = 3
 MSG_TYPE_BOT = 2
@@ -310,19 +308,18 @@ def _sync_buf_path(account_id: str):
 
 
 def _retry_delay(attempt: int) -> float:
-    return min(4.0, 0.5 * (2 ** max(0, attempt - 1)))
+    return retry_delay(
+        attempt=attempt,
+        base_seconds=0.5,
+        max_seconds=4.0,
+        jitter_ratio=0.0,
+    )
 
 
 def _is_retryable_error(exc: Exception) -> bool:
-    if isinstance(exc, _ILinkHTTPError):
-        return exc.status in RETRYABLE_HTTP_STATUSES
-    if isinstance(exc, (TimeoutError, socket.timeout, ConnectionError, OSError)):
+    if is_retryable_exception(exc):
         return True
     message = str(exc).lower()
-    if "timed out" in message or "timeout" in message:
-        return True
-    if "connection reset" in message or "connection aborted" in message or "connection refused" in message:
-        return True
     if "http " in message:
         for status in RETRYABLE_HTTP_STATUSES:
             if f"http {status}" in message:

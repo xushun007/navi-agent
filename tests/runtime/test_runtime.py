@@ -218,6 +218,7 @@ class AgentRuntimeTests(unittest.TestCase):
         context_failed_events = [event for event in observer.events if event.name == "context.failed"]
         self.assertEqual(len(context_failed_events), 1)
         self.assertEqual(context_failed_events[0].metadata["error_category"], "retryable")
+        self.assertEqual(context_failed_events[0].metadata["error_source"], "context")
 
     def test_runtime_injects_system_prompt_on_first_turn_only(self) -> None:
         session_store = InMemorySessionStore()
@@ -480,6 +481,8 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.status, "iteration_limit_exceeded")
         self.assertEqual(result.final_response, "")
         self.assertEqual(trace_store.traces[0].status, "iteration_limit_exceeded")
+        self.assertEqual(trace_store.traces[0].error_source, "runtime")
+        self.assertEqual(trace_store.traces[0].error_type, "IterationLimitExceeded")
 
     def test_runtime_converts_tool_failure_into_tool_message(self) -> None:
         transport = FakeTransport(
@@ -534,6 +537,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.messages[-1].content, result.final_response)
         self.assertTrue(trace_store.traces[0].retryable)
         self.assertEqual(trace_store.traces[0].error_type, "TimeoutError")
+        self.assertEqual(trace_store.traces[0].error_source, "model")
 
     def test_runtime_returns_readable_response_when_fatal_model_failure_occurs(self) -> None:
         trace_store = InMemoryTraceStore()
@@ -549,6 +553,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIn("ValueError", result.final_response)
         self.assertFalse(trace_store.traces[0].retryable)
         self.assertEqual(trace_store.traces[0].error_type, "ValueError")
+        self.assertEqual(trace_store.traces[0].error_source, "model")
 
     def test_runtime_classifies_tool_timeout_in_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

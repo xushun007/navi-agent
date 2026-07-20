@@ -77,6 +77,7 @@ class LangfuseTraceExporter:
                 "error_message": trace.error_message,
                 "retryable": trace.retryable,
                 "http_status": trace.http_status,
+                "error_source": trace.error_source,
                 "attempt_count": trace.attempt_count,
                 "started_at": trace.started_at,
                 "completed_at": trace.completed_at,

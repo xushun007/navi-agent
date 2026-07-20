@@ -68,7 +68,7 @@ class TransportRetryTests(unittest.TestCase):
         )
 
         with patch("navi_agent.runtime.transports.openai_compatible.time.sleep") as sleep_mock, patch(
-            "navi_agent.runtime.transports.openai_compatible.random.random",
+            "navi_agent.errors.random.random",
             return_value=0.0,
         ):
             result = transport.generate(ModelRequest(messages=[Message(role="user", content="hi")]))

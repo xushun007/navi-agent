@@ -58,6 +58,7 @@ class RuntimeTrace:
     error_message: str | None = None
     retryable: bool | None = None
     http_status: int | None = None
+    error_source: str | None = None
     attempt_count: int = 0
     started_at: str | None = None
     completed_at: str | None = None

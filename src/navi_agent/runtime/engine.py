@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from collections.abc import Sequence
-import socket
 from time import perf_counter
 
+from navi_agent.errors import classify_exception
 from navi_agent.tooling import ToolContext
 
 from .context_engine import ContextBuildResult, ContextEngine, LLMContextSummarizer
@@ -41,27 +41,6 @@ def _pop_trace_timing(metadata: dict[str, object]) -> tuple[dict[str, object], s
     if not isinstance(duration_ms, int):
         duration_ms = 0
     return metadata, started_at, completed_at, duration_ms
-
-
-def _classify_error(exc: Exception) -> dict[str, object]:
-    http_status = getattr(exc, "status_code", None)
-    retryable = False
-    error_category = "fatal"
-    if isinstance(http_status, int) and http_status in {429, 500, 502, 503, 504}:
-        retryable = True
-        error_category = "retryable"
-    else:
-        text = str(exc).lower()
-        if isinstance(exc, (TimeoutError, socket.timeout, ConnectionError, OSError)) or "timeout" in text or "timed out" in text:
-            retryable = True
-            error_category = "retryable"
-    return {
-        "error_category": error_category,
-        "error_type": exc.__class__.__name__,
-        "error_message": str(exc),
-        "retryable": retryable,
-        "http_status": http_status if isinstance(http_status, int) else None,
-    }
 
 
 def _model_failure_response(error_info: dict[str, object]) -> str:
@@ -216,7 +195,7 @@ class AgentRuntime:
             try:
                 context_result = self._context_engine.build(session_snapshot)
             except Exception as exc:
-                error_info = _classify_error(exc)
+                error_info = classify_exception(exc, error_source="context").to_metadata()
                 logger.exception(
                     "Runtime context build failed; continuing with uncompressed context: session_id=%s error=%s",
                     session_id,
@@ -281,7 +260,7 @@ class AgentRuntime:
                     )
                 )
             except Exception as exc:
-                error_info = _classify_error(exc)
+                error_info = classify_exception(exc, error_source="model").to_metadata()
                 logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)
                 fallback_response = _model_failure_response(error_info)
                 self._session_store.append(session, Message(role="assistant", content=fallback_response))
@@ -466,6 +445,14 @@ class AgentRuntime:
             tool_executions=tool_executions,
             started_at=run_started_at,
             duration_ms=_duration_ms(run_started_perf),
+            error_info={
+                "error_category": "fatal",
+                "error_type": "IterationLimitExceeded",
+                "error_message": "Runtime iteration limit exceeded",
+                "retryable": False,
+                "http_status": None,
+                "error_source": "runtime",
+            },
         )
         self._emit_event(
             RuntimeEvent(
@@ -516,6 +503,7 @@ class AgentRuntime:
                 error_message=error_info.get("error_message") if isinstance(error_info.get("error_message"), str) else None,
                 retryable=error_info.get("retryable") if isinstance(error_info.get("retryable"), bool) else None,
                 http_status=error_info.get("http_status") if isinstance(error_info.get("http_status"), int) else None,
+                error_source=error_info.get("error_source") if isinstance(error_info.get("error_source"), str) else None,
                 attempt_count=attempt_count,
                 started_at=started_at,
                 completed_at=_utc_now_iso(),
