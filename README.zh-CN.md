@@ -30,7 +30,7 @@ uv tool install git+https://github.com/xushun007/navi-agent.git
 navi-agent init
 navi-agent doctor
 navi-agent doctor --doctor-gateway weixin
-navi-agent start
+navi-agent gateway start
 ```
 
 启动本地交互聊天：
@@ -49,7 +49,7 @@ navi-agent
 uv run navi-agent init
 uv run navi-agent doctor
 uv run navi-agent doctor --doctor-gateway weixin
-uv run navi-agent start
+uv run navi-agent gateway start
 uv run navi-agent
 ```
 
@@ -62,7 +62,7 @@ uv run navi-agent
 当前微信网关只保留 iLink 本地轮询风格，拉取文本消息并发送文本回复。
 
 ```bash
-navi-agent start
+navi-agent gateway start
 ```
 
 微信网关只从 `config.yaml` 或环境变量读取配置：

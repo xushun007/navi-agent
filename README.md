@@ -30,7 +30,7 @@ Initialize local config, check readiness, then start the WeChat gateway:
 navi-agent init
 navi-agent doctor
 navi-agent doctor --doctor-gateway weixin
-navi-agent start
+navi-agent gateway start
 ```
 
 Run local interactive chat:
@@ -49,7 +49,7 @@ When developing from this repository, prefix commands with `uv run`:
 uv run navi-agent init
 uv run navi-agent doctor
 uv run navi-agent doctor --doctor-gateway weixin
-uv run navi-agent start
+uv run navi-agent gateway start
 uv run navi-agent
 ```
 
@@ -62,7 +62,7 @@ Continuously discover issues, evaluate solutions, and validate improvements base
 The current WeChat gateway only keeps the iLink local polling style: it pulls text messages and sends text replies.
 
 ```bash
-navi-agent start
+navi-agent gateway start
 ```
 
 The WeChat gateway reads configuration only from `config.yaml` or environment variables:

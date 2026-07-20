@@ -1,7 +1,7 @@
 import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -97,6 +97,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.session_id, "s1")
         self.assertEqual(args.system_prompt, "system")
         self.assertEqual(args.message, "hello")
+        self.assertIsNone(args.subcommand)
         self.assertFalse(args.interactive)
 
     def test_build_parser_parses_interactive_flag(self) -> None:
@@ -106,6 +107,7 @@ class CliTests(unittest.TestCase):
 
         self.assertTrue(args.interactive)
         self.assertIsNone(args.message)
+        self.assertIsNone(args.subcommand)
 
     def test_build_parser_parses_yolo_flag(self) -> None:
         parser = build_parser()
@@ -132,7 +134,12 @@ class CliTests(unittest.TestCase):
         self.assertIsNone(args.message)
         args = parser.parse_args(["doctor", "--doctor-gateway", "weixin"])
         self.assertEqual(args.message, "doctor")
+        self.assertIsNone(args.subcommand)
         self.assertEqual(args.doctor_gateway, "weixin")
+
+        args = parser.parse_args(["gateway", "start"])
+        self.assertEqual(args.message, "gateway")
+        self.assertEqual(args.subcommand, "start")
 
     def test_build_parser_parses_unified_workflow_run_flag(self) -> None:
         parser = build_parser()
@@ -367,7 +374,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("config_exists:", stdout.getvalue())
             self.assertEqual(config_path.read_text(encoding="utf-8"), "model:\n  name: custom\n")
 
-    def test_main_start_runs_weixin_gateway(self) -> None:
+    def test_main_gateway_start_runs_weixin_gateway(self) -> None:
         fake_app = FakeApp()
         config = {
             "gateway": {
@@ -383,13 +390,24 @@ class CliTests(unittest.TestCase):
         with patch("navi_agent.cli.build_application", return_value=fake_app):
             with patch("navi_agent.cli.load_config", return_value=config):
                 with patch("navi_agent.cli.ILinkGateway") as gateway_cls:
-                    with patch("sys.argv", ["navi-agent", "start"]):
+                    with patch("sys.argv", ["navi-agent", "gateway", "start"]):
                         with redirect_stdout(stdout):
                             exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("weixin_ilink_polling: account_id=account-1", stdout.getvalue())
         gateway_cls.return_value.run_forever.assert_called_once_with()
+
+    def test_main_rejects_legacy_start_command(self) -> None:
+        stderr = io.StringIO()
+
+        with patch("sys.argv", ["navi-agent", "start"]):
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("navi-agent gateway start", stderr.getvalue())
 
     def test_main_requires_weixin_token_for_gateway_mode(self) -> None:
         stdout = io.StringIO()

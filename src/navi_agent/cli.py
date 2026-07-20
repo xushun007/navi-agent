@@ -92,6 +92,7 @@ telemetry:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="navi-agent")
     parser.add_argument("message", nargs="?")
+    parser.add_argument("subcommand", nargs="?")
     parser.add_argument("--user-id", default="local-user")
     parser.add_argument("--session-id")
     parser.add_argument("--system-prompt")
@@ -139,9 +140,15 @@ def main() -> int:
         return _init_config()
     if args.message == "doctor":
         return run_doctor(gateway=args.doctor_gateway)
-    if args.message == "start":
+    if args.message == "gateway" and args.subcommand == "start":
         args.gateway = "weixin"
         return _run_gateway(args)
+    if args.message == "gateway":
+        parser.error("gateway command requires `start`: navi-agent gateway start")
+    if args.message == "start":
+        parser.error("use `navi-agent gateway start`")
+    if args.subcommand:
+        parser.error("message must be quoted when it contains spaces")
     if args.banner:
         print(render_banner())
         return 0
@@ -300,7 +307,7 @@ def _init_config() -> int:
         return 0
     config_path.write_text(DEFAULT_CONFIG_TEMPLATE, encoding="utf-8")
     print(f"config_created: {config_path}")
-    print("next: edit config.yaml, then run `navi-agent doctor` and `navi-agent start`")
+    print("next: edit config.yaml, then run `navi-agent doctor` and `navi-agent gateway start`")
     return 0
 
 
