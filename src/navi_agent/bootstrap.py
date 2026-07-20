@@ -23,6 +23,7 @@ from navi_agent.paths import (
     get_memories_dir,
     get_prompt_overlay_path,
     get_prompt_overlay_snapshots_dir,
+    get_runtime_event_store_path,
     get_review_run_store_path,
     get_skills_dir,
     get_state_db_path,
@@ -31,7 +32,12 @@ from navi_agent.paths import (
 )
 from navi_agent.runtime import AgentRuntime, PromptBuilder, SQLiteSessionStore, build_transport
 from navi_agent.runtime.approval import ApprovalProvider
-from navi_agent.telemetry import CompositeTraceStore, JsonlTraceStore, LangfuseTraceExporter
+from navi_agent.telemetry import (
+    CompositeTraceStore,
+    JsonlRuntimeEventStore,
+    JsonlTraceStore,
+    LangfuseTraceExporter,
+)
 from navi_agent.tools.defaults import build_default_tool_registry
 
 logger = logging.getLogger("navi_agent.bootstrap")
@@ -68,6 +74,7 @@ def build_runtime(
             project_context_root=Path.cwd(),
         ),
         trace_store=trace_store,
+        event_store=JsonlRuntimeEventStore(get_runtime_event_store_path()),
         tool_registry=build_default_tool_registry(
             memory_store=memory_store,
             approval_provider=approval_provider,

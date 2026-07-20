@@ -39,6 +39,10 @@ def get_trace_store_path() -> Path:
     return get_logs_dir() / "traces.jsonl"
 
 
+def get_runtime_event_store_path() -> Path:
+    return get_logs_dir() / "runtime-events.jsonl"
+
+
 def get_evolution_dir() -> Path:
     return get_navi_home() / "evolution"
 

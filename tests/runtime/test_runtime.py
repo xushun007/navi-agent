@@ -24,7 +24,7 @@ from navi_agent.runtime import (
 )
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
 from navi_agent.tools import BashTool, MemoryTool
-from navi_agent.telemetry import InMemoryTraceStore
+from navi_agent.telemetry import InMemoryRuntimeEventStore, InMemoryTraceStore
 
 
 class FakeTransport:
@@ -113,6 +113,51 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.status, "success")
         self.assertEqual(result.final_response, "done")
         self.assertEqual(result.messages[-1].content, "done")
+
+    def test_runtime_records_append_only_action_observation_events(self) -> None:
+        event_store = InMemoryRuntimeEventStore()
+        transport = FakeTransport(
+            [
+                ModelResponse(
+                    tool_calls=[ToolCall(id="tc1", name="echo", arguments={"value": "ping"})]
+                ),
+                ModelResponse(content="done"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            event_store=event_store,
+            tool_registry=ToolRegistry(
+                tools={"echo": lambda value: ok_result("echo", f"tool:{value}")}
+            ),
+        )
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+        )
+
+        events = event_store.list_events(session_id="s1")
+        self.assertEqual(result.status, "success")
+        self.assertEqual(
+            [event.name for event in events],
+            [
+                "runtime.started",
+                "user.message",
+                "model.response",
+                "tool.result",
+                "model.response",
+                "runtime.completed",
+            ],
+        )
+        self.assertEqual([event.sequence for event in events], [1, 2, 3, 4, 5, 6])
+        self.assertEqual(events[1].kind, "action")
+        self.assertEqual(events[1].source, "user")
+        self.assertEqual(events[3].kind, "observation")
+        self.assertEqual(events[3].source, "tool")
+        self.assertEqual(events[3].payload["tool_name"], "echo")
+        self.assertEqual(events[5].payload["status"], "success")
 
     def test_runtime_executes_tool_calls_then_continues_loop(self) -> None:
         transport = FakeTransport(

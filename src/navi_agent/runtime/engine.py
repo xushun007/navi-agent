@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import logging
 from collections.abc import Sequence
 from time import perf_counter
+from uuid import uuid4
 
 from navi_agent.errors import classify_exception
 from navi_agent.tooling import ToolContext
@@ -17,7 +18,14 @@ from .store import SessionStore
 from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
 from .tools import ToolRegistry
 from .transports import ModelRequest, ModelTransport
-from navi_agent.telemetry import ModelCallTrace, ToolExecutionTrace, TraceStore, RuntimeTrace
+from navi_agent.telemetry import (
+    ModelCallTrace,
+    RuntimeEventStore,
+    RuntimeStreamEvent,
+    RuntimeTrace,
+    ToolExecutionTrace,
+    TraceStore,
+)
 
 logger = logging.getLogger("navi_agent.runtime")
 
@@ -131,6 +139,7 @@ class AgentRuntime:
         context_engine: ContextEngine | None = None,
         enabled_toolsets: list[str] | None = None,
         disabled_toolsets: list[str] | None = None,
+        event_store: RuntimeEventStore | None = None,
         max_iterations: int = 8,
     ) -> None:
         self._transport = transport
@@ -143,6 +152,7 @@ class AgentRuntime:
         self._context_engine = context_engine or ContextEngine(summarizer=LLMContextSummarizer(transport))
         self._enabled_toolsets = enabled_toolsets
         self._disabled_toolsets = disabled_toolsets
+        self._event_store = event_store
         self._max_iterations = max_iterations
 
     def run_conversation(
@@ -154,7 +164,42 @@ class AgentRuntime:
     ) -> RuntimeResult:
         run_started_at = _utc_now_iso()
         run_started_perf = perf_counter()
+        run_id = uuid4().hex
+        event_sequence = 0
+
+        def record_stream_event(
+            *,
+            kind: str,
+            source: str,
+            name: str,
+            iteration: int | None = None,
+            payload: dict[str, object] | None = None,
+        ) -> None:
+            nonlocal event_sequence
+            if self._event_store is None:
+                return
+            event_sequence += 1
+            self._event_store.record(
+                RuntimeStreamEvent(
+                    session_id=session_id,
+                    user_id=user_id,
+                    run_id=run_id,
+                    sequence=event_sequence,
+                    kind=kind,
+                    source=source,
+                    name=name,
+                    iteration=iteration,
+                    payload=dict(payload or {}),
+                )
+            )
+
         logger.info("Starting runtime conversation: session_id=%s user_id=%s", session_id, user_id)
+        record_stream_event(
+            kind="observation",
+            source="runtime",
+            name="runtime.started",
+            payload={"system_prompt_present": system_prompt is not None},
+        )
         self._emit_event(
             RuntimeEvent(
                 name="runtime.started",
@@ -163,6 +208,12 @@ class AgentRuntime:
             )
         )
         session = self._session_store.load(session_id=session_id, user_id=user_id)
+        record_stream_event(
+            kind="action",
+            source="user",
+            name="user.message",
+            payload={"content": user_message},
+        )
         for message in self._prompt_builder.build_initial_messages(
             session=session,
             user_message=user_message,
@@ -218,6 +269,13 @@ class AgentRuntime:
                         metadata=error_info,
                     )
                 )
+                record_stream_event(
+                    kind="observation",
+                    source="runtime",
+                    name="context.failed",
+                    iteration=iteration_number,
+                    payload=error_info,
+                )
             if context_result.compressed:
                 logger.info(
                     "Runtime context compressed: session_id=%s original_messages=%s compressed_messages=%s final_messages=%s tokens=%s->%s threshold=%s",
@@ -264,6 +322,13 @@ class AgentRuntime:
                 logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)
                 fallback_response = _model_failure_response(error_info)
                 self._session_store.append(session, Message(role="assistant", content=fallback_response))
+                record_stream_event(
+                    kind="observation",
+                    source="model",
+                    name="model.failed",
+                    iteration=iteration_number,
+                    payload=error_info,
+                )
                 result = RuntimeResult(
                     session_id=session.session_id,
                     status="failed",
@@ -294,6 +359,13 @@ class AgentRuntime:
                         metadata={"status": result.status, **error_info},
                     )
                 )
+                record_stream_event(
+                    kind="observation",
+                    source="runtime",
+                    name="runtime.completed",
+                    iteration=iteration_number,
+                    payload={"status": result.status, **error_info},
+                )
                 return result
             self._emit_event(
                 RuntimeEvent(
@@ -314,6 +386,24 @@ class AgentRuntime:
                     completed_at=_utc_now_iso(),
                     duration_ms=_duration_ms(model_started_perf),
                 )
+            )
+            record_stream_event(
+                kind="action",
+                source="agent",
+                name="model.response",
+                iteration=iteration_number,
+                payload={
+                    "content": response.content,
+                    "reasoning_content": response.reasoning_content,
+                    "tool_calls": [
+                        {
+                            "id": tool_call.id,
+                            "name": tool_call.name,
+                            "arguments": dict(tool_call.arguments),
+                        }
+                        for tool_call in response.tool_calls
+                    ],
+                },
             )
 
             assistant_message = Message(
@@ -356,6 +446,13 @@ class AgentRuntime:
                         iteration=iteration_number,
                         metadata={"status": result.status},
                     )
+                )
+                record_stream_event(
+                    kind="observation",
+                    source="runtime",
+                    name="runtime.completed",
+                    iteration=iteration_number,
+                    payload={"status": result.status},
                 )
                 return result
 
@@ -417,6 +514,20 @@ class AgentRuntime:
                         },
                     )
                 )
+                record_stream_event(
+                    kind="observation",
+                    source="tool",
+                    name="tool.result",
+                    iteration=iteration_number,
+                    payload={
+                        "tool_call_id": tool_result.tool_call_id,
+                        "tool_name": tool_result.name,
+                        "status": tool_result.status,
+                        "content": tool_result.content,
+                        "metadata": tool_metadata,
+                        "structured_content": dict(tool_result.structured_content),
+                    },
+                )
                 self._session_store.append(
                     session,
                     Message(
@@ -462,6 +573,13 @@ class AgentRuntime:
                 iteration=self._max_iterations,
                 metadata={"status": result.status},
             )
+        )
+        record_stream_event(
+            kind="observation",
+            source="runtime",
+            name="runtime.completed",
+            iteration=self._max_iterations,
+            payload={"status": result.status, "error_type": "IterationLimitExceeded"},
         )
         return result
 
