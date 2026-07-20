@@ -50,8 +50,28 @@ class EvolutionReportWriterTests(unittest.TestCase):
                             trace_id="trace-2",
                         ),
                     ),
-                    source_evaluation=EvaluationResult(session_id="wf-1", score=1.0, summary="source ok"),
-                    replay_evaluation=EvaluationResult(session_id="wf-2", score=0.8, summary="replay slower"),
+                    source_evaluation=EvaluationResult(
+                        session_id="wf-1",
+                        score=1.0,
+                        summary="source ok",
+                        metadata={
+                            "failure_attribution": {
+                                "primary_failure": "none",
+                                "counts": {},
+                            }
+                        },
+                    ),
+                    replay_evaluation=EvaluationResult(
+                        session_id="wf-2",
+                        score=0.8,
+                        summary="replay slower",
+                        metadata={
+                            "failure_attribution": {
+                                "primary_failure": "model_error",
+                                "counts": {"model_error": 1},
+                            }
+                        },
+                    ),
                     score_delta=-0.2,
                 )
             ],
@@ -109,10 +129,15 @@ class EvolutionReportWriterTests(unittest.TestCase):
         self.assertEqual(payload["candidate"]["target"], "prompt")
         self.assertEqual(payload["candidate"]["status"], "pending")
         self.assertEqual(payload["step_comparisons"][0]["source_trace_id"], "trace-1")
+        self.assertEqual(
+            payload["step_comparisons"][0]["replay_failure_attribution"]["primary_failure"],
+            "model_error",
+        )
         self.assertEqual(payload["review_summary"]["regressed_count"], 1)
         self.assertIn("# Evolution workflow comparison", report_md)
         self.assertIn("## Candidate", report_md)
         self.assertIn("agent-healthcheck", report_md)
+        self.assertIn("failures: source=`none` replay=`model_error`", report_md)
         self.assertIn("verified candidate count", report_md)
 
     def test_report_store_loads_latest_report(self) -> None:

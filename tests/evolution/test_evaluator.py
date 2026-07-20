@@ -41,6 +41,36 @@ class SimpleEvaluatorTests(unittest.TestCase):
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.target, "tooling")
         self.assertEqual(candidate.metadata["session_id"], "s1")
+        self.assertEqual(
+            candidate.metadata["failure_attribution"]["primary_failure"],
+            "tool_error",
+        )
+
+    def test_evaluate_model_failure_trace(self) -> None:
+        evaluator = SimpleEvaluator()
+        result = evaluator.evaluate(
+            RuntimeTrace(
+                session_id="s1",
+                user_id="u1",
+                user_message="hello",
+                final_response="模型服务暂时不可用",
+                status="failed",
+                error_source="model",
+                error_category="retryable",
+                error_type="RateLimitError",
+                retryable=True,
+                http_status=429,
+            )
+        )
+
+        attribution = result.metadata["failure_attribution"]
+        self.assertEqual(attribution["primary_failure"], "model_error")
+        self.assertEqual(attribution["counts"]["model_error"], 1)
+        self.assertEqual(attribution["http_status"], 429)
+        self.assertIn("primary_failure:model_error", result.metadata["signals"])
+        candidate = evaluator.build_candidate(result)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.target, "runtime")
 
     def test_evaluate_approval_blocked_trace(self) -> None:
         evaluator = SimpleEvaluator()
@@ -58,6 +88,10 @@ class SimpleEvaluatorTests(unittest.TestCase):
 
         self.assertLess(result.score, 1.0)
         self.assertIn("approvals:2", result.metadata["signals"])
+        self.assertEqual(
+            result.metadata["failure_attribution"]["primary_failure"],
+            "approval_blocked",
+        )
         candidate = evaluator.build_candidate(result)
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.target, "tool_policy")
@@ -120,6 +154,10 @@ class SimpleEvaluatorTests(unittest.TestCase):
         self.assertIn("duplicate_tools:1", result.metadata["signals"])
         self.assertIn("duration_ms:35000", result.metadata["signals"])
         self.assertEqual(result.metadata["duplicate_tool_count"], 1)
+        self.assertEqual(
+            result.metadata["failure_attribution"]["primary_failure"],
+            "slow_response",
+        )
         candidate = evaluator.build_candidate(result)
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.target, "tooling")

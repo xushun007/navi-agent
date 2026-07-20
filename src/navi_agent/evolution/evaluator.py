@@ -11,10 +11,16 @@ class SimpleEvaluator:
         score = 1.0
         signals: list[str] = []
         duplicate_tool_count = self._duplicate_tool_count(trace)
+        failure_attribution = self._failure_attribution(
+            trace,
+            duplicate_tool_count=duplicate_tool_count,
+        )
 
         if trace.status != "success":
             score -= 0.5
             signals.append(f"status:{trace.status}")
+        if failure_attribution["primary_failure"] != "none":
+            signals.append(f"primary_failure:{failure_attribution['primary_failure']}")
         if trace.error_count:
             score -= min(0.3, trace.error_count * 0.1)
             signals.append(f"tool_errors:{trace.error_count}")
@@ -49,6 +55,12 @@ class SimpleEvaluator:
                 "duplicate_tool_count": duplicate_tool_count,
                 "duration_ms": trace.duration_ms,
                 "has_final_response": bool(trace.final_response.strip()),
+                "error_source": trace.error_source,
+                "error_category": trace.error_category,
+                "error_type": trace.error_type,
+                "retryable": trace.retryable,
+                "http_status": trace.http_status,
+                "failure_attribution": failure_attribution,
                 "signals": signals,
             },
         )
@@ -57,10 +69,18 @@ class SimpleEvaluator:
         if evaluation.score >= 1.0:
             return None
         target = "prompt"
-        if evaluation.metadata.get("approval_count", 0):
+        failure_attribution = evaluation.metadata.get("failure_attribution")
+        primary_failure = (
+            failure_attribution.get("primary_failure")
+            if isinstance(failure_attribution, dict)
+            else None
+        )
+        if primary_failure == "approval_blocked" or evaluation.metadata.get("approval_count", 0):
             target = "tool_policy"
-        elif evaluation.metadata.get("error_count", 0):
+        elif primary_failure == "tool_error" or evaluation.metadata.get("error_count", 0):
             target = "tooling"
+        elif primary_failure == "model_error":
+            target = "runtime"
         elif not evaluation.metadata.get("has_final_response", True):
             target = "prompt"
         elif evaluation.metadata.get("duplicate_tool_count", 0):
@@ -74,6 +94,9 @@ class SimpleEvaluator:
             metadata={
                 "session_id": evaluation.session_id,
                 "signals": list(evaluation.metadata.get("signals", [])),
+                "failure_attribution": failure_attribution
+                if isinstance(failure_attribution, dict)
+                else {},
             },
         )
 
@@ -97,6 +120,7 @@ class SimpleEvaluator:
                 "signals": list(metadata.get("signals", [])),
                 "duration_ms": trace.duration_ms,
                 "tool_names": list(trace.tool_names),
+                "failure_attribution": metadata.get("failure_attribution", {}),
             },
         )
 
@@ -112,6 +136,8 @@ class SimpleEvaluator:
     def _build_summary(self, trace: RuntimeTrace, signals: list[str]) -> str:
         if not signals:
             return "Successful run with no obvious issues"
+        if trace.error_source == "model":
+            return "Run failed while calling the model service"
         if trace.status == "iteration_limit_exceeded":
             return "Run hit the iteration limit before finishing"
         if trace.approval_count:
@@ -155,3 +181,67 @@ class SimpleEvaluator:
         if not tool_names:
             return 0
         return max(0, len(tool_names) - len(set(tool_names)))
+
+    @staticmethod
+    def _failure_attribution(
+        trace: RuntimeTrace,
+        *,
+        duplicate_tool_count: int,
+    ) -> dict[str, object]:
+        approval_blocked_count = sum(
+            1 for execution in trace.tool_executions if execution.approval_required
+        )
+        if not approval_blocked_count:
+            approval_blocked_count = trace.approval_count
+
+        tool_error_count = sum(
+            1
+            for execution in trace.tool_executions
+            if execution.status == "error" and not execution.approval_required
+        )
+        if not tool_error_count and trace.error_count:
+            tool_error_count = trace.error_count
+
+        model_error_count = 1 if trace.error_source == "model" else 0
+        runtime_limit_count = 1 if trace.status == "iteration_limit_exceeded" else 0
+        runtime_error_count = (
+            1
+            if trace.error_source == "runtime" and not runtime_limit_count
+            else 0
+        )
+        empty_response_count = 1 if not trace.final_response.strip() else 0
+        slow_response_count = 1 if trace.duration_ms >= 30_000 else 0
+
+        counts = {
+            "model_error": model_error_count,
+            "tool_error": tool_error_count,
+            "approval_blocked": approval_blocked_count,
+            "runtime_limit": runtime_limit_count,
+            "runtime_error": runtime_error_count,
+            "empty_response": empty_response_count,
+            "slow_response": slow_response_count,
+            "duplicate_tool": duplicate_tool_count,
+        }
+        primary_failure = "none"
+        for failure_name in [
+            "runtime_limit",
+            "model_error",
+            "approval_blocked",
+            "tool_error",
+            "runtime_error",
+            "empty_response",
+            "slow_response",
+            "duplicate_tool",
+        ]:
+            if counts[failure_name]:
+                primary_failure = failure_name
+                break
+        return {
+            "primary_failure": primary_failure,
+            "counts": counts,
+            "retryable": trace.retryable,
+            "error_source": trace.error_source,
+            "error_category": trace.error_category,
+            "error_type": trace.error_type,
+            "http_status": trace.http_status,
+        }

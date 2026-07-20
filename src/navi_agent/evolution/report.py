@@ -87,6 +87,8 @@ class EvolutionReportWriter:
                     "source_score": step.source_evaluation.score if step.source_evaluation is not None else None,
                     "replay_score": step.replay_evaluation.score if step.replay_evaluation is not None else None,
                     "score_delta": step.score_delta,
+                    "source_failure_attribution": _failure_attribution(step.source_evaluation),
+                    "replay_failure_attribution": _failure_attribution(step.replay_evaluation),
                 }
                 for step in comparison.step_comparisons
             ],
@@ -114,12 +116,15 @@ class EvolutionReportWriter:
             "## Step comparisons",
         ]
         for step in comparison.step_comparisons:
+            source_failure = _primary_failure(step.source_evaluation)
+            replay_failure = _primary_failure(step.replay_evaluation)
             lines.extend(
                 [
                     f"- `{step.task_name}`",
                     f"  source trace: `{step.source_step.trace_id or 'n/a'}`",
                     f"  replay trace: `{step.replay_step.trace_id or 'n/a'}`",
                     f"  score delta: `{step.score_delta}`",
+                    f"  failures: source=`{source_failure}` replay=`{replay_failure}`",
                 ]
             )
         if comparison.candidate is not None:
@@ -155,6 +160,19 @@ class EvolutionReportWriter:
                 ]
             )
         return "\n".join(lines) + "\n"
+
+
+def _failure_attribution(evaluation) -> dict:
+    if evaluation is None:
+        return {}
+    value = evaluation.metadata.get("failure_attribution")
+    return value if isinstance(value, dict) else {}
+
+
+def _primary_failure(evaluation) -> str:
+    attribution = _failure_attribution(evaluation)
+    value = attribution.get("primary_failure")
+    return value if isinstance(value, str) and value else "none"
 
 
 class EvolutionReportStore:
