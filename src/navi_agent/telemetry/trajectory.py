@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 
 from .events import RuntimeEventStore, RuntimeStreamEvent
 
@@ -70,6 +71,13 @@ def _event_summary(event: RuntimeStreamEvent) -> str:
             ]
             return f"tool_calls=[{', '.join(names)}]"
         return _compact(str(payload.get("content") or ""))
+    if event.name == "tool.call":
+        tool_name = str(payload.get("tool_name") or "unknown")
+        arguments = payload.get("arguments")
+        if isinstance(arguments, dict) and arguments:
+            rendered_arguments = json.dumps(arguments, ensure_ascii=False, sort_keys=True)
+            return f"{tool_name} args={_compact(rendered_arguments)}"
+        return tool_name
     if event.name == "tool.result":
         tool_name = str(payload.get("tool_name") or "unknown")
         status = str(payload.get("status") or "unknown")

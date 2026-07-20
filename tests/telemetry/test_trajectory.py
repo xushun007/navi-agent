@@ -43,6 +43,19 @@ class RuntimeTrajectoryServiceTests(unittest.TestCase):
                 user_id="u1",
                 run_id="r1",
                 sequence=3,
+                kind="action",
+                source="agent",
+                name="tool.call",
+                iteration=1,
+                payload={"tool_name": "read_file", "arguments": {"path": "README.md"}},
+            )
+        )
+        store.record(
+            RuntimeStreamEvent(
+                session_id="s1",
+                user_id="u1",
+                run_id="r1",
+                sequence=4,
                 kind="observation",
                 source="tool",
                 name="tool.result",
@@ -57,7 +70,11 @@ class RuntimeTrajectoryServiceTests(unittest.TestCase):
         self.assertIn("run_id: r1", text)
         self.assertIn("[1] action/user user.message: read README", text)
         self.assertIn("[2] action/agent model.response iter=1: tool_calls=[read_file]", text)
-        self.assertIn("[3] observation/tool tool.result iter=1: read_file success", text)
+        self.assertIn(
+            '[3] action/agent tool.call iter=1: read_file args={"path": "README.md"}',
+            text,
+        )
+        self.assertIn("[4] observation/tool tool.result iter=1: read_file success", text)
 
     def test_render_reports_empty_trajectory(self) -> None:
         text = RuntimeTrajectoryService(InMemoryRuntimeEventStore()).render(session_id="missing")

@@ -146,18 +146,23 @@ class AgentRuntimeTests(unittest.TestCase):
                 "runtime.started",
                 "user.message",
                 "model.response",
+                "tool.call",
                 "tool.result",
                 "model.response",
                 "runtime.completed",
             ],
         )
-        self.assertEqual([event.sequence for event in events], [1, 2, 3, 4, 5, 6])
+        self.assertEqual([event.sequence for event in events], [1, 2, 3, 4, 5, 6, 7])
         self.assertEqual(events[1].kind, "action")
         self.assertEqual(events[1].source, "user")
-        self.assertEqual(events[3].kind, "observation")
-        self.assertEqual(events[3].source, "tool")
+        self.assertEqual(events[3].kind, "action")
+        self.assertEqual(events[3].source, "agent")
         self.assertEqual(events[3].payload["tool_name"], "echo")
-        self.assertEqual(events[5].payload["status"], "success")
+        self.assertEqual(events[3].payload["arguments"], {"value": "ping"})
+        self.assertEqual(events[4].kind, "observation")
+        self.assertEqual(events[4].source, "tool")
+        self.assertEqual(events[4].payload["tool_name"], "echo")
+        self.assertEqual(events[6].payload["status"], "success")
 
     def test_runtime_executes_tool_calls_then_continues_loop(self) -> None:
         transport = FakeTransport(

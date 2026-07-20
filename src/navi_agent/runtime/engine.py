@@ -461,6 +461,18 @@ class AgentRuntime:
                 user_id=user_id,
                 iteration=iteration_number,
             )
+            for tool_call in response.tool_calls:
+                record_stream_event(
+                    kind="action",
+                    source="agent",
+                    name="tool.call",
+                    iteration=iteration_number,
+                    payload={
+                        "tool_call_id": tool_call.id,
+                        "tool_name": tool_call.name,
+                        "arguments": dict(tool_call.arguments),
+                    },
+                )
             for tool_result in self._tool_registry.dispatch(
                 response.tool_calls,
                 context=tool_context,
