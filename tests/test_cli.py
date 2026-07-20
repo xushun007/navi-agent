@@ -257,6 +257,10 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.list_skills)
         args = parser.parse_args(["--skill-status"])
         self.assertTrue(args.skill_status)
+        args = parser.parse_args(["--runtime-events", "--session-id", "s1", "--runtime-run-id", "r1"])
+        self.assertTrue(args.runtime_events)
+        self.assertEqual(args.session_id, "s1")
+        self.assertEqual(args.runtime_run_id, "r1")
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -1227,6 +1231,31 @@ class CliTests(unittest.TestCase):
         self.assertIn("background_review_submitted_count: 3", stdout.getvalue())
         self.assertIn("background_review_completed_count: 2", stdout.getvalue())
         self.assertIn("background_review_failed_count: 0", stdout.getvalue())
+
+    def test_main_prints_runtime_events(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.RuntimeTrajectoryService") as service_cls:
+            service_cls.return_value.render.return_value = "runtime_trajectory:\n[1] user.message"
+            with patch("navi_agent.cli.get_runtime_event_store_path", return_value=Path("/tmp/events.jsonl")):
+                with patch("sys.argv", ["navi-agent", "--runtime-events", "--session-id", "s1"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        service_cls.return_value.render.assert_called_once_with(session_id="s1", run_id=None)
+        self.assertIn("runtime_event_store_path: /tmp/events.jsonl", stdout.getvalue())
+        self.assertIn("runtime_trajectory:", stdout.getvalue())
+
+    def test_main_requires_session_id_for_runtime_events(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("sys.argv", ["navi-agent", "--runtime-events"]):
+            with redirect_stdout(stdout):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("--runtime-events requires --session-id", stdout.getvalue())
 
     def test_main_prints_disabled_background_review_status(self) -> None:
         fake_app = FakeApp()

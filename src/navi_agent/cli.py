@@ -49,13 +49,14 @@ from navi_agent.paths import get_config_path
 from navi_agent.paths import get_navi_home
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
+from navi_agent.paths import get_runtime_event_store_path
 from navi_agent.paths import get_skills_dir
 from navi_agent.paths import get_smoke_reports_dir
 from navi_agent.paths import get_state_db_path
 from navi_agent.paths import get_trace_store_path
 from navi_agent.paths import get_tool_use_eval_reports_dir
 from navi_agent.paths import get_tool_use_reports_dir
-from navi_agent.telemetry import JsonlTraceStore
+from navi_agent.telemetry import JsonlRuntimeEventStore, JsonlTraceStore, RuntimeTrajectoryService
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.runtime import ConversationState
 from navi_agent.runtime import SQLiteSessionStore
@@ -131,6 +132,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skill-curator-status", action="store_true")
     parser.add_argument("--skill-curator-archive-unused", action="store_true")
     parser.add_argument("--background-review-status", action="store_true")
+    parser.add_argument("--runtime-events", action="store_true")
+    parser.add_argument("--runtime-run-id")
     return parser
 
 
@@ -179,6 +182,11 @@ def main() -> int:
         return _print_background_review_status(
             system_prompt=args.system_prompt,
             yolo=args.yolo,
+        )
+    if args.runtime_events:
+        return _print_runtime_events(
+            session_id=args.session_id,
+            run_id=args.runtime_run_id,
         )
     if args.eval_seed_status:
         return _print_eval_seed_status()
@@ -1113,6 +1121,16 @@ def _print_background_review_status(
     print(f"background_review_submitted_count: {status.submitted_count}")
     print(f"background_review_completed_count: {status.completed_count}")
     print(f"background_review_failed_count: {status.failed_count}")
+    return 0
+
+
+def _print_runtime_events(*, session_id: str | None, run_id: str | None = None) -> int:
+    if not session_id:
+        print("--runtime-events requires --session-id")
+        return 1
+    service = RuntimeTrajectoryService(JsonlRuntimeEventStore(get_runtime_event_store_path()))
+    print(f"runtime_event_store_path: {get_runtime_event_store_path()}")
+    print(service.render(session_id=session_id, run_id=run_id))
     return 0
 
 

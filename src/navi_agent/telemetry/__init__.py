@@ -12,6 +12,7 @@ from .models import ModelCallTrace, RuntimeTrace, ToolExecutionTrace
 from .replay import TraceReplayResult, TraceReplayService
 from .serializer import TraceSerializer
 from .store import TraceStore
+from .trajectory import RuntimeTrajectory, RuntimeTrajectoryService
 
 __all__ = [
     "CompositeTraceStore",
@@ -24,6 +25,8 @@ __all__ = [
     "RuntimeTrace",
     "RuntimeEventStore",
     "RuntimeStreamEvent",
+    "RuntimeTrajectory",
+    "RuntimeTrajectoryService",
     "TraceReplayResult",
     "TraceReplayService",
     "TraceSerializer",
