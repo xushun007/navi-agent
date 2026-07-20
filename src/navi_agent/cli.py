@@ -15,6 +15,7 @@ from navi_agent.evolution import (
     EvalSeed,
     EvalSeedReportStore,
     EvalSeedReportWriter,
+    EvolutionCandidate,
     IfevalEvaluator,
     IfevalRunStore,
     IfevalRunWriter,
@@ -142,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-events", action="store_true")
     parser.add_argument("--runtime-health", action="store_true")
     parser.add_argument("--runtime-export-tool-use-case", action="store_true")
+    parser.add_argument("--runtime-import-tool-use-case", action="store_true")
     parser.add_argument("--runtime-run-id")
     return parser
 
@@ -203,6 +205,13 @@ def main() -> int:
         return _export_runtime_tool_use_case(
             session_id=args.session_id,
             run_id=args.runtime_run_id,
+        )
+    if args.runtime_import_tool_use_case:
+        return _import_runtime_tool_use_case(
+            session_id=args.session_id,
+            run_id=args.runtime_run_id,
+            system_prompt=args.system_prompt,
+            yolo=args.yolo,
         )
     if args.eval_seed_status:
         return _print_eval_seed_status()
@@ -1170,6 +1179,50 @@ def _export_runtime_tool_use_case(*, session_id: str | None, run_id: str | None 
         print("tool_use_case: none")
         return 1
     print(render_tool_use_case_jsonl(case))
+    return 0
+
+
+def _import_runtime_tool_use_case(
+    *,
+    session_id: str | None,
+    run_id: str | None = None,
+    system_prompt: str | None = None,
+    yolo: bool = False,
+) -> int:
+    if not session_id:
+        print("--runtime-import-tool-use-case requires --session-id")
+        return 1
+    trajectory = RuntimeTrajectoryService(JsonlRuntimeEventStore(get_runtime_event_store_path())).load(
+        session_id=session_id,
+        run_id=run_id,
+    )
+    case = build_tool_use_case_from_trajectory(trajectory)
+    if case is None:
+        print("tool_use_case_candidate: none")
+        return 1
+    app = build_application(
+        default_system_prompt=system_prompt,
+        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+    )
+    candidate = EvolutionCandidate(
+        target="eval_case",
+        summary=f"Tool Use Eval case from runtime trajectory: {case.id}",
+        rationale="Promote real runtime tool-use trajectory into the eval review queue.",
+        metadata={
+            "kind": "tool_use_eval_case",
+            "session_id": session_id,
+            "run_id": run_id or trajectory.run_id or trajectory.events[0].run_id,
+            "case": render_tool_use_case_jsonl(case),
+            "case_id": case.id,
+            "required_tools": list(case.required_tools),
+            "expected_args": dict(case.expected_args),
+        },
+    )
+    app.add_candidate(candidate)
+    print("tool_use_case_candidate_written: true")
+    print(f"candidate_id: {candidate.candidate_id}")
+    print(f"case_id: {case.id}")
+    print("next: uv run navi-agent --review-eval-case")
     return 0
 
 

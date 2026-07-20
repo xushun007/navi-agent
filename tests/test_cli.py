@@ -267,6 +267,9 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["--runtime-export-tool-use-case", "--session-id", "s1"])
         self.assertTrue(args.runtime_export_tool_use_case)
         self.assertEqual(args.session_id, "s1")
+        args = parser.parse_args(["--runtime-import-tool-use-case", "--session-id", "s1"])
+        self.assertTrue(args.runtime_import_tool_use_case)
+        self.assertEqual(args.session_id, "s1")
 
     def test_main_builds_application_and_prints_result(self) -> None:
         fake_app = FakeApp()
@@ -1303,6 +1306,51 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("--runtime-export-tool-use-case requires --session-id", stdout.getvalue())
+
+    def test_main_imports_runtime_tool_use_case_candidate(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+        fake_case = type(
+            "FakeCase",
+            (),
+            {
+                "id": "case-1",
+                "required_tools": ["read_file"],
+                "expected_args": {"read_file": {"path": "README.md"}},
+            },
+        )()
+
+        with patch("navi_agent.cli.RuntimeTrajectoryService") as trajectory_cls:
+            trajectory_cls.return_value.load.return_value = type(
+                "Trajectory",
+                (),
+                {"run_id": "r1", "events": []},
+            )()
+            with patch("navi_agent.cli.build_tool_use_case_from_trajectory", return_value=fake_case):
+                with patch("navi_agent.cli.render_tool_use_case_jsonl", return_value='{"id":"case-1"}'):
+                    with patch("navi_agent.cli.build_application", return_value=fake_app):
+                        with patch("sys.argv", ["navi-agent", "--runtime-import-tool-use-case", "--session-id", "s1"]):
+                            with redirect_stdout(stdout):
+                                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(fake_app.saved_candidates), 1)
+        candidate = fake_app.saved_candidates[0]
+        self.assertEqual(candidate.target, "eval_case")
+        self.assertEqual(candidate.metadata["kind"], "tool_use_eval_case")
+        self.assertEqual(candidate.metadata["case"], '{"id":"case-1"}')
+        self.assertIn("tool_use_case_candidate_written: true", stdout.getvalue())
+        self.assertIn("next: uv run navi-agent --review-eval-case", stdout.getvalue())
+
+    def test_main_requires_session_id_for_runtime_tool_use_import(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("sys.argv", ["navi-agent", "--runtime-import-tool-use-case"]):
+            with redirect_stdout(stdout):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("--runtime-import-tool-use-case requires --session-id", stdout.getvalue())
 
     def test_main_prints_disabled_background_review_status(self) -> None:
         fake_app = FakeApp()
