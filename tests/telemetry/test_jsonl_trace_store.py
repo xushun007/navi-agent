@@ -1,4 +1,5 @@
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -93,6 +94,29 @@ class JsonlTraceStoreTests(unittest.TestCase):
         self.assertIsInstance(trace.model_calls[0], ModelCallTrace)
         self.assertIsInstance(trace.tool_executions[0], ToolExecutionTrace)
         self.assertEqual(trace.tool_executions[0].tool_name, "read_file")
+
+    def test_concurrent_records_remain_valid_json_lines(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            store = JsonlTraceStore(Path(tmpdir) / "traces.jsonl")
+
+            def record(index: int) -> None:
+                store.record(
+                    RuntimeTrace(
+                        session_id=f"child-{index}",
+                        user_id="u1",
+                        user_message="task",
+                        final_response="report",
+                        status="success",
+                    )
+                )
+
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                list(executor.map(record, range(30)))
+
+            traces = store.list_traces()
+
+        self.assertEqual(len(traces), 30)
+        self.assertEqual(len({trace.session_id for trace in traces}), 30)
 
 
 if __name__ == "__main__":

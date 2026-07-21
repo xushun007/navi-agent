@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Lock
 
 from .models import ModelCallTrace, RuntimeTrace, ToolExecutionTrace
 from .serializer import TraceSerializer
@@ -10,12 +11,14 @@ from .serializer import TraceSerializer
 class JsonlTraceStore:
     def __init__(self, path: Path) -> None:
         self._path = path
+        self._lock = Lock()
 
     def record(self, trace: RuntimeTrace) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._path.open("a", encoding="utf-8") as handle:
-            handle.write(TraceSerializer.to_json(trace))
-            handle.write("\n")
+        with self._lock:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with self._path.open("a", encoding="utf-8") as handle:
+                handle.write(TraceSerializer.to_json(trace))
+                handle.write("\n")
 
     def list_traces(
         self,
@@ -62,13 +65,14 @@ class JsonlTraceStore:
         if not self._path.exists():
             return []
         traces = []
-        with self._path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                payload = json.loads(line)
-                traces.append(_trace_from_payload(payload))
+        with self._lock:
+            with self._path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    payload = json.loads(line)
+                    traces.append(_trace_from_payload(payload))
         return traces
 
 
