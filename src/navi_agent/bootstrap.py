@@ -37,6 +37,7 @@ from navi_agent.runtime import (
     LLMContextSummarizer,
     PromptBuilder,
     SQLiteSessionStore,
+    SubagentService,
     build_transport,
 )
 from navi_agent.runtime.approval import ApprovalProvider
@@ -75,30 +76,55 @@ def build_runtime(
     trace_store = _build_trace_store(config)
     background_task_manager = BackgroundTaskManager()
 
-    return AgentRuntime(
-        transport=transport,
-        session_store=session_store,
-        prompt_builder=PromptBuilder(
-            memory_store=memory_store,
-            skill_store=skill_store,
-            project_context_root=Path.cwd(),
-        ),
-        trace_store=trace_store,
-        event_store=JsonlRuntimeEventStore(get_runtime_event_store_path()),
-        background_task_manager=background_task_manager,
-        context_engine=ContextEngine(
-            context_limit_tokens=model_settings.context_limit_tokens,
-            summarizer=LLMContextSummarizer(transport),
-        ),
-        tool_registry=build_default_tool_registry(
-            memory_store=memory_store,
-            approval_provider=approval_provider,
-            skill_store=skill_store,
-            background_task_manager=background_task_manager,
-        ),
-        disabled_toolsets=disabled_toolsets,
-        max_iterations=runtime_settings.max_iterations,
+    event_store = JsonlRuntimeEventStore(get_runtime_event_store_path())
+    subagent_service: SubagentService
+
+    def create_runtime(
+        *,
+        enabled_toolsets: list[str] | None = None,
+        include_delegation: bool,
+        parent_session_id: str | None = None,
+    ) -> AgentRuntime:
+        runtime_background_tasks = (
+            background_task_manager if include_delegation else BackgroundTaskManager()
+        )
+        return AgentRuntime(
+            transport=transport,
+            session_store=session_store,
+            prompt_builder=PromptBuilder(
+                memory_store=memory_store,
+                skill_store=skill_store,
+                project_context_root=Path.cwd(),
+            ),
+            trace_store=trace_store,
+            event_store=event_store,
+            background_task_manager=runtime_background_tasks,
+            context_engine=ContextEngine(
+                context_limit_tokens=model_settings.context_limit_tokens,
+                summarizer=LLMContextSummarizer(transport),
+            ),
+            tool_registry=build_default_tool_registry(
+                memory_store=memory_store,
+                approval_provider=approval_provider,
+                skill_store=skill_store,
+                background_task_manager=runtime_background_tasks,
+                subagent_service=subagent_service if include_delegation else None,
+            ),
+            enabled_toolsets=enabled_toolsets,
+            disabled_toolsets=disabled_toolsets,
+            max_iterations=runtime_settings.max_iterations,
+            agent_role="primary" if include_delegation else "subagent",
+            parent_session_id=parent_session_id,
+        )
+
+    subagent_service = SubagentService(
+        runtime_factory=lambda enabled_toolsets, parent_session_id: create_runtime(
+            enabled_toolsets=enabled_toolsets,
+            include_delegation=False,
+            parent_session_id=parent_session_id,
+        )
     )
+    return create_runtime(include_delegation=True)
 
 
 def build_application(

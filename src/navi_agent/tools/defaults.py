@@ -4,7 +4,12 @@ from pathlib import Path
 
 from navi_agent.memory import InMemoryMemoryStore, MemoryStore
 from navi_agent.paths import get_cron_jobs_path
-from navi_agent.runtime import BackgroundTaskManager, ToolRegistry, ToolsetDefinition
+from navi_agent.runtime import (
+    BackgroundTaskManager,
+    SubagentService,
+    ToolRegistry,
+    ToolsetDefinition,
+)
 from navi_agent.scheduler import CronJobStore
 from navi_agent.runtime.approval import ApprovalProvider
 from navi_agent.runtime.tool_policy import SensitiveToolPolicy
@@ -13,6 +18,7 @@ from .bash_tool import BashTool
 from .background_task_tool import BackgroundTaskTool
 from .code_executor_tool import CodeExecutorTool
 from .cron_tool import CronTool
+from .delegate_task_tool import DelegateTaskTool
 from .memory_tool import MemoryTool
 from .patch_tool import PatchTool
 from .read_file_tool import ReadFileTool
@@ -28,6 +34,7 @@ def build_default_tool_registry(
     approval_provider: ApprovalProvider | None = None,
     skill_store=None,
     background_task_manager: BackgroundTaskManager | None = None,
+    subagent_service: SubagentService | None = None,
 ) -> ToolRegistry:
     workspace_root = root or Path.cwd()
     shared_memory_store = memory_store or InMemoryMemoryStore()
@@ -51,6 +58,11 @@ def build_default_tool_registry(
             ("memory", MemoryTool(memory_store=shared_memory_store)),
             ("scheduler", CronTool(store=CronJobStore(get_cron_jobs_path()))),
             *(
+                [("delegation", DelegateTaskTool(subagent_service))]
+                if subagent_service
+                else []
+            ),
+            *(
                 [
                     ("skills", SkillListTool(skill_store=skill_store)),
                     ("skills", SkillViewTool(skill_store=skill_store)),
@@ -63,12 +75,28 @@ def build_default_tool_registry(
         toolsets=[
             ToolsetDefinition(name="terminal", tools=["bash", "background_task"]),
             ToolsetDefinition(name="code", tools=["code_executor"]),
-            ToolsetDefinition(name="file", tools=["read_file", "search_files", "write_file", "patch"]),
+            ToolsetDefinition(
+                name="file",
+                tools=["read_file", "search_files", "write_file", "patch"],
+            ),
             ToolsetDefinition(name="memory", tools=["memory"]),
             ToolsetDefinition(name="scheduler", tools=["cron"]),
+            ToolsetDefinition(name="delegation", tools=["delegate_task"]),
             ToolsetDefinition(name="skills", tools=["skill_list", "skill_view"]),
             ToolsetDefinition(name="todo", tools=["todo"]),
-            ToolsetDefinition(name="core", includes=["terminal", "code", "file", "memory", "skills", "todo", "scheduler"]),
+            ToolsetDefinition(
+                name="core",
+                includes=[
+                    "terminal",
+                    "code",
+                    "file",
+                    "memory",
+                    "skills",
+                    "todo",
+                    "scheduler",
+                    "delegation",
+                ],
+            ),
         ],
         approval_provider=approval_provider,
         policy=SensitiveToolPolicy(

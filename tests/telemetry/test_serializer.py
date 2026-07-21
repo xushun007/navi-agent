@@ -13,6 +13,8 @@ class TraceSerializerTests(unittest.TestCase):
             system_prompt="system",
             final_response="done",
             status="success",
+            agent_role="subagent",
+            parent_session_id="parent-1",
             injected_skill_names=["readme-summary"],
             error_category="retryable",
             error_type="RateLimitError",
@@ -41,6 +43,8 @@ class TraceSerializerTests(unittest.TestCase):
         payload = TraceSerializer.to_dict(trace)
 
         self.assertEqual(payload["schema_version"], "trace.v2")
+        self.assertEqual(payload["agent_role"], "subagent")
+        self.assertEqual(payload["parent_session_id"], "parent-1")
         self.assertIn("trace_id", payload)
         self.assertEqual(payload["model_calls"][0]["response_content"], "done")
         self.assertEqual(payload["tool_executions"][0]["tool_name"], "echo")

@@ -45,6 +45,8 @@ class RuntimeTrace:
     final_response: str
     status: str
     trace_id: str = field(default_factory=lambda: uuid4().hex)
+    agent_role: str = "primary"
+    parent_session_id: str | None = None
     system_prompt: str | None = None
     injected_skill_names: list[str] = field(default_factory=list)
     tool_names: list[str] = field(default_factory=list)

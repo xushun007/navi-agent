@@ -1,11 +1,14 @@
 import unittest
 
+from navi_agent.runtime import SubagentService
 from navi_agent.tools.defaults import build_default_tool_registry
 
 
 class DefaultsTest(unittest.TestCase):
     def test_all_tools_registered(self) -> None:
-        schemas = build_default_tool_registry().schemas()
+        schemas = build_default_tool_registry(
+            subagent_service=SubagentService(runtime_factory=lambda _tools, _parent: None)
+        ).schemas()
         names = {s["name"] for s in schemas}
         self.assertEqual(
             names,
@@ -20,11 +23,14 @@ class DefaultsTest(unittest.TestCase):
                 "memory",
                 "todo",
                 "cron",
+                "delegate_task",
             },
         )
 
     def test_toolset_filtering(self) -> None:
-        registry = build_default_tool_registry()
+        registry = build_default_tool_registry(
+            subagent_service=SubagentService(runtime_factory=lambda _tools, _parent: None)
+        )
         file_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["file"])}
         self.assertEqual(file_tools, {"read_file", "search_files", "write_file", "patch"})
         terminal_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["terminal"])}
@@ -33,3 +39,5 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(code_tools, {"code_executor"})
         scheduler_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["scheduler"])}
         self.assertEqual(scheduler_tools, {"cron"})
+        delegation_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["delegation"])}
+        self.assertEqual(delegation_tools, {"delegate_task"})
