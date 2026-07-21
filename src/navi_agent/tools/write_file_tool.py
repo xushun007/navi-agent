@@ -14,7 +14,7 @@ class WriteFileTool(WorkspaceTool):
 
     @property
     def description(self) -> str:
-        return "Write a text file inside the workspace."
+        return "Write a text file inside the workspace or an explicitly added directory."
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -50,7 +50,7 @@ class WriteFileTool(WorkspaceTool):
                     name=self.name,
                     content="write_file rejected: file changed since last read",
                     structured_content={
-                        "path": str(resolved.relative_to(self.root)),
+                        "path": self._display_path(resolved),
                         "current_sha256": current_sha256,
                         "expected_sha256": expected_sha256,
                     },
@@ -65,7 +65,7 @@ class WriteFileTool(WorkspaceTool):
             name=self.name,
             content=f"bytes_written: {bytes_written}",
             structured_content={
-                "path": str(resolved.relative_to(self.root)),
+                "path": self._display_path(resolved),
                 "bytes_written": bytes_written,
                 "existed": existed,
                 "sha256": written_sha256,
@@ -81,7 +81,7 @@ class WriteFileTool(WorkspaceTool):
                 ToolArtifact(
                     kind="file",
                     uri=str(resolved),
-                    title=str(resolved.relative_to(self.root)),
+                    title=self._display_path(resolved),
                     mime_type="text/plain",
                 )
             ],

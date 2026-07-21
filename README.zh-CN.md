@@ -39,6 +39,14 @@ navi-agent gateway start
 navi-agent
 ```
 
+显式允许本地会话访问其他目录：
+
+```bash
+navi-agent --add-dir ../shared --add-dir /path/to/another-repo
+```
+
+`--add-dir` 可以重复使用，每个目录都必须在会话启动时存在。
+
 默认情况下，Navi Agent 会把配置、记忆、技能、日志和网关状态存放在 `~/.navi-agent`。
 需要隔离场景时，可以使用 `NAVI_PROFILE=work`，对应目录为 `~/.navi-agent/profiles/work`；
 需要完全自定义目录时，可以设置 `NAVI_HOME=/path/to/.navi-agent`。

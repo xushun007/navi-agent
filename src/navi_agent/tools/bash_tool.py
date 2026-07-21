@@ -4,6 +4,8 @@ import re
 import shlex
 import subprocess
 import threading
+from collections.abc import Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from navi_agent.tooling import ToolContext, ToolResult
@@ -33,8 +35,9 @@ class BashTool(WorkspaceTool):
         max_timeout_seconds: int = 60,
         max_output_chars: int = 20_000,
         background_task_manager: BackgroundTaskManager | None = None,
+        additional_roots: Iterable[Path] | None = None,
     ) -> None:
-        super().__init__(root=root)
+        super().__init__(root=root, additional_roots=additional_roots)
         self._default_timeout_seconds = default_timeout_seconds
         self._max_timeout_seconds = max_timeout_seconds
         self._max_output_chars = max_output_chars
@@ -46,7 +49,7 @@ class BashTool(WorkspaceTool):
 
     @property
     def description(self) -> str:
-        return "Execute a shell command inside the workspace, optionally as a background task."
+        return "Execute a shell command from the workspace or an explicitly added directory."
 
     def schema(self) -> dict[str, Any]:
         return {

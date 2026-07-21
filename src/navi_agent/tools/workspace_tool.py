@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -8,21 +9,39 @@ from .base import BaseTool
 
 
 class WorkspaceTool(BaseTool):
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        additional_roots: Iterable[Path] | None = None,
+    ) -> None:
         self._root = (root or Path.cwd()).resolve()
+        roots = [self._root]
+        for candidate in additional_roots or ():
+            resolved = Path(candidate).resolve()
+            if resolved not in roots:
+                roots.append(resolved)
+        self._allowed_roots = tuple(roots)
 
     @property
     def root(self) -> Path:
         return self._root
 
+    @property
+    def allowed_roots(self) -> tuple[Path, ...]:
+        return self._allowed_roots
+
     def _resolve_path(self, path: str | None = None) -> Path:
         target = self.root if not path else (self.root / path if not Path(path).is_absolute() else Path(path))
         resolved = target.resolve()
-        try:
-            resolved.relative_to(self.root)
-        except ValueError as exc:
-            raise ValueError(f"Path is outside workspace: {resolved}") from exc
+        if not any(resolved.is_relative_to(root) for root in self.allowed_roots):
+            raise ValueError(f"Path is outside workspace and added directories: {resolved}")
         return resolved
+
+    def _display_path(self, path: Path) -> str:
+        resolved = path.resolve()
+        if resolved.is_relative_to(self.root):
+            return str(resolved.relative_to(self.root))
+        return str(resolved)
 
     def _is_binary_file(self, path: Path, sample_size: int = 4096) -> bool:
         with path.open("rb") as handle:
@@ -44,19 +63,20 @@ class WorkspaceTool(BaseTool):
         if not needle:
             return []
         matches: list[str] = []
-        for candidate in sorted(self.root.rglob("*")):
-            relative = str(candidate.relative_to(self.root))
-            name = candidate.name.lower()
-            stem = candidate.stem.lower()
-            if (
-                needle in name
-                or name in needle
-                or (needle_stem and needle_stem in stem)
-                or (needle_stem and stem in needle_stem)
-            ):
-                matches.append(relative)
-                if len(matches) >= limit:
-                    break
+        for root in self.allowed_roots:
+            for candidate in sorted(root.rglob("*")):
+                display_path = self._display_path(candidate)
+                name = candidate.name.lower()
+                stem = candidate.stem.lower()
+                if (
+                    needle in name
+                    or name in needle
+                    or (needle_stem and needle_stem in stem)
+                    or (needle_stem and stem in needle_stem)
+                ):
+                    matches.append(display_path)
+                    if len(matches) >= limit:
+                        return matches
         return matches
 
     def _missing_path_error(self, missing_path: str) -> dict[str, Any]:

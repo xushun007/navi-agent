@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 
 from navi_agent.app import ApplicationService
@@ -59,6 +60,8 @@ def build_runtime(
     skill_store: FileSkillStore | None = None,
     memory_store: FileMemoryStore | None = None,
     disabled_toolsets: list[str] | None = None,
+    workspace_root: Path | None = None,
+    additional_workspace_roots: Iterable[Path] | None = None,
 ) -> AgentRuntime:
     config = load_config()
     model_settings = model_settings or ModelSettings.from_sources(config)
@@ -75,6 +78,8 @@ def build_runtime(
     skill_store = skill_store or FileSkillStore(get_skills_dir())
     trace_store = _build_trace_store(config)
     background_task_manager = BackgroundTaskManager()
+    resolved_workspace_root = (workspace_root or Path.cwd()).resolve()
+    added_roots = tuple(Path(root).resolve() for root in additional_workspace_roots or ())
 
     event_store = JsonlRuntimeEventStore(get_runtime_event_store_path())
     subagent_service: SubagentService
@@ -95,7 +100,8 @@ def build_runtime(
             prompt_builder=PromptBuilder(
                 memory_store=memory_store,
                 skill_store=skill_store,
-                project_context_root=Path.cwd(),
+                project_context_root=resolved_workspace_root,
+                additional_workspace_roots=added_roots,
             ),
             trace_store=trace_store,
             event_store=event_store,
@@ -112,6 +118,8 @@ def build_runtime(
                 skill_store=skill_store,
                 background_task_manager=runtime_background_tasks,
                 subagent_service=subagent_service if include_delegation else None,
+                root=resolved_workspace_root,
+                additional_roots=added_roots,
             ),
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
@@ -137,6 +145,8 @@ def build_application(
     default_system_prompt: str | None = None,
     approval_provider: ApprovalProvider | None = None,
     disabled_toolsets: list[str] | None = None,
+    workspace_root: Path | None = None,
+    additional_workspace_roots: Iterable[Path] | None = None,
 ) -> ApplicationService:
     config = load_config()
     review_model_settings = model_settings or ModelSettings.from_sources(config)
@@ -149,6 +159,8 @@ def build_application(
         skill_store=skill_store,
         memory_store=memory_store,
         disabled_toolsets=disabled_toolsets,
+        workspace_root=workspace_root,
+        additional_workspace_roots=additional_workspace_roots,
     )
     prompt_overlay_store = PromptOverlayStore(
         get_prompt_overlay_path(),

@@ -130,6 +130,23 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.yolo)
         self.assertTrue(short_args.yolo)
 
+    def test_build_parser_parses_repeated_add_dir_flags(self) -> None:
+        parser = build_parser()
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            args = parser.parse_args(["--add-dir", first, "--add-dir", second, "hello"])
+
+        self.assertEqual(args.add_dir, [Path(first).resolve(), Path(second).resolve()])
+
+    def test_build_parser_rejects_missing_add_dir(self) -> None:
+        parser = build_parser()
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["--add-dir", "/missing/navi-agent-directory", "hello"])
+
+        self.assertIn("directory does not exist", stderr.getvalue())
+
     def test_build_parser_parses_banner_flag(self) -> None:
         parser = build_parser()
 
@@ -293,8 +310,20 @@ class CliTests(unittest.TestCase):
         _, kwargs = build_application_mock.call_args
         self.assertEqual(kwargs["default_system_prompt"], None)
         self.assertIsInstance(kwargs["approval_provider"], CliApprovalProvider)
+        self.assertEqual(kwargs["additional_workspace_roots"], [])
         self.assertEqual(fake_app.calls[0].user_id, "u1")
         self.assertEqual(fake_app.calls[0].message, "hello")
+
+    def test_main_passes_added_directories_to_application(self) -> None:
+        fake_app = FakeApp()
+        with tempfile.TemporaryDirectory() as added_dir:
+            with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application_mock:
+                with patch("sys.argv", ["navi-agent", "--add-dir", added_dir, "hello"]):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = build_application_mock.call_args
+        self.assertEqual(kwargs["additional_workspace_roots"], [Path(added_dir).resolve()])
 
     def test_main_uses_workspace_yolo_approval_provider(self) -> None:
         fake_app = FakeApp()

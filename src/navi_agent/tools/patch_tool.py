@@ -14,7 +14,7 @@ class PatchTool(WorkspaceTool):
 
     @property
     def description(self) -> str:
-        return "Apply a simple text replacement patch to a file."
+        return "Apply a simple text replacement patch inside an allowed directory."
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -57,7 +57,7 @@ class PatchTool(WorkspaceTool):
                 name=self.name,
                 content="patch rejected: file changed since last read",
                 structured_content={
-                    "path": str(resolved.relative_to(self.root)),
+                    "path": self._display_path(resolved),
                     "current_sha256": current_sha256,
                     "expected_sha256": expected_sha256,
                     "applied": False,
@@ -71,7 +71,7 @@ class PatchTool(WorkspaceTool):
             return ToolResult.error(
                 name=self.name,
                 content="patch_failed: target text not found",
-                structured_content={"path": str(resolved.relative_to(self.root)), "applied": False},
+                structured_content={"path": self._display_path(resolved), "applied": False},
             )
         replacement_count = current.count(old)
         replace_all = bool(kwargs.get("replace_all", False))
@@ -83,7 +83,7 @@ class PatchTool(WorkspaceTool):
             name=self.name,
             content=f"patched: {replacements} replacement{'s' if replacements != 1 else ''}",
             structured_content={
-                "path": str(resolved.relative_to(self.root)),
+                "path": self._display_path(resolved),
                 "applied": True,
                 "replacements": replacements,
                 "replace_all": replace_all,
@@ -100,7 +100,7 @@ class PatchTool(WorkspaceTool):
                 ToolArtifact(
                     kind="file",
                     uri=str(resolved),
-                    title=str(resolved.relative_to(self.root)),
+                    title=self._display_path(resolved),
                     mime_type="text/plain",
                 )
             ],

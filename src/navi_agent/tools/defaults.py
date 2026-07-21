@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from navi_agent.memory import InMemoryMemoryStore, MemoryStore
@@ -35,8 +36,10 @@ def build_default_tool_registry(
     skill_store=None,
     background_task_manager: BackgroundTaskManager | None = None,
     subagent_service: SubagentService | None = None,
+    additional_roots: Iterable[Path] | None = None,
 ) -> ToolRegistry:
     workspace_root = root or Path.cwd()
+    added_roots = tuple(additional_roots or ())
     shared_memory_store = memory_store or InMemoryMemoryStore()
     background_task_manager = background_task_manager or BackgroundTaskManager()
     return ToolRegistry(
@@ -47,14 +50,15 @@ def build_default_tool_registry(
                     root=workspace_root,
                     max_timeout_seconds=3600,
                     background_task_manager=background_task_manager,
+                    additional_roots=added_roots,
                 ),
             ),
             ("terminal", BackgroundTaskTool(background_task_manager)),
-            ("code", CodeExecutorTool(root=workspace_root)),
-            ("file", ReadFileTool(root=workspace_root)),
-            ("file", SearchFilesTool(root=workspace_root)),
-            ("file", WriteFileTool(root=workspace_root)),
-            ("file", PatchTool(root=workspace_root)),
+            ("code", CodeExecutorTool(root=workspace_root, additional_roots=added_roots)),
+            ("file", ReadFileTool(root=workspace_root, additional_roots=added_roots)),
+            ("file", SearchFilesTool(root=workspace_root, additional_roots=added_roots)),
+            ("file", WriteFileTool(root=workspace_root, additional_roots=added_roots)),
+            ("file", PatchTool(root=workspace_root, additional_roots=added_roots)),
             ("memory", MemoryTool(memory_store=shared_memory_store)),
             ("scheduler", CronTool(store=CronJobStore(get_cron_jobs_path()))),
             *(

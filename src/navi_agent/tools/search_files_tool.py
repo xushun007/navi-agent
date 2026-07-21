@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import fnmatch
 import re
+from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from navi_agent.tooling import ToolContext, ToolResult
@@ -10,8 +12,14 @@ from .workspace_tool import WorkspaceTool
 
 
 class SearchFilesTool(WorkspaceTool):
-    def __init__(self, root=None, max_matches: int = 50, max_line_length: int = 240) -> None:
-        super().__init__(root=root)
+    def __init__(
+        self,
+        root=None,
+        max_matches: int = 50,
+        max_line_length: int = 240,
+        additional_roots: Iterable[Path] | None = None,
+    ) -> None:
+        super().__init__(root=root, additional_roots=additional_roots)
         self._max_matches = max_matches
         self._max_line_length = max_line_length
 
@@ -21,14 +29,14 @@ class SearchFilesTool(WorkspaceTool):
 
     @property
     def description(self) -> str:
-        return "Search text across workspace files. Use query as the search term, not a shell command."
+        return "Search files in the workspace or an explicitly added directory. Use query as the search term."
 
     def schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Search term or regex pattern."},
-                "path": {"type": "string", "description": "Optional base path inside the workspace."},
+                "path": {"type": "string", "description": "Optional base path inside an allowed directory."},
                 "glob": {"type": "string", "description": "Optional filename glob filter."},
                 "search_mode": {
                     "type": "string",
@@ -75,11 +83,11 @@ class SearchFilesTool(WorkspaceTool):
         for path in sorted(base_path.rglob("*")):
             if not path.is_file() or not fnmatch.fnmatch(path.name, pattern):
                 continue
-            rel_path = path.relative_to(self.root)
+            display_path = self._display_path(path)
             if search_mode == "filename":
                 if query in path.name:
-                    matches.append(str(rel_path))
-                    structured_matches.append({"path": str(rel_path)})
+                    matches.append(display_path)
+                    structured_matches.append({"path": display_path})
                     if len(matches) >= self._max_matches:
                         return ToolResult.ok(
                             name=self.name,
@@ -103,10 +111,10 @@ class SearchFilesTool(WorkspaceTool):
                 matched = bool(regex.search(line)) if regex is not None else query in line
                 if matched:
                     preview = line if len(line) <= self._max_line_length else line[: self._max_line_length] + "..."
-                    matches.append(f"{rel_path}:{line_number}: {preview}")
+                    matches.append(f"{display_path}:{line_number}: {preview}")
                     structured_matches.append(
                         {
-                            "path": str(rel_path),
+                            "path": display_path,
                             "line_number": line_number,
                             "line": preview,
                         }

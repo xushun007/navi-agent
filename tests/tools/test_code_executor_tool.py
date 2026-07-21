@@ -93,3 +93,24 @@ class CodeExecutorToolTests(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertIn("outside workspace", result.content)
+
+    def test_reads_and_runs_from_added_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace, tempfile.TemporaryDirectory() as added:
+            target = Path(added) / "note.txt"
+            target.write_text("external\n", encoding="utf-8")
+            tool = CodeExecutorTool(
+                root=Path(workspace),
+                additional_roots=[Path(added)],
+                default_timeout_seconds=5,
+            )
+
+            result = tool.invoke(
+                task="inspect added directory",
+                steps=[
+                    {"action": "read_file", "path": str(target)},
+                    {"action": "run", "command": "cat note.txt", "cwd": added},
+                ],
+            )
+
+        self.assertEqual(result.status, "success")
+        self.assertIn("external", result.content)

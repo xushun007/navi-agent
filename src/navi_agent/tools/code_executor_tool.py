@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from navi_agent.tooling import ToolContext, ToolResult
@@ -21,18 +23,20 @@ class CodeExecutorTool(WorkspaceTool):
         max_timeout_seconds: int = 60,
         max_output_chars: int = 20_000,
         max_steps: int = 12,
+        additional_roots: Iterable[Path] | None = None,
     ) -> None:
-        super().__init__(root=root)
+        super().__init__(root=root, additional_roots=additional_roots)
         self._max_steps = max_steps
         self._tools = {
-            "read_file": ReadFileTool(root=self.root),
-            "write_file": WriteFileTool(root=self.root),
-            "patch": PatchTool(root=self.root),
+            "read_file": ReadFileTool(root=self.root, additional_roots=self.allowed_roots[1:]),
+            "write_file": WriteFileTool(root=self.root, additional_roots=self.allowed_roots[1:]),
+            "patch": PatchTool(root=self.root, additional_roots=self.allowed_roots[1:]),
             "run": BashTool(
                 root=self.root,
                 default_timeout_seconds=default_timeout_seconds,
                 max_timeout_seconds=max_timeout_seconds,
                 max_output_chars=max_output_chars,
+                additional_roots=self.allowed_roots[1:],
             ),
         }
 
@@ -42,7 +46,7 @@ class CodeExecutorTool(WorkspaceTool):
 
     @property
     def description(self) -> str:
-        return "Execute a bounded coding workflow inside the workspace: inspect files, edit files, and run verification commands."
+        return "Execute a bounded coding workflow inside explicitly allowed directories."
 
     def schema(self) -> dict[str, Any]:
         return {
