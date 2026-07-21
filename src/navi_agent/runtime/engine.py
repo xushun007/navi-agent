@@ -143,6 +143,8 @@ class AgentRuntime:
         event_store: RuntimeEventStore | None = None,
         background_task_manager: BackgroundTaskManager | None = None,
         max_iterations: int = 8,
+        agent_role: str = "primary",
+        parent_session_id: str | None = None,
     ) -> None:
         self._transport = transport
         self._tool_registry = tool_registry or ToolRegistry()
@@ -157,6 +159,8 @@ class AgentRuntime:
         self._event_store = event_store
         self._background_task_manager = background_task_manager
         self._max_iterations = max_iterations
+        self._agent_role = agent_role
+        self._parent_session_id = parent_session_id
 
     def add_background_task_listener(self, listener: Callable[[BackgroundTask], None]) -> bool:
         if self._background_task_manager is None:
@@ -207,13 +211,21 @@ class AgentRuntime:
             kind="observation",
             source="runtime",
             name="runtime.started",
-            payload={"system_prompt_present": system_prompt is not None},
+            payload={
+                "system_prompt_present": system_prompt is not None,
+                "agent_role": self._agent_role,
+                "parent_session_id": self._parent_session_id,
+            },
         )
         self._emit_event(
             RuntimeEvent(
                 name="runtime.started",
                 session_id=session_id,
                 user_id=user_id,
+                metadata={
+                    "agent_role": self._agent_role,
+                    "parent_session_id": self._parent_session_id,
+                },
             )
         )
         session = self._session_store.load(session_id=session_id, user_id=user_id)
@@ -681,6 +693,8 @@ class AgentRuntime:
                 user_message=user_message,
                 final_response=result.final_response,
                 status=result.status,
+                agent_role=self._agent_role,
+                parent_session_id=self._parent_session_id,
                 system_prompt=system_prompt,
                 injected_skill_names=list(injected_skill_names),
                 tool_names=[item.name for item in result.tool_results],

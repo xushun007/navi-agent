@@ -26,6 +26,7 @@ from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
 from .store import SessionStore
+from .subagents import SubagentRun, SubagentService
 from .tool_policy import AllowAllToolPolicy
 from .tool_executor import ToolExecutor
 from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
@@ -64,6 +65,8 @@ __all__ = [
     "RuntimeObserver",
     "SessionStore",
     "SQLiteSessionStore",
+    "SubagentRun",
+    "SubagentService",
     "ToolCall",
     "ToolContext",
     "ToolDefinition",
