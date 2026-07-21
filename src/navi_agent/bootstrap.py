@@ -78,6 +78,7 @@ def build_runtime(
         tool_registry=build_default_tool_registry(
             memory_store=memory_store,
             approval_provider=approval_provider,
+            skill_store=skill_store,
         ),
         max_iterations=runtime_settings.max_iterations,
     )
