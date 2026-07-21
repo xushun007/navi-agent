@@ -56,6 +56,7 @@ def build_runtime(
     approval_provider: ApprovalProvider | None = None,
     skill_store: FileSkillStore | None = None,
     memory_store: FileMemoryStore | None = None,
+    disabled_toolsets: list[str] | None = None,
 ) -> AgentRuntime:
     config = load_config()
     model_settings = model_settings or ModelSettings.from_sources(config)
@@ -91,6 +92,7 @@ def build_runtime(
             approval_provider=approval_provider,
             skill_store=skill_store,
         ),
+        disabled_toolsets=disabled_toolsets,
         max_iterations=runtime_settings.max_iterations,
     )
 
@@ -100,6 +102,7 @@ def build_application(
     runtime_settings: RuntimeSettings | None = None,
     default_system_prompt: str | None = None,
     approval_provider: ApprovalProvider | None = None,
+    disabled_toolsets: list[str] | None = None,
 ) -> ApplicationService:
     config = load_config()
     review_model_settings = model_settings or ModelSettings.from_sources(config)
@@ -111,6 +114,7 @@ def build_application(
         approval_provider=approval_provider,
         skill_store=skill_store,
         memory_store=memory_store,
+        disabled_toolsets=disabled_toolsets,
     )
     prompt_overlay_store = PromptOverlayStore(
         get_prompt_overlay_path(),

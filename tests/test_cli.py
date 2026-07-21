@@ -17,6 +17,7 @@ from navi_agent.evolution import (
 from navi_agent.evolution import EvalSeedStore
 from navi_agent.cli import _read_interactive_message, _run_interactive, build_parser, main
 from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult, WorkspaceYoloApprovalProvider
+from navi_agent.scheduler import CronRunRecord
 from navi_agent.smoke import SmokeCheckResult, SmokeRunSummary
 
 
@@ -151,6 +152,11 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["gateway", "start"])
         self.assertEqual(args.message, "gateway")
         self.assertEqual(args.subcommand, "start")
+
+        args = parser.parse_args(["cron", "run", "--cron-poll-interval", "2"])
+        self.assertEqual(args.message, "cron")
+        self.assertEqual(args.subcommand, "run")
+        self.assertEqual(args.cron_poll_interval, 2)
 
     def test_build_parser_parses_unified_workflow_run_flag(self) -> None:
         parser = build_parser()
@@ -423,6 +429,37 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("weixin_ilink_polling: account_id=account-1", stdout.getvalue())
         gateway_cls.return_value.run_forever.assert_called_once_with()
+
+    def test_main_cron_run_processes_due_jobs(self) -> None:
+        fake_app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app) as build_app_mock:
+            with patch("navi_agent.cli.CronSchedulerService") as scheduler_cls:
+                scheduler_cls.return_value.run_due.return_value = [
+                    CronRunRecord(
+                        job_id="job-1",
+                        session_id="s1",
+                        status="success",
+                        final_response="done",
+                        ran_at="2026-07-21T09:00:00+00:00",
+                    )
+                ]
+                with patch("navi_agent.cli.get_cron_jobs_path", return_value=Path("/tmp/jobs.json")):
+                    with patch("navi_agent.cli.get_cron_tick_lock_path", return_value=Path("/tmp/.tick.lock")):
+                        with patch("sys.argv", ["navi-agent", "cron", "run"]):
+                            with redirect_stdout(stdout):
+                                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        build_app_mock.assert_called_once()
+        self.assertEqual(build_app_mock.call_args.kwargs["disabled_toolsets"], ["scheduler"])
+        scheduler_cls.assert_called_once()
+        self.assertEqual(scheduler_cls.call_args.kwargs["lock_path"], Path("/tmp/.tick.lock"))
+        scheduler_cls.return_value.run_due.assert_called_once_with(app=fake_app)
+        self.assertIn("cron_jobs_path: /tmp/jobs.json", stdout.getvalue())
+        self.assertIn("cron_due_count: 1", stdout.getvalue())
+        self.assertIn("- job-1 [success] session=s1", stdout.getvalue())
 
     def test_main_rejects_legacy_start_command(self) -> None:
         stderr = io.StringIO()

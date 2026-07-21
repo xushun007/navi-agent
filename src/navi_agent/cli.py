@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from time import sleep
 from uuid import uuid4
 
 from navi_agent.app import AppRequest
@@ -50,6 +51,8 @@ from navi_agent.paths import get_eval_seed_path
 from navi_agent.paths import get_ifeval_drafts_path
 from navi_agent.paths import get_ifeval_reports_dir
 from navi_agent.paths import get_config_path
+from navi_agent.paths import get_cron_jobs_path
+from navi_agent.paths import get_cron_tick_lock_path
 from navi_agent.paths import get_navi_home
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
@@ -70,6 +73,7 @@ from navi_agent.runtime import CliApprovalProvider
 from navi_agent.runtime import ConversationState
 from navi_agent.runtime import SQLiteSessionStore
 from navi_agent.runtime import WorkspaceYoloApprovalProvider
+from navi_agent.scheduler import CronJobStore, CronSchedulerService
 from navi_agent.healthcheck import (
     compare_healthcheck_workflow_results,
     replay_healthcheck_workflow,
@@ -147,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-export-tool-use-case", action="store_true")
     parser.add_argument("--runtime-import-tool-use-case", action="store_true")
     parser.add_argument("--runtime-run-id")
+    parser.add_argument("--cron-poll-interval", type=float, default=60.0)
     return parser
 
 
@@ -160,6 +165,12 @@ def main() -> int:
     if args.message == "gateway" and args.subcommand == "start":
         args.gateway = "weixin"
         return _run_gateway(args)
+    if args.message == "cron":
+        if args.subcommand == "run":
+            return _run_cron_once(args)
+        if args.subcommand == "start":
+            return _run_cron_loop(args)
+        parser.error("cron command requires `run` or `start`: navi-agent cron run")
     if args.message == "gateway":
         parser.error("gateway command requires `start`: navi-agent gateway start")
     if args.message == "start":
@@ -352,6 +363,33 @@ def _run_gateway(args) -> int:
         return _run_weixin_gateway(args)
     print(f"unsupported gateway: {args.gateway}")
     return 1
+
+
+def _run_cron_once(args) -> int:
+    app = build_application(
+        default_system_prompt=args.system_prompt,
+        approval_provider=_build_approval_provider(args),
+        disabled_toolsets=["scheduler"],
+    )
+    service = CronSchedulerService(
+        CronJobStore(get_cron_jobs_path()),
+        lock_path=get_cron_tick_lock_path(),
+    )
+    records = service.run_due(app=app)
+    print(f"cron_jobs_path: {get_cron_jobs_path()}")
+    print(f"cron_due_count: {len(records)}")
+    for record in records:
+        print(f"- {record.job_id} [{record.status}] session={record.session_id}")
+    _drain_background_reviews(app)
+    return 0
+
+
+def _run_cron_loop(args) -> int:
+    interval = max(1.0, float(args.cron_poll_interval))
+    print(f"cron_worker_started: interval={interval}s jobs={get_cron_jobs_path()}")
+    while True:
+        _run_cron_once(args)
+        sleep(interval)
 
 
 def _run_weixin_gateway(args) -> int:
