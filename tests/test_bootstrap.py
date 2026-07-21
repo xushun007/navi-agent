@@ -18,6 +18,7 @@ class BootstrapTests(unittest.TestCase):
             model="gpt-4o-mini",
             api_key="test-key",
             base_url="https://example.com/v1",
+            context_limit_tokens=128000,
         )
         runtime_settings = RuntimeSettings(max_iterations=12)
 
@@ -32,6 +33,7 @@ class BootstrapTests(unittest.TestCase):
         setup_logging_mock.assert_called_once()
         build_registry_mock.assert_called_once()
         self.assertEqual(runtime._max_iterations, 12)
+        self.assertEqual(runtime._context_engine._threshold_tokens, 93000)
 
     def test_build_runtime_reads_defaults_from_env(self) -> None:
         with patch.dict(

@@ -22,6 +22,7 @@ class ModelSettings:
     model: str = "gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
+    context_limit_tokens: int = 32_000
 
     @classmethod
     def from_sources(cls, config: dict | None = None) -> "ModelSettings":
@@ -41,6 +42,12 @@ class ModelSettings:
                 os.getenv("NAVI_BASE_URL")
                 or os.getenv("OPENAI_BASE_URL")
                 or _optional_str(model_cfg.get("base_url"))
+            ),
+            context_limit_tokens=int(
+                os.getenv(
+                    "NAVI_CONTEXT_LIMIT_TOKENS",
+                    str(model_cfg.get("context_limit_tokens", "32000")),
+                )
             ),
         )
 

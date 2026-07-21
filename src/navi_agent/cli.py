@@ -81,6 +81,7 @@ DEFAULT_CONFIG_TEMPLATE = """model:
   name: gpt-4o-mini
   api_key: replace-with-your-api-key
   base_url: https://api.openai.com/v1
+  context_limit_tokens: 32000
 
 runtime:
   max_iterations: 8

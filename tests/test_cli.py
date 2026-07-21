@@ -383,7 +383,9 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("config_created:", stdout.getvalue())
             self.assertTrue(config_path.exists())
-            self.assertIn("gateway:", config_path.read_text(encoding="utf-8"))
+            config_text = config_path.read_text(encoding="utf-8")
+            self.assertIn("gateway:", config_text)
+            self.assertIn("context_limit_tokens: 32000", config_text)
 
     def test_main_init_does_not_overwrite_existing_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

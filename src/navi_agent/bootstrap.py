@@ -30,7 +30,14 @@ from navi_agent.paths import (
     get_trace_store_path,
     get_eval_case_store_path,
 )
-from navi_agent.runtime import AgentRuntime, PromptBuilder, SQLiteSessionStore, build_transport
+from navi_agent.runtime import (
+    AgentRuntime,
+    ContextEngine,
+    LLMContextSummarizer,
+    PromptBuilder,
+    SQLiteSessionStore,
+    build_transport,
+)
 from navi_agent.runtime.approval import ApprovalProvider
 from navi_agent.telemetry import (
     CompositeTraceStore,
@@ -75,6 +82,10 @@ def build_runtime(
         ),
         trace_store=trace_store,
         event_store=JsonlRuntimeEventStore(get_runtime_event_store_path()),
+        context_engine=ContextEngine(
+            context_limit_tokens=model_settings.context_limit_tokens,
+            summarizer=LLMContextSummarizer(transport),
+        ),
         tool_registry=build_default_tool_registry(
             memory_store=memory_store,
             approval_provider=approval_provider,

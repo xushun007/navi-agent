@@ -15,6 +15,7 @@ class SettingsTests(unittest.TestCase):
                 "NAVI_MODEL": "gpt-4.1-mini",
                 "NAVI_API_KEY": "navi-key",
                 "NAVI_BASE_URL": "https://example.com/v1",
+                "NAVI_CONTEXT_LIMIT_TOKENS": "128000",
                 "OPENAI_API_KEY": "openai-key",
             },
             clear=False,
@@ -24,6 +25,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.model, "gpt-4.1-mini")
         self.assertEqual(settings.api_key, "navi-key")
         self.assertEqual(settings.base_url, "https://example.com/v1")
+        self.assertEqual(settings.context_limit_tokens, 128000)
 
     def test_model_settings_falls_back_to_openai_env(self) -> None:
         with patch.dict(
@@ -67,6 +69,7 @@ runtime:
                 "name": "gpt-4.1-mini",
                 "api_key": "file-key",
                 "base_url": "https://example.com/v1",
+                "context_limit_tokens": 64000,
             }
         }
 
@@ -76,6 +79,7 @@ runtime:
         self.assertEqual(settings.model, "gpt-4.1-mini")
         self.assertEqual(settings.api_key, "file-key")
         self.assertEqual(settings.base_url, "https://example.com/v1")
+        self.assertEqual(settings.context_limit_tokens, 64000)
 
     def test_runtime_settings_reads_iteration_limit(self) -> None:
         with patch.dict(os.environ, {"NAVI_MAX_ITERATIONS": "12"}, clear=True):
