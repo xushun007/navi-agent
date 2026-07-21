@@ -25,6 +25,7 @@ from navi_agent.evolution import (
     PromptOverlayStore,
     ReviewLoopService,
     ToolUseEvalCaseStore,
+    ToolUseEvalCase,
     ToolUseEvalWorkflowService,
     ToolUseRunStore,
     ToolUseWorkflowService,
@@ -921,6 +922,9 @@ def _review_eval_case(
             if updated is None:
                 print(f"candidate not found: {candidate.candidate_id}")
                 return 1
+            promoted_path = _promote_tool_use_eval_candidate(candidate)
+            if promoted_path is not None:
+                print(f"tool_use_seed_promoted: {promoted_path}")
             print(f"candidate_status: {updated.status}")
             return 0
         if answer in {"", "n", "no"}:
@@ -935,6 +939,37 @@ def _review_eval_case(
             print(f"candidate_status: {updated.status}")
             return 0
         print("please answer y or n")
+
+
+def _promote_tool_use_eval_candidate(candidate) -> str | None:
+    metadata = getattr(candidate, "metadata", {}) or {}
+    if metadata.get("kind") != "tool_use_eval_case":
+        return None
+    case_json = metadata.get("case")
+    if not isinstance(case_json, str) or not case_json.strip():
+        return None
+    payload = json.loads(case_json)
+    case = ToolUseEvalCase(
+        id=str(payload["id"]),
+        level=str(payload["level"]),
+        category=str(payload["category"]),
+        prompt=str(payload["prompt"]),
+        source_inspiration=str(payload.get("source_inspiration", "")),
+        required_tools=list(payload.get("required_tools") or []),
+        forbidden_tools=list(payload.get("forbidden_tools") or []),
+        expected_args=dict(payload.get("expected_args") or {}),
+        approval_required_tools=list(payload.get("approval_required_tools") or []),
+        max_iterations=int(payload.get("max_iterations", 3)),
+        grader=str(payload.get("grader", "trace")),
+        expected_outcome=str(payload.get("expected_outcome", "")),
+        notes=str(payload.get("notes", "")),
+    )
+    store = ToolUseEvalCaseStore(get_eval_seed_path("tool_use_seed.jsonl"))
+    cases = store.list_cases()
+    cases = [existing for existing in cases if existing.id != case.id]
+    cases.append(case)
+    store.write_cases(cases)
+    return str(store.path)
 
 
 def _review_skill(

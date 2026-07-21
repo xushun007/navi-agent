@@ -11,6 +11,7 @@ from navi_agent.evolution import (
     SkillCuratorArchiveResult,
     SkillCuratorRecord,
     SkillCuratorStatus,
+    ToolUseEvalCaseStore,
     SkillUsageRecord,
 )
 from navi_agent.evolution import EvalSeedStore
@@ -1351,6 +1352,77 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("--runtime-import-tool-use-case requires --session-id", stdout.getvalue())
+
+    def test_main_reviews_and_promotes_tool_use_eval_candidate(self) -> None:
+        fake_app = FakeApp()
+        fake_app.saved_candidates.append(
+            EvolutionCandidate(
+                target="eval_case",
+                summary="Tool Use Eval case from runtime trajectory",
+                rationale="runtime event replay",
+                candidate_id="eval-1",
+                metadata={
+                    "kind": "tool_use_eval_case",
+                    "session_id": "s1",
+                    "case": (
+                        '{"id":"case-1","level":"L1","category":"tool_use.replay",'
+                        '"prompt":"读取 README.md","source_inspiration":"runtime-events",'
+                        '"required_tools":["read_file"],"forbidden_tools":[],'
+                        '"expected_args":{"read_file":{"path":"README.md"}},'
+                        '"approval_required_tools":[],"max_iterations":6,'
+                        '"grader":"trace_and_answer","expected_outcome":"ok","notes":"n"}'
+                    ),
+                },
+            )
+        )
+        stdout = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            seed_path = Path(tmpdir) / "tool_use_seed.jsonl"
+            with patch("navi_agent.cli.build_application", return_value=fake_app):
+                with patch("navi_agent.cli.get_eval_seed_path", return_value=seed_path):
+                    with patch("builtins.input", return_value="y"):
+                        with patch("sys.argv", ["navi-agent", "--review-eval-case"]):
+                            with redirect_stdout(stdout):
+                                exit_code = main()
+
+            cases = ToolUseEvalCaseStore(seed_path).list_cases()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(fake_app.saved_candidates[0].status, "accepted")
+        self.assertEqual(len(cases), 1)
+        self.assertEqual(cases[0].id, "case-1")
+        self.assertEqual(cases[0].required_tools, ["read_file"])
+        self.assertIn("tool_use_seed_promoted:", stdout.getvalue())
+        self.assertIn("candidate_status: accepted", stdout.getvalue())
+
+    def test_main_reviews_non_tool_use_eval_candidate_without_seed_promotion(self) -> None:
+        fake_app = FakeApp()
+        fake_app.saved_candidates.append(
+            EvolutionCandidate(
+                target="eval_case",
+                summary="Generic eval candidate",
+                rationale="runtime signal",
+                candidate_id="eval-1",
+                metadata={"session_id": "s1"},
+            )
+        )
+        stdout = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            seed_path = Path(tmpdir) / "tool_use_seed.jsonl"
+            with patch("navi_agent.cli.build_application", return_value=fake_app):
+                with patch("navi_agent.cli.get_eval_seed_path", return_value=seed_path):
+                    with patch("builtins.input", return_value="y"):
+                        with patch("sys.argv", ["navi-agent", "--review-eval-case"]):
+                            with redirect_stdout(stdout):
+                                exit_code = main()
+
+            seed_exists = seed_path.exists()
+
+        self.assertEqual(exit_code, 0)
+        self.assertFalse(seed_exists)
+        self.assertNotIn("tool_use_seed_promoted:", stdout.getvalue())
 
     def test_main_prints_disabled_background_review_status(self) -> None:
         fake_app = FakeApp()
