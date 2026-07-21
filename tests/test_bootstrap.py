@@ -81,7 +81,7 @@ class BootstrapTests(unittest.TestCase):
         with patch("navi_agent.bootstrap.SQLiteSessionStore"):
             with patch("navi_agent.bootstrap.setup_logging"):
                 with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
-                    build_runtime(
+                    runtime = build_runtime(
                         model_settings=ModelSettings(model="demo", api_key="x"),
                         runtime_settings=RuntimeSettings(max_iterations=3),
                         approval_provider=provider,
@@ -91,6 +91,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIs(kwargs["approval_provider"], provider)
         self.assertIsInstance(kwargs["memory_store"], FileMemoryStore)
         self.assertIsInstance(kwargs["skill_store"], FileSkillStore)
+        self.assertIs(kwargs["background_task_manager"], runtime._background_task_manager)
 
     def test_build_runtime_uses_composite_trace_store_when_langfuse_enabled(self) -> None:
         with patch("navi_agent.bootstrap.SQLiteSessionStore"):

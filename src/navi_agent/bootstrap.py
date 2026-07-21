@@ -32,6 +32,7 @@ from navi_agent.paths import (
 )
 from navi_agent.runtime import (
     AgentRuntime,
+    BackgroundTaskManager,
     ContextEngine,
     LLMContextSummarizer,
     PromptBuilder,
@@ -71,6 +72,7 @@ def build_runtime(
     memory_store = memory_store or FileMemoryStore(get_memories_dir())
     skill_store = skill_store or FileSkillStore(get_skills_dir())
     trace_store = _build_trace_store(config)
+    background_task_manager = BackgroundTaskManager()
 
     return AgentRuntime(
         transport=transport,
@@ -82,6 +84,7 @@ def build_runtime(
         ),
         trace_store=trace_store,
         event_store=JsonlRuntimeEventStore(get_runtime_event_store_path()),
+        background_task_manager=background_task_manager,
         context_engine=ContextEngine(
             context_limit_tokens=model_settings.context_limit_tokens,
             summarizer=LLMContextSummarizer(transport),
@@ -90,6 +93,7 @@ def build_runtime(
             memory_store=memory_store,
             approval_provider=approval_provider,
             skill_store=skill_store,
+            background_task_manager=background_task_manager,
         ),
         max_iterations=runtime_settings.max_iterations,
     )

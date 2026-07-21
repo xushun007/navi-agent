@@ -1,4 +1,5 @@
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -6,6 +7,7 @@ from navi_agent.tooling import ToolDecision
 from navi_agent.evolution import FileSkillStore
 from navi_agent.runtime import (
     AgentRuntime,
+    BackgroundTaskManager,
     ContextEngine,
     InMemorySessionStore,
     LLMContextSummarizer,
@@ -163,6 +165,48 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(events[4].source, "tool")
         self.assertEqual(events[4].payload["tool_name"], "echo")
         self.assertEqual(events[6].payload["status"], "success")
+
+    def test_runtime_injects_completed_background_task_before_model_call(self) -> None:
+        manager = BackgroundTaskManager()
+        task = manager.submit(
+            session_id="s1",
+            user_id="u1",
+            description="run tests",
+            runner=lambda: ToolResult.ok(name="bash", content="42 passed"),
+        )
+        deadline = time.monotonic() + 2
+        while manager.get(task.task_id, session_id="s1", user_id="u1").status not in {
+            "succeeded",
+            "failed",
+        }:
+            if time.monotonic() >= deadline:
+                self.fail("background task did not finish")
+            time.sleep(0.01)
+        transport = FakeTransport([ModelResponse(content="tests passed")])
+        event_store = InMemoryRuntimeEventStore()
+        runtime = AgentRuntime(
+            transport=transport,
+            background_task_manager=manager,
+            event_store=event_store,
+        )
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="what is the status?",
+        )
+
+        notification = next(
+            message
+            for message in transport.calls[0].messages
+            if message.content.startswith("[Background task completed]")
+        )
+        self.assertEqual(notification.role, "system")
+        self.assertIn(task.task_id, notification.content)
+        self.assertIn("42 passed", notification.content)
+        self.assertEqual(result.final_response, "tests passed")
+        events = event_store.list_events(session_id="s1")
+        self.assertIn("background_task.completed", [event.name for event in events])
 
     def test_runtime_executes_tool_calls_then_continues_loop(self) -> None:
         transport = FakeTransport(

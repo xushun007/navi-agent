@@ -1,8 +1,9 @@
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
-from navi_agent.runtime import ToolContext
+from navi_agent.runtime import BackgroundTaskManager, ToolContext
 from navi_agent.tools import BashTool
 
 
@@ -67,6 +68,37 @@ class BashToolTests(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertIn("Background commands", result.content)
+
+    def test_submits_background_command_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = BackgroundTaskManager()
+            tool = BashTool(
+                root=Path(tmpdir),
+                default_timeout_seconds=5,
+                background_task_manager=manager,
+            )
+            started = time.monotonic()
+            result = tool.invoke(
+                context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+                command="python -c 'import time; time.sleep(0.5); print(42)'",
+                background=True,
+            )
+
+            self.assertLess(time.monotonic() - started, 0.25)
+            self.assertEqual(result.status, "success")
+            task_id = result.structured_content["task_id"]
+            deadline = time.monotonic() + 2
+            while manager.get(task_id, session_id="s1", user_id="u1").status not in {
+                "succeeded",
+                "failed",
+            }:
+                if time.monotonic() >= deadline:
+                    self.fail("background command did not finish")
+                time.sleep(0.01)
+            task = manager.get(task_id, session_id="s1", user_id="u1")
+
+        self.assertEqual(task.status, "succeeded")
+        self.assertIn("42", task.result.content)
 
     def test_rejects_dangerous_commands(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -9,6 +9,7 @@ from uuid import uuid4
 from navi_agent.errors import classify_exception
 from navi_agent.tooling import ToolContext
 
+from .background_tasks import BackgroundTask, BackgroundTaskManager
 from .context_engine import ContextBuildResult, ContextEngine, LLMContextSummarizer
 from .models import Message, RuntimeEvent, RuntimeResult
 from .observers import RuntimeObserver
@@ -140,6 +141,7 @@ class AgentRuntime:
         enabled_toolsets: list[str] | None = None,
         disabled_toolsets: list[str] | None = None,
         event_store: RuntimeEventStore | None = None,
+        background_task_manager: BackgroundTaskManager | None = None,
         max_iterations: int = 8,
     ) -> None:
         self._transport = transport
@@ -153,6 +155,7 @@ class AgentRuntime:
         self._enabled_toolsets = enabled_toolsets
         self._disabled_toolsets = disabled_toolsets
         self._event_store = event_store
+        self._background_task_manager = background_task_manager
         self._max_iterations = max_iterations
 
     def run_conversation(
@@ -208,6 +211,38 @@ class AgentRuntime:
             )
         )
         session = self._session_store.load(session_id=session_id, user_id=user_id)
+
+        def inject_background_notifications(iteration: int) -> None:
+            if self._background_task_manager is None:
+                return
+            for task in self._background_task_manager.drain_completed(
+                session_id=session_id,
+                user_id=user_id,
+            ):
+                content = self._render_background_notification(task)
+                self._session_store.append(session, Message(role="system", content=content))
+                metadata = {
+                    "task_id": task.task_id,
+                    "status": task.status,
+                    "description": task.description,
+                }
+                self._emit_event(
+                    RuntimeEvent(
+                        name="background_task.completed",
+                        session_id=session_id,
+                        user_id=user_id,
+                        iteration=iteration,
+                        metadata=metadata,
+                    )
+                )
+                record_stream_event(
+                    kind="observation",
+                    source="background_task",
+                    name="background_task.completed",
+                    iteration=iteration,
+                    payload={**metadata, "content": content},
+                )
+
         record_stream_event(
             kind="action",
             source="user",
@@ -240,6 +275,7 @@ class AgentRuntime:
                     iteration=iteration_number,
                 )
             )
+            inject_background_notifications(iteration_number)
             model_started_at = _utc_now_iso()
             model_started_perf = perf_counter()
             session_snapshot = self._session_store.snapshot(session)
@@ -594,6 +630,25 @@ class AgentRuntime:
             payload={"status": result.status, "error_type": "IterationLimitExceeded"},
         )
         return result
+
+    @staticmethod
+    def _render_background_notification(task: BackgroundTask) -> str:
+        lines = [
+            "[Background task completed]",
+            f"task_id: {task.task_id}",
+            f"status: {task.status}",
+            f"description: {task.description}",
+        ]
+        if task.result is not None:
+            lines.extend(
+                [
+                    f"tool: {task.result.name}",
+                    f"tool_status: {task.result.status}",
+                    "result:",
+                    task.result.content,
+                ]
+            )
+        return "\n".join(lines)
 
     def _record_trace(
         self,
