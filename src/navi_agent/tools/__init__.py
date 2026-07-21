@@ -2,6 +2,7 @@ from .base import BaseTool, FunctionTool
 from .bash_tool import BashTool
 from .background_task_tool import BackgroundTaskTool
 from .code_executor_tool import CodeExecutorTool
+from .cron_tool import CronTool
 from .memory_tool import MemoryTool
 from .patch_tool import PatchTool
 from .read_file_tool import ReadFileTool
@@ -14,6 +15,7 @@ __all__ = [
     "BashTool",
     "BackgroundTaskTool",
     "CodeExecutorTool",
+    "CronTool",
     "FunctionTool",
     "MemoryTool",
     "PatchTool",

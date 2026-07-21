@@ -19,6 +19,7 @@ class DefaultsTest(unittest.TestCase):
                 "patch",
                 "memory",
                 "todo",
+                "cron",
             },
         )
 
@@ -30,3 +31,5 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(terminal_tools, {"bash", "background_task"})
         code_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["code"])}
         self.assertEqual(code_tools, {"code_executor"})
+        scheduler_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["scheduler"])}
+        self.assertEqual(scheduler_tools, {"cron"})
