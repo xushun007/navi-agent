@@ -33,7 +33,7 @@ class ContextEngine:
     def __init__(
         self,
         *,
-        context_limit_tokens: int = 32_000,
+        context_limit_tokens: int = 128_000,
         reserved_output_tokens: int = 4_000,
         compression_threshold_ratio: float = 0.75,
         protect_first_messages: int = 3,

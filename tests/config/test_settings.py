@@ -41,6 +41,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.model, "gpt-4o-mini")
         self.assertEqual(settings.api_key, "openai-key")
         self.assertEqual(settings.base_url, "https://openai-compatible.test/v1")
+        self.assertEqual(settings.context_limit_tokens, 128000)
 
     def test_load_config_reads_yaml_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
