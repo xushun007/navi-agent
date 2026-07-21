@@ -43,6 +43,14 @@ def get_runtime_event_store_path() -> Path:
     return get_logs_dir() / "runtime-events.jsonl"
 
 
+def get_cron_jobs_path() -> Path:
+    return get_navi_home() / "cron" / "jobs.json"
+
+
+def get_cron_tick_lock_path() -> Path:
+    return get_navi_home() / "cron" / ".tick.lock"
+
+
 def get_evolution_dir() -> Path:
     return get_navi_home() / "evolution"
 
