@@ -50,3 +50,29 @@ def test_completed_notifications_are_drained_once_and_scoped() -> None:
     assert [item.task_id for item in notifications] == [task.task_id]
     assert notifications[0].status == "failed"
     assert manager.drain_completed(session_id="s1", user_id="u1") == []
+
+
+def test_completion_listeners_are_notified_and_fail_open() -> None:
+    manager = BackgroundTaskManager()
+    notified = threading.Event()
+    received = []
+
+    def failing_listener(_task) -> None:
+        raise RuntimeError("listener failed")
+
+    def recording_listener(task) -> None:
+        received.append(task)
+        notified.set()
+
+    manager.add_completion_listener(failing_listener)
+    manager.add_completion_listener(recording_listener)
+    task = manager.submit(
+        session_id="s1",
+        user_id="u1",
+        description="tests",
+        runner=lambda: ToolResult.ok(name="bash", content="passed"),
+    )
+
+    assert notified.wait(timeout=2)
+    assert received[0].task_id == task.task_id
+    assert received[0].status == "succeeded"

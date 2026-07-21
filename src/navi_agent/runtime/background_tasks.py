@@ -3,10 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+import logging
 import threading
 from uuid import uuid4
 
 from navi_agent.tooling import ToolResult
+
+logger = logging.getLogger("navi_agent.runtime.background_tasks")
 
 
 def _utc_now_iso() -> str:
@@ -37,6 +40,11 @@ class BackgroundTaskManager:
         self._lock = threading.Lock()
         self._slots = threading.Semaphore(max_concurrent_tasks)
         self._max_pending_tasks = max_pending_tasks
+        self._completion_listeners: list[Callable[[BackgroundTask], None]] = []
+
+    def add_completion_listener(self, listener: Callable[[BackgroundTask], None]) -> None:
+        with self._lock:
+            self._completion_listeners.append(listener)
 
     def submit(
         self,
@@ -121,3 +129,10 @@ class BackgroundTaskManager:
                 task.result = result
                 task.status = "succeeded" if result.status == "success" else "failed"
                 task.completed_at = _utc_now_iso()
+                snapshot = replace(task)
+                listeners = list(self._completion_listeners)
+            for listener in listeners:
+                try:
+                    listener(snapshot)
+                except Exception:
+                    logger.exception("Background task completion listener failed: task_id=%s", task_id)

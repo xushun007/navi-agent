@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -27,7 +28,7 @@ from navi_agent.evolution import (
     ReviewTriggerPolicy,
 )
 from navi_agent.memory import MemoryStore
-from navi_agent.runtime import AgentRuntime, RuntimeResult
+from navi_agent.runtime import AgentRuntime, BackgroundTask, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
 
@@ -119,6 +120,9 @@ class ApplicationService:
             session_id=session_id,
             user_id=user_id,
         )
+
+    def add_background_task_listener(self, listener: Callable[[BackgroundTask], None]) -> bool:
+        return self._runtime.add_background_task_listener(listener)
 
     def get_session_traces(
         self,

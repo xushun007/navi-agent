@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from time import perf_counter
 from uuid import uuid4
 
@@ -157,6 +157,12 @@ class AgentRuntime:
         self._event_store = event_store
         self._background_task_manager = background_task_manager
         self._max_iterations = max_iterations
+
+    def add_background_task_listener(self, listener: Callable[[BackgroundTask], None]) -> bool:
+        if self._background_task_manager is None:
+            return False
+        self._background_task_manager.add_completion_listener(listener)
+        return True
 
     def run_conversation(
         self,
