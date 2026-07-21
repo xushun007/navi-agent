@@ -1024,6 +1024,7 @@ class CliTests(unittest.TestCase):
         )
         self.assertIn("powered by xushun", stdout.getvalue())
         self.assertIn("Interactive session: s1", stdout.getvalue())
+        self.assertIn("Shift+Enter for a newline", stdout.getvalue())
         self.assertEqual(stdout.getvalue().strip().splitlines()[-2:], ["done", "done"])
 
     def test_read_interactive_message_uses_prompt_session(self) -> None:

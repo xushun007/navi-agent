@@ -8,6 +8,7 @@ from time import sleep
 from uuid import uuid4
 
 from navi_agent.app import AppRequest
+from navi_agent.cli_input import install_shift_enter_alias
 from navi_agent.banner import render_banner
 from navi_agent.bootstrap import build_application
 from navi_agent.config import WeixinGatewaySettings, load_config
@@ -1650,7 +1651,7 @@ def _run_interactive(
 ) -> int:
     print(render_banner())
     print(f"Interactive session: {session_id}")
-    print("Type 'exit' or 'quit' to stop. Use Esc+Enter for a newline.")
+    print("Type 'exit' or 'quit' to stop. Use Shift+Enter for a newline.")
 
     pending_message = first_message
     prompt_session = _build_interactive_prompt_session()
@@ -1690,13 +1691,14 @@ def _build_interactive_prompt_session():
         from prompt_toolkit.styles import Style
     except ImportError:
         return None
+    install_shift_enter_alias()
     bindings = KeyBindings()
 
     @bindings.add("enter")
     def _(event):
         event.current_buffer.validate_and_handle()
 
-    @bindings.add("escape", "enter")
+    @bindings.add("f24")
     def _(event):
         event.current_buffer.insert_text("\n")
 
@@ -1712,11 +1714,12 @@ def _build_interactive_prompt_session():
         style=Style.from_dict(
             {
                 "prompt": "ansibrightyellow bold",
+                "placeholder": "ansibrightblack italic",
                 "toolbar": "ansibrightblack",
             }
         ),
         bottom_toolbar=HTML(
-            "<toolbar> Enter send · Esc+Enter newline · Ctrl-C/exit quit </toolbar>"
+            "<toolbar> Enter send · Shift+Enter newline · Ctrl-C/exit quit </toolbar>"
         ),
     )
 
