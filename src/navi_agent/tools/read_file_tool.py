@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from navi_agent.tooling import ToolArtifact, ToolContext, ToolResult
@@ -8,8 +10,14 @@ from .workspace_tool import WorkspaceTool
 
 
 class ReadFileTool(WorkspaceTool):
-    def __init__(self, root=None, default_line_count: int = 200, max_line_count: int = 500) -> None:
-        super().__init__(root=root)
+    def __init__(
+        self,
+        root=None,
+        default_line_count: int = 200,
+        max_line_count: int = 500,
+        additional_roots: Iterable[Path] | None = None,
+    ) -> None:
+        super().__init__(root=root, additional_roots=additional_roots)
         self._default_line_count = default_line_count
         self._max_line_count = max_line_count
 
@@ -19,7 +27,7 @@ class ReadFileTool(WorkspaceTool):
 
     @property
     def description(self) -> str:
-        return "Read a text file from the workspace."
+        return "Read a text file from the workspace or an explicitly added directory."
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -71,7 +79,7 @@ class ReadFileTool(WorkspaceTool):
             name=self.name,
             content=content,
             structured_content={
-                "path": str(resolved.relative_to(self.root)),
+                "path": self._display_path(resolved),
                 "start_line": start_line,
                 "requested_line_count": requested_line_count,
                 "line_count": len(selected),
@@ -83,7 +91,7 @@ class ReadFileTool(WorkspaceTool):
                 ToolArtifact(
                     kind="file",
                     uri=str(resolved),
-                    title=str(resolved.relative_to(self.root)),
+                    title=self._display_path(resolved),
                     mime_type="text/plain",
                 )
             ],

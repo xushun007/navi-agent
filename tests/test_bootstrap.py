@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from navi_agent.bootstrap import build_runtime
@@ -92,6 +94,26 @@ class BootstrapTests(unittest.TestCase):
         self.assertIsInstance(kwargs["memory_store"], FileMemoryStore)
         self.assertIsInstance(kwargs["skill_store"], FileSkillStore)
         self.assertIs(kwargs["background_task_manager"], runtime._background_task_manager)
+
+    def test_build_runtime_passes_workspace_roots_to_registry_and_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace, tempfile.TemporaryDirectory() as added:
+            with patch("navi_agent.bootstrap.SQLiteSessionStore"):
+                with patch("navi_agent.bootstrap.setup_logging"):
+                    with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+                        runtime = build_runtime(
+                            model_settings=ModelSettings(model="demo", api_key="x"),
+                            runtime_settings=RuntimeSettings(max_iterations=3),
+                            workspace_root=Path(workspace),
+                            additional_workspace_roots=[Path(added)],
+                        )
+
+        _, kwargs = build_registry_mock.call_args
+        self.assertEqual(kwargs["root"], Path(workspace).resolve())
+        self.assertEqual(kwargs["additional_roots"], (Path(added).resolve(),))
+        self.assertEqual(
+            runtime._prompt_builder._additional_workspace_roots,
+            (Path(added).resolve(),),
+        )
 
     def test_build_runtime_uses_composite_trace_store_when_langfuse_enabled(self) -> None:
         with patch("navi_agent.bootstrap.SQLiteSessionStore"):

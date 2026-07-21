@@ -39,6 +39,14 @@ Run local interactive chat:
 navi-agent
 ```
 
+Allow a local session to access additional directories explicitly:
+
+```bash
+navi-agent --add-dir ../shared --add-dir /path/to/another-repo
+```
+
+`--add-dir` is repeatable. Each directory must exist when the session starts.
+
 By default Navi Agent stores config, memory, skills, logs, and gateway state under `~/.navi-agent`.
 Use `NAVI_PROFILE=work` for an isolated profile under `~/.navi-agent/profiles/work`, or set
 `NAVI_HOME=/path/to/.navi-agent` when you want a fully custom home directory.

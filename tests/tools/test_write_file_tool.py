@@ -51,3 +51,14 @@ class WriteFileToolTests(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertIn("changed since last read", result.content)
+
+    def test_writes_file_to_added_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace, tempfile.TemporaryDirectory() as added:
+            target = Path(added) / "external.txt"
+            tool = WriteFileTool(root=Path(workspace), additional_roots=[Path(added)])
+
+            result = tool.invoke(path=str(target), content="external\n")
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.structured_content["path"], str(target.resolve()))
+            self.assertEqual(target.read_text(encoding="utf-8"), "external\n")

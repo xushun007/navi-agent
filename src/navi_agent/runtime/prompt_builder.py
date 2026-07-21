@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -60,6 +61,7 @@ class PromptBuilder:
         memory_limit: int = 5,
         skill_store: SkillIndexStore | None = None,
         project_context_root: Path | None = None,
+        additional_workspace_roots: Iterable[Path] | None = None,
     ) -> None:
         if memory_limit <= 0:
             raise ValueError("memory_limit must be positive")
@@ -67,6 +69,9 @@ class PromptBuilder:
         self._memory_limit = memory_limit
         self._skill_store = skill_store
         self._project_context_root = project_context_root
+        self._additional_workspace_roots = tuple(
+            Path(root).resolve() for root in additional_workspace_roots or ()
+        )
         self._last_injected_skill_names: list[str] = []
         self._last_injected_context_files: list[str] = []
 
@@ -108,7 +113,13 @@ class PromptBuilder:
         self._last_injected_context_files = []
         stable = "\n\n".join([BASE_SYSTEM_PROMPT, MEMORY_GUIDANCE, SKILL_GUIDANCE])
         context = "\n\n".join(
-            part for part in [system_prompt or "", self._build_project_context_block()] if part
+            part
+            for part in [
+                system_prompt or "",
+                self._build_workspace_block(),
+                self._build_project_context_block(),
+            ]
+            if part
         )
         volatile_parts = []
         memory_block = self._build_memory_block(user_id)
@@ -181,6 +192,17 @@ class PromptBuilder:
                 ]
             )
         return None
+
+    def _build_workspace_block(self) -> str | None:
+        if not self._additional_workspace_roots:
+            return None
+        return "\n".join(
+            [
+                "[Allowed Directories]",
+                "File tools may access the primary workspace and these explicitly added directories:",
+                *(f"- {root}" for root in self._additional_workspace_roots),
+            ]
+        )
 
     @staticmethod
     def _truncate_project_context(content: str) -> str:

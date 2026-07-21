@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from time import sleep
 from uuid import uuid4
 
@@ -115,6 +116,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--banner", action="store_true")
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("-y", "--yolo", action="store_true")
+    parser.add_argument(
+        "--add-dir",
+        action="append",
+        default=[],
+        type=_existing_directory,
+        help="Allow access to an additional directory for this local agent session. Repeatable.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--doctor", action="store_true")
     parser.add_argument("--doctor-gateway", choices=["weixin"])
@@ -317,6 +325,7 @@ def main() -> int:
     app = build_application(
         default_system_prompt=args.system_prompt,
         approval_provider=_build_approval_provider(args),
+        additional_workspace_roots=args.add_dir,
     )
     if args.interactive or not args.message:
         return _run_interactive(
@@ -343,6 +352,13 @@ def _build_approval_provider(args):
     if getattr(args, "yolo", False):
         return WorkspaceYoloApprovalProvider()
     return CliApprovalProvider()
+
+
+def _existing_directory(value: str) -> Path:
+    path = Path(value).expanduser().resolve()
+    if not path.is_dir():
+        raise argparse.ArgumentTypeError(f"directory does not exist: {value}")
+    return path
 
 
 def _init_config() -> int:

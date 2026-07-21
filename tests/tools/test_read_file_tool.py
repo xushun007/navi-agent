@@ -51,3 +51,30 @@ class ReadFileToolTests(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertIn("binary file", result.content)
+
+    def test_reads_file_from_added_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace, tempfile.TemporaryDirectory() as added:
+            added_file = Path(added) / "external.txt"
+            added_file.write_text("external\n", encoding="utf-8")
+            tool = ReadFileTool(root=Path(workspace), additional_roots=[Path(added)])
+
+            result = tool.invoke(path=str(added_file))
+
+        self.assertEqual(result.status, "success")
+        self.assertIn("1: external", result.content)
+        self.assertEqual(result.structured_content["path"], str(added_file.resolve()))
+
+    def test_rejects_file_outside_workspace_and_added_directories(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as workspace,
+            tempfile.TemporaryDirectory() as added,
+            tempfile.TemporaryDirectory() as outside,
+        ):
+            outside_file = Path(outside) / "outside.txt"
+            outside_file.write_text("outside\n", encoding="utf-8")
+            tool = ReadFileTool(root=Path(workspace), additional_roots=[Path(added)])
+
+            result = tool.invoke(path=str(outside_file))
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("outside workspace and added directories", result.content)

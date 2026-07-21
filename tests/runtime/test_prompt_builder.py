@@ -27,6 +27,16 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn("Be nice", msgs[0].content)
         self.assertEqual(msgs[1].role, "user")
 
+    def test_added_workspace_roots_are_in_system_context(self) -> None:
+        with TemporaryDirectory() as added:
+            builder = PromptBuilder(additional_workspace_roots=[Path(added)])
+            session = ConversationState(session_id="s1", user_id="u1")
+
+            messages = builder.build_initial_messages(session, "inspect external files")
+
+        self.assertIn("[Allowed Directories]", messages[0].content)
+        self.assertIn(str(Path(added).resolve()), messages[0].content)
+
     def test_new_session_with_memory(self) -> None:
         self.memory.add_for_user("u1", "Likes Python")
         session = ConversationState(session_id="s1", user_id="u1")
