@@ -2,14 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+from threading import Event, Lock
 from time import sleep
 
 from navi_agent.app import AppRequest, ApplicationService
+from navi_agent.runtime import BackgroundTask
 
 from .ilink import ILinkClient, ILinkMessage, load_sync_buf, save_sync_buf
 from .pairing import WeixinPairingStore
 
 logger = logging.getLogger("navi_agent.gateway.weixin.local")
+
+
+@dataclass(slots=True)
+class _BackgroundRoute:
+    user_id: str
+    to_user_id: str
+    context_token: str | None
+    reply_sent: Event = field(default_factory=Event)
 
 
 @dataclass(slots=True)
@@ -23,6 +33,17 @@ class ILinkGateway:
     pairing_store: WeixinPairingStore | None = None
     error_backoff_seconds: float = 5.0
     seen_message_ids: set[str] = field(default_factory=set)
+    _background_routes: dict[str, _BackgroundRoute] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _background_routes_lock: Lock = field(default_factory=Lock, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        register_listener = getattr(self.app, "add_background_task_listener", None)
+        if callable(register_listener):
+            register_listener(self._send_background_notification)
 
     def run_forever(self) -> None:
         sync_buf = load_sync_buf(self.account_id)
@@ -83,32 +104,82 @@ class ILinkGateway:
         )
         if not self._is_allowed(message):
             return
-        result = self.app.handle(
-            AppRequest(
-                user_id=message.user_id,
-                session_id=message.session_id,
-                message=message.text,
+        route = self._remember_background_route(message)
+        try:
+            result = self.app.handle(
+                AppRequest(
+                    user_id=message.user_id,
+                    session_id=message.session_id,
+                    message=message.text,
+                )
             )
-        )
-        send_result = self.client.send_text(
+            send_result = self.client.send_text(
+                to_user_id=message.from_user_id,
+                text=result.final_response,
+                context_token=message.context_token,
+            )
+            if not send_result.success:
+                logger.warning(
+                    "Weixin reply send failed: message_id=%s user_id=%s error=%s",
+                    message.message_id,
+                    message.user_id,
+                    send_result.error,
+                )
+            else:
+                logger.info(
+                    "Weixin reply sent: message_id=%s user_id=%s response_length=%s",
+                    message.message_id,
+                    message.user_id,
+                    len(result.final_response),
+                )
+        finally:
+            route.reply_sent.set()
+
+    def _remember_background_route(self, message: ILinkMessage) -> _BackgroundRoute:
+        route = _BackgroundRoute(
+            user_id=message.user_id,
             to_user_id=message.from_user_id,
-            text=result.final_response,
             context_token=message.context_token,
+        )
+        with self._background_routes_lock:
+            self._background_routes[message.session_id] = route
+        return route
+
+    def _send_background_notification(self, task: BackgroundTask) -> None:
+        with self._background_routes_lock:
+            route = self._background_routes.get(task.session_id)
+        if route is None or route.user_id != task.user_id:
+            logger.warning(
+                "Skipped background task notification without route: task_id=%s session_id=%s",
+                task.task_id,
+                task.session_id,
+            )
+            return
+        route.reply_sent.wait()
+        send_result = self.client.send_text(
+            to_user_id=route.to_user_id,
+            text=self._render_background_notification(task),
+            context_token=route.context_token,
         )
         if not send_result.success:
             logger.warning(
-                "Weixin reply send failed: message_id=%s user_id=%s error=%s",
-                message.message_id,
-                message.user_id,
+                "Weixin background task notification failed: task_id=%s user_id=%s error=%s",
+                task.task_id,
+                task.user_id,
                 send_result.error,
             )
-        else:
-            logger.info(
-                "Weixin reply sent: message_id=%s user_id=%s response_length=%s",
-                message.message_id,
-                message.user_id,
-                len(result.final_response),
-            )
+
+    @staticmethod
+    def _render_background_notification(task: BackgroundTask) -> str:
+        lines = [
+            "[Background task completed]",
+            f"task_id: {task.task_id}",
+            f"status: {task.status}",
+            f"description: {task.description}",
+        ]
+        if task.result is not None:
+            lines.extend(["result:", task.result.content])
+        return "\n".join(lines)
 
     def _is_allowed(self, message: ILinkMessage) -> bool:
         if message.chat_type != "dm":

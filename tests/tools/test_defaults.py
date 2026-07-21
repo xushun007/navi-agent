@@ -9,7 +9,18 @@ class DefaultsTest(unittest.TestCase):
         names = {s["name"] for s in schemas}
         self.assertEqual(
             names,
-            {"bash", "code_executor", "read_file", "search_files", "write_file", "patch", "memory", "todo", "cron"},
+            {
+                "bash",
+                "background_task",
+                "code_executor",
+                "read_file",
+                "search_files",
+                "write_file",
+                "patch",
+                "memory",
+                "todo",
+                "cron",
+            },
         )
 
     def test_toolset_filtering(self) -> None:
@@ -17,7 +28,7 @@ class DefaultsTest(unittest.TestCase):
         file_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["file"])}
         self.assertEqual(file_tools, {"read_file", "search_files", "write_file", "patch"})
         terminal_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["terminal"])}
-        self.assertEqual(terminal_tools, {"bash"})
+        self.assertEqual(terminal_tools, {"bash", "background_task"})
         code_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["code"])}
         self.assertEqual(code_tools, {"code_executor"})
         scheduler_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["scheduler"])}

@@ -7,6 +7,7 @@ from .approval import (
     DenyAllApprovalProvider,
     WorkspaceYoloApprovalProvider,
 )
+from .background_tasks import BackgroundTask, BackgroundTaskManager
 from .context_engine import ContextBuildResult, ContextEngine, ContextSummarizer, LLMContextSummarizer
 from .engine import AgentRuntime
 from .models import (
@@ -39,6 +40,8 @@ __all__ = [
     "ApprovalRequest",
     "AllowAllToolPolicy",
     "AutoApproveApprovalProvider",
+    "BackgroundTask",
+    "BackgroundTaskManager",
     "CliApprovalProvider",
     "ContextBuildResult",
     "ContextEngine",

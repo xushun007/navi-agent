@@ -4,11 +4,14 @@ import re
 import shlex
 import subprocess
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from navi_agent.tooling import ToolContext, ToolResult
 
 from .workspace_tool import WorkspaceTool
+
+if TYPE_CHECKING:
+    from navi_agent.runtime.background_tasks import BackgroundTaskManager
 
 
 class BashTool(WorkspaceTool):
@@ -29,11 +32,13 @@ class BashTool(WorkspaceTool):
         default_timeout_seconds: int = 20,
         max_timeout_seconds: int = 60,
         max_output_chars: int = 20_000,
+        background_task_manager: BackgroundTaskManager | None = None,
     ) -> None:
         super().__init__(root=root)
         self._default_timeout_seconds = default_timeout_seconds
         self._max_timeout_seconds = max_timeout_seconds
         self._max_output_chars = max_output_chars
+        self._background_task_manager = background_task_manager
 
     @property
     def name(self) -> str:
@@ -41,7 +46,7 @@ class BashTool(WorkspaceTool):
 
     @property
     def description(self) -> str:
-        return "Execute a shell command inside the workspace."
+        return "Execute a shell command inside the workspace, optionally as a background task."
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -49,7 +54,12 @@ class BashTool(WorkspaceTool):
             "properties": {
                 "command": {"type": "string"},
                 "cwd": {"type": "string"},
-                "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60},
+                "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": self._max_timeout_seconds,
+                },
+                "background": {"type": "boolean"},
             },
             "required": ["command"],
         }
@@ -73,9 +83,53 @@ class BashTool(WorkspaceTool):
         if inspection_error is not None:
             return inspection_error
 
+        if kwargs.get("background") is True:
+            if context is None or self._background_task_manager is None:
+                return ToolResult.error(
+                    name=self.name,
+                    content="Background execution is not available",
+                    structured_content={"command": command, "background": True},
+                )
+            try:
+                task = self._background_task_manager.submit(
+                    session_id=context.session_id,
+                    user_id=context.user_id,
+                    description=command,
+                    runner=lambda: self._execute(
+                        command=command,
+                        cwd=cwd,
+                        timeout_seconds=timeout_seconds,
+                        emit_output=None,
+                    ),
+                )
+            except RuntimeError as exc:
+                return ToolResult.error(name=self.name, content=str(exc))
+            return ToolResult.ok(
+                name=self.name,
+                content=(
+                    f"Background task started\n"
+                    f"task_id: {task.task_id}\n"
+                    f"command: {command}"
+                ),
+                structured_content={
+                    "task_id": task.task_id,
+                    "status": task.status,
+                    "command": command,
+                    "background": True,
+                },
+                metadata={"cwd": str(cwd), "timeout_seconds": timeout_seconds, "command": command},
+            )
+
+        return self._execute(
+            command=command,
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+            emit_output=context.emit_output if context is not None else None,
+        )
+
+    def _execute(self, *, command: str, cwd, timeout_seconds: int, emit_output) -> ToolResult:
         stdout_chunks: list[str] = []
         stderr_chunks: list[str] = []
-        emit_output = context.emit_output if context is not None else None
 
         try:
             process = subprocess.Popen(

@@ -9,13 +9,18 @@ from unittest.mock import patch
 from navi_agent.gateway.weixin import ILinkClient, ILinkGateway
 from navi_agent.gateway.weixin.ilink import ILinkMessage, ILinkSendResult
 from navi_agent.gateway.weixin.pairing import WeixinPairingStore
-from navi_agent.runtime import RuntimeResult
+from navi_agent.runtime import BackgroundTask, RuntimeResult, ToolResult
 
 
 class FakeApp:
     def __init__(self, fail_for: set[str] | None = None) -> None:
         self.calls = []
         self.fail_for = fail_for or set()
+        self.background_task_listener = None
+
+    def add_background_task_listener(self, listener) -> bool:
+        self.background_task_listener = listener
+        return True
 
     def handle(self, request):
         self.calls.append(request)
@@ -152,6 +157,37 @@ class WeixinILinkTests(unittest.TestCase):
                 "context_token": "ctx-1",
             },
         )
+
+    def test_gateway_sends_completed_background_task_to_origin_session(self) -> None:
+        app = FakeApp()
+        client = FakeClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+        message = ILinkMessage(
+            message_id="m0",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="run tests",
+            context_token="ctx-1",
+        )
+        gateway.handle_message(message)
+        app.background_task_listener(
+            BackgroundTask(
+                task_id="task-1",
+                session_id=message.session_id,
+                user_id=message.user_id,
+                description="uv run pytest",
+                status="succeeded",
+                result=ToolResult.ok(name="bash", content="475 passed"),
+            )
+        )
+
+        self.assertEqual(len(client.sent), 2)
+        self.assertEqual(client.sent[1]["to_user_id"], "user-1")
+        self.assertEqual(client.sent[1]["context_token"], "ctx-1")
+        self.assertIn("task-1", client.sent[1]["text"])
+        self.assertIn("475 passed", client.sent[1]["text"])
 
     def test_gateway_pairing_policy_sends_code_before_approval(self) -> None:
         app = FakeApp()
