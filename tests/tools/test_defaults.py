@@ -7,7 +7,9 @@ from navi_agent.tools.defaults import build_default_tool_registry
 class DefaultsTest(unittest.TestCase):
     def test_all_tools_registered(self) -> None:
         schemas = build_default_tool_registry(
-            subagent_service=SubagentService(runtime_factory=lambda _tools, _parent: None)
+            subagent_service=SubagentService(
+                runtime_factory=lambda _tools, _parent, _non_interactive: None
+            )
         ).schemas()
         names = {s["name"] for s in schemas}
         self.assertEqual(
@@ -29,7 +31,9 @@ class DefaultsTest(unittest.TestCase):
 
     def test_toolset_filtering(self) -> None:
         registry = build_default_tool_registry(
-            subagent_service=SubagentService(runtime_factory=lambda _tools, _parent: None)
+            subagent_service=SubagentService(
+                runtime_factory=lambda _tools, _parent, _non_interactive: None
+            )
         )
         file_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["file"])}
         self.assertEqual(file_tools, {"read_file", "search_files", "write_file", "patch"})

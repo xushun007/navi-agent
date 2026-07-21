@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from threading import Lock
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -60,12 +61,14 @@ class InMemoryRuntimeEventStore:
 class JsonlRuntimeEventStore:
     def __init__(self, path: Path) -> None:
         self._path = path
+        self._lock = Lock()
 
     def record(self, event: RuntimeStreamEvent) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(asdict(event), ensure_ascii=False, sort_keys=True))
-            handle.write("\n")
+        with self._lock:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with self._path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(asdict(event), ensure_ascii=False, sort_keys=True))
+                handle.write("\n")
 
     def list_events(
         self,
@@ -76,12 +79,13 @@ class JsonlRuntimeEventStore:
         if not self._path.exists():
             return []
         events: list[RuntimeStreamEvent] = []
-        with self._path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                events.append(RuntimeStreamEvent(**json.loads(line)))
+        with self._lock:
+            with self._path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    events.append(RuntimeStreamEvent(**json.loads(line)))
         if session_id is not None:
             events = [event for event in events if event.session_id == session_id]
         if run_id is not None:

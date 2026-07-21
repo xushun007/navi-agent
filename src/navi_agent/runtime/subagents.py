@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import uuid4
@@ -14,6 +15,7 @@ Complete only the delegated task. You do not have the parent conversation, so re
 
 DEFAULT_SUBAGENT_TOOLSETS = ("file", "skills")
 ALLOWED_SUBAGENT_TOOLSETS = frozenset({"file", "terminal", "code", "skills"})
+MAX_CONCURRENT_SUBAGENTS = 3
 
 
 class SubagentRuntime(Protocol):
@@ -31,7 +33,15 @@ class SubagentRuntimeFactory(Protocol):
         self,
         enabled_toolsets: list[str],
         parent_session_id: str,
+        non_interactive: bool,
     ) -> SubagentRuntime: ...
+
+
+@dataclass(slots=True)
+class SubagentTask:
+    goal: str
+    context: str
+    toolsets: list[str] | None = None
 
 
 @dataclass(slots=True)
@@ -54,6 +64,7 @@ class SubagentService:
         parent_session_id: str,
         user_id: str,
         toolsets: list[str] | None = None,
+        non_interactive: bool = False,
     ) -> SubagentRun:
         normalized_goal = goal.strip()
         if not normalized_goal:
@@ -61,7 +72,11 @@ class SubagentService:
 
         selected_toolsets = self._normalize_toolsets(toolsets)
         child_session_id = f"{parent_session_id}:subagent:{uuid4().hex[:12]}"
-        runtime = self._runtime_factory(list(selected_toolsets), parent_session_id)
+        runtime = self._runtime_factory(
+            list(selected_toolsets),
+            parent_session_id,
+            non_interactive,
+        )
         result = runtime.run_conversation(
             session_id=child_session_id,
             user_id=user_id,
@@ -74,6 +89,38 @@ class SubagentService:
             final_response=result.final_response,
             toolsets=selected_toolsets,
         )
+
+    def run_many(
+        self,
+        *,
+        tasks: list[SubagentTask],
+        parent_session_id: str,
+        user_id: str,
+    ) -> list[SubagentRun]:
+        if not tasks:
+            raise ValueError("at least one subagent task is required")
+        if len(tasks) > MAX_CONCURRENT_SUBAGENTS:
+            raise ValueError(
+                f"subagent batch exceeds maximum of {MAX_CONCURRENT_SUBAGENTS} tasks"
+            )
+
+        with ThreadPoolExecutor(
+            max_workers=len(tasks),
+            thread_name_prefix="navi-subagent",
+        ) as executor:
+            futures = [
+                executor.submit(
+                    self.run,
+                    goal=task.goal,
+                    context=task.context,
+                    parent_session_id=parent_session_id,
+                    user_id=user_id,
+                    toolsets=task.toolsets,
+                    non_interactive=True,
+                )
+                for task in tasks
+            ]
+            return [future.result() for future in futures]
 
     @staticmethod
     def _normalize_toolsets(toolsets: list[str] | None) -> tuple[str, ...]:

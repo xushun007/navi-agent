@@ -40,7 +40,7 @@ from navi_agent.runtime import (
     SubagentService,
     build_transport,
 )
-from navi_agent.runtime.approval import ApprovalProvider
+from navi_agent.runtime.approval import ApprovalProvider, DenyAllApprovalProvider
 from navi_agent.telemetry import (
     CompositeTraceStore,
     JsonlRuntimeEventStore,
@@ -84,6 +84,7 @@ def build_runtime(
         enabled_toolsets: list[str] | None = None,
         include_delegation: bool,
         parent_session_id: str | None = None,
+        non_interactive: bool = False,
     ) -> AgentRuntime:
         runtime_background_tasks = (
             background_task_manager if include_delegation else BackgroundTaskManager()
@@ -105,7 +106,9 @@ def build_runtime(
             ),
             tool_registry=build_default_tool_registry(
                 memory_store=memory_store,
-                approval_provider=approval_provider,
+                approval_provider=(
+                    DenyAllApprovalProvider() if non_interactive else approval_provider
+                ),
                 skill_store=skill_store,
                 background_task_manager=runtime_background_tasks,
                 subagent_service=subagent_service if include_delegation else None,
@@ -118,10 +121,11 @@ def build_runtime(
         )
 
     subagent_service = SubagentService(
-        runtime_factory=lambda enabled_toolsets, parent_session_id: create_runtime(
+        runtime_factory=lambda enabled_toolsets, parent_session_id, non_interactive: create_runtime(
             enabled_toolsets=enabled_toolsets,
             include_delegation=False,
             parent_session_id=parent_session_id,
+            non_interactive=non_interactive,
         )
     )
     return create_runtime(include_delegation=True)
