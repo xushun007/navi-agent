@@ -8,7 +8,7 @@ from time import sleep
 from uuid import uuid4
 
 from navi_agent.app import AppRequest
-from navi_agent.cli_input import install_shift_enter_alias
+from navi_agent.cli_input import InteractivePromptSession
 from navi_agent.banner import render_banner
 from navi_agent.bootstrap import build_application
 from navi_agent.config import WeixinGatewaySettings, load_config
@@ -1684,44 +1684,9 @@ def _build_interactive_prompt_session():
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return None
     try:
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.formatted_text import HTML
-        from prompt_toolkit.history import InMemoryHistory
-        from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.styles import Style
+        return InteractivePromptSession()
     except ImportError:
         return None
-    install_shift_enter_alias()
-    bindings = KeyBindings()
-
-    @bindings.add("enter")
-    def _(event):
-        event.current_buffer.validate_and_handle()
-
-    @bindings.add("f24")
-    def _(event):
-        event.current_buffer.insert_text("\n")
-
-    @bindings.add("c-c")
-    def _(event):
-        event.app.exit(result="exit")
-
-    return PromptSession(
-        history=InMemoryHistory(),
-        multiline=True,
-        key_bindings=bindings,
-        prompt_continuation="  ",
-        style=Style.from_dict(
-            {
-                "prompt": "ansibrightyellow bold",
-                "placeholder": "ansibrightblack italic",
-                "toolbar": "ansibrightblack",
-            }
-        ),
-        bottom_toolbar=HTML(
-            "<toolbar> Enter send · Shift+Enter newline · Ctrl-C/exit quit </toolbar>"
-        ),
-    )
 
 
 def _read_interactive_message(prompt_session) -> str:
