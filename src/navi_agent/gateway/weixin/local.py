@@ -111,6 +111,7 @@ class ILinkGateway:
                     user_id=message.user_id,
                     session_id=message.session_id,
                     message=message.text,
+                    source="weixin",
                 )
             )
             send_result = self.client.send_text(

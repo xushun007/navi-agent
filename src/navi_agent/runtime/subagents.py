@@ -82,6 +82,7 @@ class SubagentService:
             user_id=user_id,
             user_message=self._build_task_prompt(goal=normalized_goal, context=context),
             system_prompt=SUBAGENT_SYSTEM_PROMPT,
+            source="subagent",
         )
         return SubagentRun(
             session_id=child_session_id,

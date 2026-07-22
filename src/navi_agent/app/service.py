@@ -40,6 +40,7 @@ class AppRequest:
     system_prompt: str | None = None
     auto_propose_eval_case: bool = True
     auto_propose_skill: bool = True
+    source: str = "console"
 
 
 class ApplicationService:
@@ -99,6 +100,7 @@ class ApplicationService:
             user_id=request.user_id,
             user_message=request.message,
             system_prompt=system_prompt,
+            source=request.source,
         )
         if request.auto_propose_eval_case or request.auto_propose_skill:
             self._maybe_add_runtime_candidates(

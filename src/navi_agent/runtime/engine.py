@@ -11,7 +11,7 @@ from navi_agent.tooling import ToolContext
 
 from .background_tasks import BackgroundTask, BackgroundTaskManager
 from .context_engine import ContextBuildResult, ContextEngine, LLMContextSummarizer
-from .models import Message, RuntimeEvent, RuntimeResult
+from .models import Message, RuntimeEvent, RuntimeResult, SessionMetadata
 from .observers import RuntimeObserver
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
@@ -145,6 +145,8 @@ class AgentRuntime:
         max_iterations: int = 8,
         agent_role: str = "primary",
         parent_session_id: str | None = None,
+        model: str | None = None,
+        cwd: str | None = None,
     ) -> None:
         self._transport = transport
         self._tool_registry = tool_registry or ToolRegistry()
@@ -161,6 +163,8 @@ class AgentRuntime:
         self._max_iterations = max_iterations
         self._agent_role = agent_role
         self._parent_session_id = parent_session_id
+        self._model = model
+        self._cwd = cwd
 
     def add_background_task_listener(self, listener: Callable[[BackgroundTask], None]) -> bool:
         if self._background_task_manager is None:
@@ -174,6 +178,7 @@ class AgentRuntime:
         user_id: str,
         user_message: str,
         system_prompt: str | None = None,
+        source: str = "console",
     ) -> RuntimeResult:
         run_started_at = _utc_now_iso()
         run_started_perf = perf_counter()
@@ -228,7 +233,17 @@ class AgentRuntime:
                 },
             )
         )
-        session = self._session_store.load(session_id=session_id, user_id=user_id)
+        session = self._session_store.load(
+            session_id=session_id,
+            user_id=user_id,
+            metadata=SessionMetadata(
+                source=source,
+                agent_role=self._agent_role,
+                parent_session_id=self._parent_session_id,
+                model=self._model,
+                cwd=self._cwd,
+            ),
+        )
 
         def inject_background_notifications(iteration: int) -> None:
             if self._background_task_manager is None:

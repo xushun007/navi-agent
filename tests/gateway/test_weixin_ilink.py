@@ -250,6 +250,7 @@ class WeixinILinkTests(unittest.TestCase):
             )
 
         self.assertEqual(app.calls[0].message, "hello")
+        self.assertEqual(app.calls[0].source, "weixin")
         self.assertEqual(client.sent[0]["text"], "agent reply")
 
     def test_gateway_tick_continues_after_message_failure(self) -> None:

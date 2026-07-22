@@ -36,6 +36,15 @@ class ConversationState:
     messages: list[Message] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class SessionMetadata:
+    source: str = "console"
+    agent_role: str = "primary"
+    parent_session_id: str | None = None
+    model: str | None = None
+    cwd: str | None = None
+
+
 @dataclass(slots=True)
 class RuntimeResult:
     session_id: str

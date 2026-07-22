@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from .models import ConversationState, Message
+from .models import ConversationState, Message, SessionMetadata
 
 
 class InMemorySessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, ConversationState] = {}
 
-    def load(self, session_id: str, user_id: str) -> ConversationState:
+    def load(
+        self,
+        session_id: str,
+        user_id: str,
+        metadata: SessionMetadata | None = None,
+    ) -> ConversationState:
         session = self._sessions.get(session_id)
         if session is None:
             session = ConversationState(session_id=session_id, user_id=user_id)
