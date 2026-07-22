@@ -339,6 +339,53 @@ class AgentRuntime:
             )
             return result
 
+        def finish_waiting(iteration: int, pending_result) -> RuntimeResult:
+            prompt = pending_result.structured_content.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip():
+                prompt = pending_result.content
+            result = RuntimeResult(
+                session_id=session.session_id,
+                status="awaiting_input",
+                final_response=prompt,
+                messages=self._session_store.snapshot(session),
+                tool_results=tool_results,
+            )
+            self._record_trace(
+                session_id=session.session_id,
+                user_id=user_id,
+                user_message=user_message,
+                system_prompt=system_prompt,
+                injected_skill_names=injected_skill_names,
+                result=result,
+                model_calls=model_calls,
+                tool_executions=tool_executions,
+                started_at=run_started_at,
+                duration_ms=_duration_ms(run_started_perf),
+                attempt_count=iteration,
+            )
+            payload = {
+                "status": result.status,
+                "interaction_id": pending_result.structured_content.get("interaction_id"),
+                "interaction_kind": pending_result.structured_content.get("interaction_kind"),
+                "prompt": prompt,
+            }
+            publish_event(
+                kind="observation",
+                source="runtime",
+                name="runtime.waiting",
+                iteration=iteration,
+                item_id=pending_result.tool_call_id,
+                payload=payload,
+            )
+            publish_event(
+                kind="observation",
+                source="runtime",
+                name="runtime.completed",
+                iteration=iteration,
+                payload={"status": result.status},
+            )
+            return result
+
         for iteration in range(self._max_iterations):
             iteration_number = iteration + 1
             if cancellation_token.is_cancelled:
@@ -649,6 +696,16 @@ class AgentRuntime:
                 )
             if cancellation_token.is_cancelled:
                 return finish_cancelled(iteration_number)
+            pending_result = next(
+                (
+                    item
+                    for item in tool_results
+                    if item.structured_content.get("interaction_pending") is True
+                ),
+                None,
+            )
+            if pending_result is not None:
+                return finish_waiting(iteration_number, pending_result)
 
         logger.error("Runtime iteration limit exceeded: session_id=%s", session_id)
         self._session_store.append(

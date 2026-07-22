@@ -1,5 +1,7 @@
 import threading
+import tempfile
 import unittest
+from pathlib import Path
 
 from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.evolution import (
@@ -8,7 +10,7 @@ from navi_agent.evolution import (
     NudgeReviewTriggerPolicy,
     SkillReviewEvidence,
 )
-from navi_agent.runtime import Message, RuntimeResult
+from navi_agent.runtime import JsonPendingInteractionStore, Message, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -275,6 +277,24 @@ class FakeSkillReviewAgentService:
 
 
 class ApplicationServiceTests(unittest.TestCase):
+    def test_user_reply_resolves_pending_clarification_before_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            interaction_store = JsonPendingInteractionStore(Path(tmpdir) / "pending.json")
+            interaction_store.create(
+                session_id="s1",
+                user_id="u1",
+                kind="clarification",
+                prompt="Which environment?",
+            )
+            service = ApplicationService(
+                runtime=FakeRuntime(),
+                interaction_store=interaction_store,
+            )
+
+            service.handle(AppRequest(session_id="s1", user_id="u1", message="staging"))
+
+            self.assertIsNone(interaction_store.get_pending("s1"))
+
     def test_cancelled_run_does_not_generate_evolution_candidates(self) -> None:
         class CancelledRuntime(FakeRuntime):
             def run_conversation(self, *args, **kwargs):

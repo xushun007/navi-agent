@@ -87,6 +87,18 @@ def test_maps_runtime_cancellation_without_treating_it_as_failure() -> None:
     assert completed is None
 
 
+def test_maps_runtime_waiting_without_treating_it_as_failure() -> None:
+    mapper = UiEventMapper()
+
+    waiting = mapper.map(_event("runtime.waiting", {"interaction_kind": "clarification"}))
+    completed = mapper.map(_event("runtime.completed", {"status": "awaiting_input"}))
+
+    assert waiting is not None
+    assert waiting.state == "waiting"
+    assert waiting.severity == "info"
+    assert completed is None
+
+
 def test_maps_tool_progress_without_exposing_secrets() -> None:
     ui_event = UiEventMapper().map(
         _event(

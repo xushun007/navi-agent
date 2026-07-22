@@ -22,6 +22,7 @@ from navi_agent.paths import (
     get_app_log_path,
     get_candidate_store_path,
     get_memories_dir,
+    get_pending_interactions_path,
     get_prompt_overlay_path,
     get_prompt_overlay_snapshots_dir,
     get_runtime_event_store_path,
@@ -36,6 +37,7 @@ from navi_agent.runtime import (
     BackgroundTaskManager,
     ContextEngine,
     LLMContextSummarizer,
+    JsonPendingInteractionStore,
     PromptBuilder,
     SQLiteSessionStore,
     SubagentService,
@@ -62,6 +64,7 @@ def build_runtime(
     disabled_toolsets: list[str] | None = None,
     workspace_root: Path | None = None,
     additional_workspace_roots: Iterable[Path] | None = None,
+    interaction_store: JsonPendingInteractionStore | None = None,
 ) -> AgentRuntime:
     config = load_config()
     model_settings = model_settings or ModelSettings.from_sources(config)
@@ -121,6 +124,7 @@ def build_runtime(
                 subagent_service=subagent_service if include_delegation else None,
                 root=resolved_workspace_root,
                 additional_roots=added_roots,
+                interaction_store=interaction_store if include_delegation else None,
             ),
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
@@ -150,11 +154,15 @@ def build_application(
     disabled_toolsets: list[str] | None = None,
     workspace_root: Path | None = None,
     additional_workspace_roots: Iterable[Path] | None = None,
+    interaction_store: JsonPendingInteractionStore | None = None,
 ) -> ApplicationService:
     config = load_config()
     review_model_settings = model_settings or ModelSettings.from_sources(config)
     skill_store = FileSkillStore(get_skills_dir())
     memory_store = FileMemoryStore(get_memories_dir())
+    interaction_store = interaction_store or JsonPendingInteractionStore(
+        get_pending_interactions_path()
+    )
     runtime = build_runtime(
         model_settings=model_settings,
         runtime_settings=runtime_settings,
@@ -164,6 +172,7 @@ def build_application(
         disabled_toolsets=disabled_toolsets,
         workspace_root=workspace_root,
         additional_workspace_roots=additional_workspace_roots,
+        interaction_store=interaction_store,
     )
     prompt_overlay_store = PromptOverlayStore(
         get_prompt_overlay_path(),
@@ -191,6 +200,7 @@ def build_application(
             memory_store=memory_store,
             skill_store=skill_store,
         ),
+        interaction_store=interaction_store,
     )
 
 

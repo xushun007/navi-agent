@@ -1,4 +1,5 @@
 from .base import BaseTool, FunctionTool
+from .ask_user_tool import AskUserTool
 from .bash_tool import BashTool
 from .background_task_tool import BackgroundTaskTool
 from .code_executor_tool import CodeExecutorTool
@@ -13,6 +14,7 @@ from .write_file_tool import WriteFileTool
 
 __all__ = [
     "BaseTool",
+    "AskUserTool",
     "BashTool",
     "BackgroundTaskTool",
     "CodeExecutorTool",

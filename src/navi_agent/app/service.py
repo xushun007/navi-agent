@@ -29,7 +29,14 @@ from navi_agent.evolution import (
 )
 from navi_agent.memory import MemoryStore
 from navi_agent.events import RuntimeEventSubscriber
-from navi_agent.runtime import ActiveRunRegistry, AgentRuntime, BackgroundTask, RuntimeResult
+from navi_agent.runtime import (
+    ActiveRunRegistry,
+    AgentRuntime,
+    BackgroundTask,
+    JsonPendingInteractionStore,
+    PendingInteraction,
+    RuntimeResult,
+)
 from navi_agent.telemetry import RuntimeTrace
 
 
@@ -67,6 +74,7 @@ class ApplicationService:
         review_run_store: JsonlReviewRunStore | None = None,
         skill_review_service: SkillReviewService | None = None,
         review_trigger_policy: ReviewTriggerPolicy | None = None,
+        interaction_store: JsonPendingInteractionStore | None = None,
     ) -> None:
         self._runtime = runtime
         self._active_runs = ActiveRunRegistry()
@@ -82,6 +90,7 @@ class ApplicationService:
         self._review_run_store = review_run_store
         self._skill_review_service = skill_review_service
         self._review_trigger_policy = review_trigger_policy or NudgeReviewTriggerPolicy()
+        self._interaction_store = interaction_store
         self._evaluator = SimpleEvaluator()
         self._evolution_engine = EvolutionEngine()
         self._background_skill_review = (
@@ -101,6 +110,9 @@ class ApplicationService:
         if system_prompt is None:
             system_prompt = self._default_system_prompt
 
+        if self._interaction_store is not None:
+            self._interaction_store.resolve_clarification(session_id)
+
         self._hydrate_review_trigger(session_id=session_id, user_id=request.user_id)
         cancellation_token = self._active_runs.start(session_id)
         try:
@@ -115,6 +127,8 @@ class ApplicationService:
             )
         finally:
             self._active_runs.finish(session_id, cancellation_token)
+            if self._interaction_store is not None:
+                self._interaction_store.discard_approved(session_id)
         if request.auto_propose_eval_case or request.auto_propose_skill:
             self._maybe_add_runtime_candidates(
                 result=result,
@@ -127,6 +141,16 @@ class ApplicationService:
 
     def cancel_session(self, session_id: str, *, reason: str = "user_requested") -> bool:
         return self._active_runs.cancel(session_id, reason)
+
+    def resolve_interaction(
+        self,
+        session_id: str,
+        *,
+        approved: bool,
+    ) -> PendingInteraction | None:
+        if self._interaction_store is None:
+            return None
+        return self._interaction_store.resolve(session_id, approved=approved)
 
     def get_latest_trace(
         self,
@@ -299,7 +323,7 @@ class ApplicationService:
         auto_propose_eval_case: bool,
         auto_propose_skill: bool,
     ) -> None:
-        if result.status == "cancelled":
+        if result.status in {"cancelled", "awaiting_input"}:
             return
         if self._candidate_store is None:
             return
