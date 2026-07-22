@@ -66,6 +66,8 @@ class EventStoreWriter:
         self._store = store
 
     def handle(self, event: RuntimeEvent) -> None:
+        if event.kind == "delta":
+            return
         self._store.record(event)
 
 

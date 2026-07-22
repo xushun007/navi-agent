@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import logging
 from threading import Event, Lock
-from time import sleep
+from time import monotonic, sleep
 
 from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.runtime import BackgroundTask
@@ -22,30 +23,67 @@ class _WeixinUiEventSink:
         client: ILinkClient,
         to_user_id: str,
         context_token: str | None,
+        progress_interval_seconds: float,
     ) -> None:
         self._client = client
         self._to_user_id = to_user_id
         self._context_token = context_token
+        self._progress_interval_seconds = progress_interval_seconds
         self._seen_event_ids: set[str] = set()
+        self._last_progress_at: dict[str, float] = {}
+        self._pending_progress: dict[str, list[str]] = {}
+        self._lock = Lock()
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="weixin-progress")
 
     def handle(self, event: UiEvent) -> None:
-        if event.event_id in self._seen_event_ids:
+        with self._lock:
+            if event.event_id in self._seen_event_ids:
+                return
+            self._seen_event_ids.add(event.event_id)
+            item_key = event.item_id or event.run_id
+            if event.state == "started":
+                self._last_progress_at[item_key] = monotonic()
+                self._submit(event.event_id, event.title)
+                return
+            if event.state == "progress":
+                if event.detail:
+                    pending = self._pending_progress.setdefault(item_key, [])
+                    pending.append(event.detail)
+                    self._pending_progress[item_key] = pending[-8:]
+                last_sent = self._last_progress_at.get(item_key, 0.0)
+                if monotonic() - last_sent < self._progress_interval_seconds:
+                    return
+                detail = "\n".join(self._pending_progress.pop(item_key, []))
+                self._last_progress_at[item_key] = monotonic()
+                self._submit(event.event_id, f"{event.title}\n{detail}".strip())
+                return
+            self._pending_progress.pop(item_key, None)
+            self._last_progress_at.pop(item_key, None)
+            if event.state == "completed" or event.kind == "error":
+                return
+            text = event.title if not event.detail else f"{event.title}\n{event.detail}"
+            self._submit(event.event_id, text)
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True)
+
+    def _submit(self, event_id: str, text: str) -> None:
+        self._executor.submit(self._send, event_id, text)
+
+    def _send(self, event_id: str, text: str) -> None:
+        try:
+            send_result = self._client.send_text(
+                to_user_id=self._to_user_id,
+                text=text,
+                context_token=self._context_token,
+            )
+        except Exception:
+            logger.exception("Weixin progress send raised: event_id=%s", event_id)
             return
-        self._seen_event_ids.add(event.event_id)
-        if event.state == "completed" or event.kind == "error":
-            return
-        text = event.title
-        if event.detail:
-            text = f"{text}\n{event.detail}"
-        send_result = self._client.send_text(
-            to_user_id=self._to_user_id,
-            text=text,
-            context_token=self._context_token,
-        )
         if not send_result.success:
             logger.warning(
                 "Weixin progress send failed: event_id=%s error=%s",
-                event.event_id,
+                event_id,
                 send_result.error,
             )
 
@@ -68,6 +106,7 @@ class ILinkGateway:
     allowed_users: set[str] | None = None
     pairing_store: WeixinPairingStore | None = None
     error_backoff_seconds: float = 5.0
+    progress_interval_seconds: float = 3.0
     seen_message_ids: set[str] = field(default_factory=set)
     _background_routes: dict[str, _BackgroundRoute] = field(
         default_factory=dict,
@@ -146,16 +185,20 @@ class ILinkGateway:
                 client=self.client,
                 to_user_id=message.from_user_id,
                 context_token=message.context_token,
+                progress_interval_seconds=self.progress_interval_seconds,
             )
-            result = self.app.handle(
-                AppRequest(
-                    user_id=message.user_id,
-                    session_id=message.session_id,
-                    message=message.text,
-                    source="weixin",
-                ),
-                event_subscribers=[UiEventEmitter(ui_sink)],
-            )
+            try:
+                result = self.app.handle(
+                    AppRequest(
+                        user_id=message.user_id,
+                        session_id=message.session_id,
+                        message=message.text,
+                        source="weixin",
+                    ),
+                    event_subscribers=[UiEventEmitter(ui_sink)],
+                )
+            finally:
+                ui_sink.close()
             send_result = self.client.send_text(
                 to_user_id=message.from_user_id,
                 text=result.final_response,

@@ -19,10 +19,12 @@ class FakeApp:
         fail_for: set[str] | None = None,
         *,
         emit_progress: bool = False,
+        emit_chunks: bool = False,
     ) -> None:
         self.calls = []
         self.fail_for = fail_for or set()
         self.emit_progress = emit_progress
+        self.emit_chunks = emit_chunks
         self.background_task_listener = None
 
     def add_background_task_listener(self, listener) -> bool:
@@ -51,6 +53,28 @@ class FakeApp:
                         },
                     )
                 )
+                if self.emit_chunks:
+                    for sequence, chunk in enumerate(
+                        ["first line", "token=super-secret second line"],
+                        start=2,
+                    ):
+                        subscriber.handle(
+                            RuntimeEvent(
+                                session_id=request.session_id,
+                                user_id=request.user_id,
+                                run_id="run-1",
+                                sequence=sequence,
+                                kind="delta",
+                                source="tool",
+                                name="tool.progress",
+                                item_id="tc1",
+                                metadata={
+                                    "tool_name": "bash",
+                                    "stream": "stdout",
+                                    "chunk": chunk,
+                                },
+                            )
+                        )
         return RuntimeResult(
             session_id=request.session_id,
             status="success",
@@ -214,6 +238,60 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertEqual(client.sent[1]["context_token"], "ctx-1")
         self.assertIn("task-1", client.sent[1]["text"])
         self.assertIn("475 passed", client.sent[1]["text"])
+
+    def test_gateway_streams_throttled_sanitized_tool_progress(self) -> None:
+        app = FakeApp(emit_progress=True, emit_chunks=True)
+        client = FakeClient()
+        gateway = ILinkGateway(
+            app=app,
+            client=client,
+            account_id="account-1",
+            progress_interval_seconds=0,
+        )
+        message = ILinkMessage(
+            message_id="m-progress",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="run tests",
+            context_token="ctx-1",
+        )
+
+        gateway.handle_message(message)
+
+        texts = [item["text"] for item in client.sent]
+        self.assertEqual(texts[0], "正在读取 README.md")
+        self.assertIn("命令仍在执行\nfirst line", texts)
+        self.assertTrue(any("token=<redacted> second line" in text for text in texts))
+        self.assertFalse(any("super-secret" in text for text in texts))
+        self.assertEqual(texts[-1], "agent reply")
+
+    def test_gateway_suppresses_progress_inside_throttle_window(self) -> None:
+        app = FakeApp(emit_progress=True, emit_chunks=True)
+        client = FakeClient()
+        gateway = ILinkGateway(
+            app=app,
+            client=client,
+            account_id="account-1",
+            progress_interval_seconds=3600,
+        )
+        message = ILinkMessage(
+            message_id="m-throttle",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="run tests",
+            context_token="ctx-1",
+        )
+
+        gateway.handle_message(message)
+
+        self.assertEqual(
+            [item["text"] for item in client.sent],
+            ["正在读取 README.md", "agent reply"],
+        )
 
     def test_gateway_pairing_policy_sends_code_before_approval(self) -> None:
         app = FakeApp()

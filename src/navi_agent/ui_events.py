@@ -52,6 +52,8 @@ class UiEventMapper:
             return self._tool_started(event)
         if event.name == "tool.result":
             return self._tool_completed(event)
+        if event.name == "tool.progress":
+            return self._tool_progress(event)
         if event.name == "background_task.completed":
             return self._background_completed(event)
         if event.name == "runtime.completed" and event.metadata.get("status") != "success":
@@ -98,6 +100,23 @@ class UiEventMapper:
             item_id=event.item_id,
             detail=_safe_error_detail(event.metadata) if failed else None,
             severity="error" if failed else "info",
+            replaceable=True,
+        )
+
+    def _tool_progress(self, event: RuntimeEvent) -> UiEvent | None:
+        chunk = event.metadata.get("chunk")
+        if not isinstance(chunk, str) or not chunk.strip():
+            return None
+        tool_name = _tool_name(event)
+        return UiEvent(
+            event_id=event.event_id,
+            run_id=event.run_id,
+            sequence=event.sequence,
+            kind="tool",
+            state="progress",
+            title="命令仍在执行" if tool_name == "bash" else f"{_tool_label(tool_name)}中",
+            item_id=event.item_id,
+            detail=_compact(_redact(chunk), limit=160),
             replaceable=True,
         )
 

@@ -1,4 +1,4 @@
-from navi_agent.events import RuntimeEvent, RuntimeEventPublisher
+from navi_agent.events import EventStoreWriter, RuntimeEvent, RuntimeEventPublisher
 
 
 class RecordingSubscriber:
@@ -44,3 +44,30 @@ def test_publisher_isolates_subscriber_failures() -> None:
     publisher.publish(_event())
 
     assert [event.name for event in recording.events] == ["runtime.started"]
+
+
+def test_event_store_writer_skips_ephemeral_deltas() -> None:
+    class Store:
+        def __init__(self) -> None:
+            self.events: list[RuntimeEvent] = []
+
+        def record(self, event: RuntimeEvent) -> None:
+            self.events.append(event)
+
+    store = Store()
+    writer = EventStoreWriter(store)
+    event = _event()
+    delta = RuntimeEvent(
+        session_id="s1",
+        user_id="u1",
+        run_id="r1",
+        sequence=2,
+        kind="delta",
+        source="tool",
+        name="tool.progress",
+    )
+
+    writer.handle(event)
+    writer.handle(delta)
+
+    assert store.events == [event]

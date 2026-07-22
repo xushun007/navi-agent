@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from collections.abc import Callable, Sequence
+from threading import Lock
 from time import perf_counter
 from uuid import uuid4
 
@@ -187,6 +188,7 @@ class AgentRuntime:
         run_started_perf = perf_counter()
         run_id = uuid4().hex
         event_sequence = 0
+        event_publish_lock = Lock()
         request_publisher = RuntimeEventPublisher(event_subscribers or ())
 
         def publish_event(
@@ -199,21 +201,22 @@ class AgentRuntime:
             payload: dict[str, object] | None = None,
         ) -> None:
             nonlocal event_sequence
-            event_sequence += 1
-            event = RuntimeEvent(
-                session_id=session_id,
-                user_id=user_id,
-                run_id=run_id,
-                sequence=event_sequence,
-                kind=kind,
-                source=source,
-                name=name,
-                iteration=iteration,
-                item_id=item_id,
-                metadata=dict(payload or {}),
-            )
-            self._event_publisher.publish(event)
-            request_publisher.publish(event)
+            with event_publish_lock:
+                event_sequence += 1
+                event = RuntimeEvent(
+                    session_id=session_id,
+                    user_id=user_id,
+                    run_id=run_id,
+                    sequence=event_sequence,
+                    kind=kind,
+                    source=source,
+                    name=name,
+                    iteration=iteration,
+                    item_id=item_id,
+                    metadata=dict(payload or {}),
+                )
+                self._event_publisher.publish(event)
+                request_publisher.publish(event)
 
         logger.info("Starting runtime conversation: session_id=%s user_id=%s", session_id, user_id)
         publish_event(
@@ -473,10 +476,22 @@ class AgentRuntime:
                 )
                 return result
 
+            def emit_tool_output(payload: dict[str, object]) -> None:
+                tool_call_id = payload.get("tool_call_id")
+                publish_event(
+                    kind="delta",
+                    source="tool",
+                    name="tool.progress",
+                    iteration=iteration_number,
+                    item_id=tool_call_id if isinstance(tool_call_id, str) else None,
+                    payload=payload,
+                )
+
             tool_context = ToolContext(
                 session_id=session.session_id,
                 user_id=user_id,
                 iteration=iteration_number,
+                emit_output=emit_tool_output,
             )
             for tool_call in response.tool_calls:
                 publish_event(

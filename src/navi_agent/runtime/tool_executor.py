@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import logging
 from time import perf_counter
@@ -59,6 +60,7 @@ class ToolExecutor:
     ) -> list[ToolResult]:
         results: list[ToolResult] = []
         for tool_call in tool_calls:
+            tool_context = _bind_tool_output(context, tool_call)
             started_at = _utc_now_iso()
             started_perf = perf_counter()
             tool = tools_by_name.get(tool_call.name)
@@ -76,7 +78,7 @@ class ToolExecutor:
                 )
                 continue
 
-            decision = self._policy.decide(tool_call.name, tool_call.arguments, context)
+            decision = self._policy.decide(tool_call.name, tool_call.arguments, tool_context)
             if not decision.allows_execution:
                 if decision.requires_approval:
                     approval_decision = self._approval_provider.request_approval(
@@ -84,13 +86,13 @@ class ToolExecutor:
                             tool_name=tool_call.name,
                             arguments=tool_call.arguments,
                             reason=decision.reason or f"Tool requires approval: {tool_call.name}",
-                            context=context,
+                            context=tool_context,
                             metadata=decision.metadata,
                         )
                     )
                     if approval_decision.approved:
                         try:
-                            output = tool.invoke(context=context, **tool_call.arguments)
+                            output = tool.invoke(context=tool_context, **tool_call.arguments)
                             results.append(
                                 _stamp_result(
                                     output.bind(tool_call.id, tool_call.name),
@@ -144,7 +146,7 @@ class ToolExecutor:
                 continue
 
             try:
-                output = tool.invoke(context=context, **tool_call.arguments)
+                output = tool.invoke(context=tool_context, **tool_call.arguments)
                 results.append(
                     _stamp_result(
                         output.bind(tool_call.id, tool_call.name),
@@ -167,3 +169,19 @@ class ToolExecutor:
                     )
                 )
         return results
+
+
+def _bind_tool_output(context: ToolContext | None, tool_call: ToolCall) -> ToolContext | None:
+    if context is None or context.emit_output is None:
+        return context
+
+    def emit_output(payload: dict[str, object]) -> None:
+        context.emit_output(
+            {
+                **payload,
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.name,
+            }
+        )
+
+    return replace(context, emit_output=emit_output)

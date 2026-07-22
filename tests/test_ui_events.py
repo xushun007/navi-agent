@@ -74,6 +74,25 @@ def test_ignores_model_content_and_reasoning() -> None:
     assert ui_event is None
 
 
+def test_maps_tool_progress_without_exposing_secrets() -> None:
+    ui_event = UiEventMapper().map(
+        _event(
+            "tool.progress",
+            {
+                "tool_name": "bash",
+                "stream": "stdout",
+                "chunk": "token=super-secret tests are still running",
+            },
+            item_id="tc1",
+        )
+    )
+
+    assert ui_event is not None
+    assert ui_event.state == "progress"
+    assert ui_event.title == "命令仍在执行"
+    assert ui_event.detail == "token=<redacted> tests are still running"
+
+
 def test_emitter_only_sends_derived_ui_events() -> None:
     received: list[UiEvent] = []
 

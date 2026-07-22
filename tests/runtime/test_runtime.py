@@ -557,6 +557,38 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual({event.session_id for event in subscriber.events}, {"s1"})
         self.assertEqual(subscriber.events[0].sequence, 1)
 
+    def test_runtime_emits_ephemeral_tool_progress_with_call_identity(self) -> None:
+        def stream_output(context: ToolContext) -> ToolResult:
+            assert context.emit_output is not None
+            context.emit_output({"stream": "stdout", "chunk": "running tests\n"})
+            return ok_result("stream", "done")
+
+        subscriber = RecordingObserver()
+        event_store = InMemoryRuntimeEventStore()
+        runtime = AgentRuntime(
+            transport=FakeTransport(
+                [
+                    ModelResponse(tool_calls=[ToolCall(id="tc1", name="stream")]),
+                    ModelResponse(content="done"),
+                ]
+            ),
+            event_store=event_store,
+            event_subscribers=[subscriber],
+            tool_registry=ToolRegistry(tools={"stream": stream_output}),
+        )
+
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="run")
+
+        progress = next(event for event in subscriber.events if event.name == "tool.progress")
+        self.assertEqual(progress.kind, "delta")
+        self.assertEqual(progress.item_id, "tc1")
+        self.assertEqual(progress.metadata["tool_name"], "stream")
+        self.assertEqual(progress.metadata["chunk"], "running tests\n")
+        self.assertNotIn(
+            "tool.progress",
+            [event.name for event in event_store.list_events(session_id="s1")],
+        )
+
     def test_runtime_records_tool_execution_trace_details(self) -> None:
         transport = FakeTransport(
             [
