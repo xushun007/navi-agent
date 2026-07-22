@@ -23,6 +23,10 @@ def get_state_db_path() -> Path:
     return get_navi_home() / "state.db"
 
 
+def get_pending_interactions_path() -> Path:
+    return get_navi_home() / "pending-interactions.json"
+
+
 def get_config_path() -> Path:
     return get_navi_home() / "config.yaml"
 

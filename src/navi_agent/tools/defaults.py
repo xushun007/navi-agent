@@ -7,6 +7,7 @@ from navi_agent.memory import InMemoryMemoryStore, MemoryStore
 from navi_agent.paths import get_cron_jobs_path
 from navi_agent.runtime import (
     BackgroundTaskManager,
+    JsonPendingInteractionStore,
     SubagentService,
     ToolRegistry,
     ToolsetDefinition,
@@ -16,6 +17,7 @@ from navi_agent.runtime.approval import ApprovalProvider
 from navi_agent.runtime.tool_policy import SensitiveToolPolicy
 
 from .bash_tool import BashTool
+from .ask_user_tool import AskUserTool
 from .background_task_tool import BackgroundTaskTool
 from .code_executor_tool import CodeExecutorTool
 from .cron_tool import CronTool
@@ -39,6 +41,7 @@ def build_default_tool_registry(
     subagent_service: SubagentService | None = None,
     session_store=None,
     additional_roots: Iterable[Path] | None = None,
+    interaction_store: JsonPendingInteractionStore | None = None,
 ) -> ToolRegistry:
     workspace_root = root or Path.cwd()
     added_roots = tuple(additional_roots or ())
@@ -82,6 +85,11 @@ def build_default_tool_registry(
                 else []
             ),
             ("todo", TodoTool()),
+            *(
+                [("interaction", AskUserTool(interaction_store))]
+                if interaction_store is not None
+                else []
+            ),
         ],
         toolsets=[
             ToolsetDefinition(name="terminal", tools=["bash", "background_task"]),
@@ -96,6 +104,7 @@ def build_default_tool_registry(
             ToolsetDefinition(name="delegation", tools=["delegate_task"]),
             ToolsetDefinition(name="skills", tools=["skill_list", "skill_view"]),
             ToolsetDefinition(name="todo", tools=["todo"]),
+            ToolsetDefinition(name="interaction", tools=["ask_user"]),
             ToolsetDefinition(
                 name="core",
                 includes=[
@@ -108,6 +117,7 @@ def build_default_tool_registry(
                     "todo",
                     "scheduler",
                     "delegation",
+                    "interaction",
                 ],
             ),
         ],

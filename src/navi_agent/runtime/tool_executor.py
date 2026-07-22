@@ -122,6 +122,17 @@ class ToolExecutor:
                                 content=approval_decision.reason or decision.reason or f"Tool blocked: {tool_call.name}",
                                 structured_content={
                                     "approval_required": True,
+                                    "interaction_pending": approval_decision.metadata.get(
+                                        "interaction_pending"
+                                    )
+                                    is True,
+                                    "interaction_kind": approval_decision.metadata.get(
+                                        "interaction_kind"
+                                    ),
+                                    "interaction_id": approval_decision.metadata.get(
+                                        "interaction_id"
+                                    ),
+                                    "prompt": approval_decision.metadata.get("prompt"),
                                     "tool_name": tool_call.name,
                                     "arguments": tool_call.arguments,
                                 },

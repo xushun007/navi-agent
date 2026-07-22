@@ -66,8 +66,19 @@ class UiEventMapper:
                 title="任务已停止",
                 severity="info",
             )
+        if event.name == "runtime.waiting":
+            return UiEvent(
+                event_id=event.event_id,
+                run_id=event.run_id,
+                sequence=event.sequence,
+                kind="runtime",
+                state="waiting",
+                title="等待你的回复",
+                item_id=event.item_id,
+                severity="info",
+            )
         if event.name == "runtime.completed" and event.metadata.get("status") != "success":
-            if event.metadata.get("status") == "cancelled":
+            if event.metadata.get("status") in {"cancelled", "awaiting_input"}:
                 return None
             return UiEvent(
                 event_id=event.event_id,

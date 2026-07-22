@@ -56,6 +56,7 @@ from navi_agent.paths import get_config_path
 from navi_agent.paths import get_cron_jobs_path
 from navi_agent.paths import get_cron_tick_lock_path
 from navi_agent.paths import get_navi_home
+from navi_agent.paths import get_pending_interactions_path
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
 from navi_agent.paths import get_runtime_event_store_path
@@ -73,6 +74,8 @@ from navi_agent.telemetry import (
 )
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.runtime import ConversationState
+from navi_agent.runtime import DeferredApprovalProvider
+from navi_agent.runtime import JsonPendingInteractionStore
 from navi_agent.runtime import SQLiteSessionStore
 from navi_agent.runtime import WorkspaceYoloApprovalProvider
 from navi_agent.scheduler import CronJobStore, CronSchedulerService
@@ -416,9 +419,16 @@ def _run_weixin_gateway(args) -> int:
         print("weixin token is required: set gateway.weixin.token")
         print("hint: run `navi-agent doctor --doctor-gateway weixin` to check gateway readiness")
         return 1
+    interaction_store = JsonPendingInteractionStore(get_pending_interactions_path())
+    approval_provider = (
+        WorkspaceYoloApprovalProvider()
+        if getattr(args, "yolo", False)
+        else DeferredApprovalProvider(interaction_store)
+    )
     app = build_application(
         default_system_prompt=args.system_prompt,
-        approval_provider=_build_approval_provider(args),
+        approval_provider=approval_provider,
+        interaction_store=interaction_store,
     )
     account_id = settings.account_id
     if not account_id:

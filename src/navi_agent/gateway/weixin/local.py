@@ -59,7 +59,7 @@ class _WeixinUiEventSink:
                 return
             self._pending_progress.pop(item_key, None)
             self._last_progress_at.pop(item_key, None)
-            if event.state in {"completed", "cancelled"} or event.kind == "error":
+            if event.state in {"completed", "cancelled", "waiting"} or event.kind == "error":
                 return
             text = event.title if not event.detail else f"{event.title}\n{event.detail}"
             self._submit(event.event_id, text)
@@ -165,12 +165,37 @@ class ILinkGateway:
         command, separator, argument = message.text.strip().partition(" ")
         if command == "/stop":
             cancelled = self.app.cancel_session(message.session_id, reason="user_stop")
+            pending = None
+            if not cancelled:
+                pending = self.app.resolve_interaction(message.session_id, approved=False)
             self.client.send_text(
                 to_user_id=message.from_user_id,
-                text="已请求停止当前任务。" if cancelled else "当前没有正在执行的任务。",
+                text=(
+                    "已请求停止当前任务。"
+                    if cancelled
+                    else "已取消等待中的请求。"
+                    if pending is not None
+                    else "当前没有正在执行的任务。"
+                ),
                 context_token=message.context_token,
             )
             return
+        if command in {"/approve", "/deny"}:
+            approved = command == "/approve"
+            interaction = self.app.resolve_interaction(message.session_id, approved=approved)
+            if interaction is None or interaction.kind != "approval":
+                self.client.send_text(
+                    to_user_id=message.from_user_id,
+                    text="当前没有等待处理的授权请求。",
+                    context_token=message.context_token,
+                )
+                return
+            action = "已批准" if approved else "已拒绝"
+            instruction = (
+                f"用户{action}工具 {interaction.tool_name} 的授权请求。"
+                + ("请使用完全相同的参数重试该工具。" if approved else "不要执行该工具，继续响应用户。")
+            )
+            message = replace(message, text=instruction)
         if command == "/steer" and separator and argument.strip():
             self.app.cancel_session(message.session_id, reason="user_steer")
             message = replace(message, text=argument.strip())

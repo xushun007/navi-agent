@@ -10,7 +10,9 @@ from navi_agent.runtime import (
     AgentRuntime,
     BackgroundTaskManager,
     ContextEngine,
+    DeferredApprovalProvider,
     InMemorySessionStore,
+    JsonPendingInteractionStore,
     LLMContextSummarizer,
     Message,
     ModelRequest,
@@ -27,6 +29,7 @@ from navi_agent.runtime import (
     ToolResult,
     ToolsetDefinition,
 )
+from navi_agent.runtime.tool_policy import SensitiveToolPolicy
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
 from navi_agent.tools import BashTool, MemoryTool
 from navi_agent.telemetry import InMemoryRuntimeEventStore, InMemoryTraceStore
@@ -150,6 +153,92 @@ class AgentRuntimeTests(unittest.TestCase):
             [event.name for event in observer.events[-2:]],
             ["runtime.cancelled", "runtime.completed"],
         )
+
+    def test_runtime_stops_after_tool_requests_user_input(self) -> None:
+        observer = RecordingObserver()
+
+        def ask_user(question: str) -> ToolResult:
+            return ToolResult.ok(
+                name="ask_user",
+                content=question,
+                structured_content={
+                    "interaction_pending": True,
+                    "interaction_kind": "clarification",
+                    "interaction_id": "i1",
+                    "prompt": question,
+                },
+            )
+
+        transport = FakeTransport(
+            [
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(
+                            id="tc1",
+                            name="ask_user",
+                            arguments={"question": "Which environment?"},
+                        )
+                    ]
+                ),
+                ModelResponse(content="must not be called"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_registry=ToolRegistry(tools={"ask_user": ask_user}),
+            event_subscribers=[observer],
+        )
+
+        result = runtime.run_conversation("s1", "u1", "deploy")
+
+        self.assertEqual(result.status, "awaiting_input")
+        self.assertEqual(result.final_response, "Which environment?")
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(
+            [event.name for event in observer.events[-2:]],
+            ["runtime.waiting", "runtime.completed"],
+        )
+
+    def test_approval_resumes_matching_tool_exactly_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = JsonPendingInteractionStore(Path(tmpdir) / "pending.json")
+            executions = []
+
+            def guarded(value: str) -> ToolResult:
+                executions.append(value)
+                return ToolResult.ok(name="guarded", content=value)
+
+            registry = ToolRegistry(
+                tools={"guarded": guarded},
+                policy=SensitiveToolPolicy(
+                    approval_required_tools={"guarded": "approval required"}
+                ),
+                approval_provider=DeferredApprovalProvider(store),
+            )
+            transport = FakeTransport(
+                [
+                    ModelResponse(
+                        tool_calls=[
+                            ToolCall(id="tc1", name="guarded", arguments={"value": "once"})
+                        ]
+                    ),
+                    ModelResponse(
+                        tool_calls=[
+                            ToolCall(id="tc2", name="guarded", arguments={"value": "once"})
+                        ]
+                    ),
+                    ModelResponse(content="done"),
+                ]
+            )
+            runtime = AgentRuntime(transport=transport, tool_registry=registry)
+
+            waiting = runtime.run_conversation("s1", "u1", "run guarded tool")
+            store.resolve("s1", approved=True)
+            resumed = runtime.run_conversation("s1", "u1", "approval granted; retry")
+
+        self.assertEqual(waiting.status, "awaiting_input")
+        self.assertEqual(resumed.status, "success")
+        self.assertEqual(executions, ["once"])
 
     def test_runtime_returns_final_model_response(self) -> None:
         transport = FakeTransport(

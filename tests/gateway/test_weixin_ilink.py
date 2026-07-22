@@ -4,6 +4,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event, Thread
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from navi_agent.gateway.weixin import ILinkClient, ILinkGateway
@@ -27,6 +28,8 @@ class FakeApp:
         self.emit_chunks = emit_chunks
         self.background_task_listener = None
         self.cancel_calls = []
+        self.resolve_calls = []
+        self.pending_interaction = None
 
     def add_background_task_listener(self, listener) -> bool:
         self.background_task_listener = listener
@@ -35,6 +38,12 @@ class FakeApp:
     def cancel_session(self, session_id, *, reason="user_requested") -> bool:
         self.cancel_calls.append((session_id, reason))
         return True
+
+    def resolve_interaction(self, session_id, *, approved):
+        self.resolve_calls.append((session_id, approved))
+        interaction = self.pending_interaction
+        self.pending_interaction = None
+        return interaction
 
     def handle(self, request, *, event_subscribers=None):
         self.calls.append(request)
@@ -503,6 +512,28 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertEqual(app.cancel_calls, [(message.session_id, "user_stop")])
         self.assertEqual(client.sent[0]["text"], "已请求停止当前任务。")
 
+    def test_gateway_stop_clears_pending_interaction_when_no_run_is_active(self) -> None:
+        app = FakeApp()
+        app.cancel_session = lambda session_id, reason="user_requested": False
+        app.pending_interaction = SimpleNamespace(kind="clarification", tool_name=None)
+        client = FakeClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+        message = ILinkMessage(
+            message_id="m-stop-pending",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="/stop",
+            context_token="ctx-stop",
+        )
+
+        gateway.submit_message(message)
+        gateway.close()
+
+        self.assertEqual(app.resolve_calls, [(message.session_id, False)])
+        self.assertEqual(client.sent[0]["text"], "已取消等待中的请求。")
+
     def test_gateway_steer_cancels_active_run_and_queues_new_instruction(self) -> None:
         app = FakeApp()
         client = FakeClient()
@@ -523,6 +554,29 @@ class WeixinILinkTests(unittest.TestCase):
 
         self.assertEqual(app.cancel_calls, [(message.session_id, "user_steer")])
         self.assertEqual(app.calls[0].message, "改为只运行单元测试")
+        self.assertEqual(client.sent[-1]["text"], "agent reply")
+
+    def test_gateway_approve_resolves_and_requeues_pending_tool(self) -> None:
+        app = FakeApp()
+        app.pending_interaction = SimpleNamespace(kind="approval", tool_name="bash")
+        client = FakeClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+        message = ILinkMessage(
+            message_id="m-approve",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="/approve",
+            context_token="ctx-approve",
+        )
+
+        gateway.submit_message(message)
+        self.assertTrue(gateway.wait_for_idle(1))
+        gateway.close()
+
+        self.assertEqual(app.resolve_calls, [(message.session_id, True)])
+        self.assertIn("完全相同的参数重试", app.calls[0].message)
         self.assertEqual(client.sent[-1]["text"], "agent reply")
 
     def test_gateway_run_forever_backs_off_after_get_updates_error(self) -> None:

@@ -34,6 +34,7 @@ from navi_agent.events import (
 from .prompt_builder import PromptBuilder
 from .request_scheduler import SessionTaskScheduler
 from .run_control import ActiveRunRegistry, RunCancellationToken
+from .interactions import DeferredApprovalProvider, JsonPendingInteractionStore, PendingInteraction
 from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
 from .store import SessionStore
@@ -64,7 +65,9 @@ __all__ = [
     "DefaultToolResultRenderer",
     "DenyAllApprovalProvider",
     "DemoTransport",
+    "DeferredApprovalProvider",
     "InMemorySessionStore",
+    "JsonPendingInteractionStore",
     "Message",
     "ModelRequest",
     "ModelResponse",
@@ -72,6 +75,7 @@ __all__ = [
     "ModelTransport",
     "OpenAICompatibleTransport",
     "PromptBuilder",
+    "PendingInteraction",
     "RuntimeEvent",
     "RuntimeEventPublisher",
     "RuntimeEventSubscriber",

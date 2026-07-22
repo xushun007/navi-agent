@@ -135,13 +135,26 @@ class ToolRegistry:
                     )
                 )
                 continue
-            results.extend(
-                self._executor.execute(
-                    tool_calls=[tool_call],
-                    tools_by_name=selected_tools or self._tools,
-                    context=context,
-                )
+            current_results = self._executor.execute(
+                tool_calls=[tool_call],
+                tools_by_name=selected_tools or self._tools,
+                context=context,
             )
+            results.extend(current_results)
+            if any(
+                result.structured_content.get("interaction_pending") is True
+                for result in current_results
+            ):
+                remaining = tool_calls[len(results) :]
+                results.extend(
+                    ToolResult.error(
+                        name=remaining_call.name,
+                        content="Tool call deferred while waiting for user input.",
+                        structured_content={"interaction_deferred": True},
+                    ).bind(remaining_call.id)
+                    for remaining_call in remaining
+                )
+                break
         return results
 
     def _select_tools(
