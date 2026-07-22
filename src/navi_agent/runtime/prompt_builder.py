@@ -123,7 +123,7 @@ class PromptBuilder:
             if part
         )
         volatile_parts = []
-        memory_block = self._build_memory_block(user_id)
+        memory_block = self._build_memory_block(user_id, user_message)
         if memory_block:
             volatile_parts.append(memory_block)
         skill_block = self._build_skill_block()
@@ -135,10 +135,14 @@ class PromptBuilder:
             volatile="\n\n".join(volatile_parts),
         )
 
-    def _build_memory_block(self, user_id: str) -> str | None:
+    def _build_memory_block(self, user_id: str, user_message: str) -> str | None:
         if self._memory_store is None:
             return None
-        records = self._memory_store.list_for_user(user_id)[-self._memory_limit :]
+        records = self._memory_store.search_for_user(
+            user_id,
+            query=user_message,
+            limit=self._memory_limit,
+        )
         if not records:
             return None
         lines = ["[Memory]"]

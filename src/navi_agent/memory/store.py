@@ -7,6 +7,7 @@ from .models import MemoryRecord
 
 class MemoryStore(Protocol):
     def list_for_user(self, user_id: str) -> list[MemoryRecord]: ...
+    def search_for_user(self, user_id: str, query: str, limit: int) -> list[MemoryRecord]: ...
     def add_for_user(
         self,
         user_id: str,

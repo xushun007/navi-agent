@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from .models import MemoryRecord
+from .search import search_memories
 from .validation import normalize_memory_content, validate_memory_content
 
 
@@ -12,6 +13,9 @@ class InMemoryMemoryStore:
 
     def list_for_user(self, user_id: str) -> list[MemoryRecord]:
         return [record for record in self._records if record.user_id == user_id]
+
+    def search_for_user(self, user_id: str, query: str, limit: int) -> list[MemoryRecord]:
+        return search_memories(self.list_for_user(user_id), query=query, limit=limit)
 
     def add_for_user(
         self,
