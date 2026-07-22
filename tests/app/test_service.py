@@ -30,6 +30,7 @@ class FakeRuntime:
         source="console",
         event_subscribers=None,
         cancellation_token=None,
+        resume_interaction=None,
     ):
         self.calls.append(
             {
@@ -40,6 +41,7 @@ class FakeRuntime:
                 "source": source,
                 "event_subscribers": event_subscribers,
                 "cancellation_token": cancellation_token,
+                "resume_interaction": resume_interaction,
             }
         )
         return RuntimeResult(

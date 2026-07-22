@@ -169,6 +169,27 @@ class ToolRegistry:
                 break
         return results
 
+    def dispatch_approved(
+        self,
+        tool_call: ToolCall,
+        context: ToolContext | None = None,
+        enabled_toolsets: list[str] | None = None,
+        disabled_toolsets: list[str] | None = None,
+    ) -> ToolResult:
+        selected_tools = {
+            tool.name: tool
+            for tool in self._select_tools(
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
+            )
+            if tool.is_available()
+        }
+        return self._executor.execute_approved(
+            tool_call,
+            tools_by_name=selected_tools or self._tools,
+            context=context,
+        )
+
     def _select_tools(
         self,
         enabled_toolsets: list[str] | None,

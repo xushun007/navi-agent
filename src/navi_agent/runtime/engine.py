@@ -8,11 +8,12 @@ from time import perf_counter
 from uuid import uuid4
 
 from navi_agent.errors import classify_exception
-from navi_agent.tooling import ToolContext
+from navi_agent.tooling import ToolContext, ToolResult
 
 from .background_tasks import BackgroundTask, BackgroundTaskManager
 from .context_engine import ContextBuildResult, ContextEngine, LLMContextSummarizer
-from .models import Message, RuntimeResult, SessionMetadata
+from .interactions import PendingInteraction
+from .models import Message, RuntimeResult, SessionMetadata, ToolCall
 from .prompt_builder import PromptBuilder
 from .run_control import RunCancellationToken
 from .session import InMemorySessionStore
@@ -186,6 +187,7 @@ class AgentRuntime:
         source: str = "console",
         event_subscribers: Sequence[RuntimeEventSubscriber] | None = None,
         cancellation_token: RunCancellationToken | None = None,
+        resume_interaction: PendingInteraction | None = None,
     ) -> RuntimeResult:
         cancellation_token = cancellation_token or RunCancellationToken()
         run_started_at = _utc_now_iso()
@@ -275,15 +277,23 @@ class AgentRuntime:
             kind="action",
             source="user",
             name="user.message",
-            payload={"content": user_message},
+            payload={
+                "content": user_message,
+                "interaction_id": (
+                    resume_interaction.interaction_id if resume_interaction is not None else None
+                ),
+            },
         )
-        for message in self._prompt_builder.build_initial_messages(
-            session=session,
-            user_message=user_message,
-            system_prompt=system_prompt,
-        ):
-            self._session_store.append(session, message)
-        injected_skill_names = self._prompt_builder.last_injected_skill_names
+        if resume_interaction is None:
+            for message in self._prompt_builder.build_initial_messages(
+                session=session,
+                user_message=user_message,
+                system_prompt=system_prompt,
+            ):
+                self._session_store.append(session, message)
+            injected_skill_names = self._prompt_builder.last_injected_skill_names
+        else:
+            injected_skill_names = []
         tool_results = []
         model_calls: list[ModelCallTrace] = []
         tool_executions: list[ToolExecutionTrace] = []
@@ -385,6 +395,124 @@ class AgentRuntime:
                 payload={"status": result.status},
             )
             return result
+
+        def record_tool_result(
+            tool_result: ToolResult,
+            *,
+            iteration: int,
+            arguments: dict[str, object],
+            persist_message: bool = True,
+        ) -> None:
+            tool_metadata, tool_started_at, tool_completed_at, tool_duration_ms = _pop_trace_timing(
+                dict(tool_result.metadata)
+            )
+            logger.debug(
+                "Tool executed: session_id=%s tool=%s",
+                session_id,
+                tool_result.name,
+            )
+            tool_results.append(tool_result)
+            tool_executions.append(
+                ToolExecutionTrace(
+                    iteration=iteration,
+                    tool_call_id=tool_result.tool_call_id,
+                    tool_name=tool_result.name,
+                    status=tool_result.status,
+                    arguments=arguments,
+                    content=tool_result.content,
+                    metadata=tool_metadata,
+                    structured_content=dict(tool_result.structured_content),
+                    approval_required=bool(
+                        tool_result.structured_content.get("approval_required")
+                    ),
+                    **_classify_tool_error(
+                        tool_result=tool_result,
+                        tool_metadata=tool_metadata,
+                    ),
+                    started_at=tool_started_at,
+                    completed_at=tool_completed_at,
+                    duration_ms=tool_duration_ms,
+                )
+            )
+            publish_event(
+                kind="observation",
+                source="tool",
+                name="tool.result",
+                iteration=iteration,
+                item_id=tool_result.tool_call_id,
+                payload={
+                    "tool_call_id": tool_result.tool_call_id,
+                    "tool_name": tool_result.name,
+                    "status": tool_result.status,
+                    "content": tool_result.content,
+                    "metadata": tool_metadata,
+                    "structured_content": dict(tool_result.structured_content),
+                },
+            )
+            if persist_message:
+                self._session_store.append(
+                    session,
+                    Message(
+                        role="tool",
+                        content=self._render_tool_message(tool_result),
+                        tool_call_id=tool_result.tool_call_id,
+                    ),
+                )
+
+        if resume_interaction is not None:
+            if not resume_interaction.tool_call_id or not resume_interaction.tool_name:
+                raise ValueError("pending interaction is missing its tool-call checkpoint")
+            publish_event(
+                kind="observation",
+                source="runtime",
+                name="runtime.resumed",
+                item_id=resume_interaction.tool_call_id,
+                payload={
+                    "interaction_id": resume_interaction.interaction_id,
+                    "interaction_kind": resume_interaction.kind,
+                    "resolution": resume_interaction.status,
+                },
+            )
+            resumed_call = ToolCall(
+                id=resume_interaction.tool_call_id,
+                name=resume_interaction.tool_name,
+                arguments=dict(resume_interaction.arguments or {}),
+            )
+            resumed_context = ToolContext(
+                session_id=session.session_id,
+                user_id=user_id,
+                iteration=0,
+            )
+            if resume_interaction.kind == "approval" and resume_interaction.status == "approved":
+                resumed_result = self._tool_registry.dispatch_approved(
+                    resumed_call,
+                    context=resumed_context,
+                    enabled_toolsets=self._enabled_toolsets,
+                    disabled_toolsets=self._disabled_toolsets,
+                )
+            elif resume_interaction.kind == "clarification":
+                resumed_result = ToolResult.ok(
+                    name=resume_interaction.tool_name,
+                    content=resume_interaction.response or user_message,
+                    structured_content={
+                        "interaction_id": resume_interaction.interaction_id,
+                        "interaction_resumed": True,
+                    },
+                ).bind(resume_interaction.tool_call_id)
+            else:
+                resumed_result = ToolResult.error(
+                    name=resume_interaction.tool_name,
+                    content="User denied the pending tool request.",
+                    structured_content={
+                        "interaction_id": resume_interaction.interaction_id,
+                        "interaction_denied": True,
+                    },
+                ).bind(resume_interaction.tool_call_id)
+            record_tool_result(
+                resumed_result,
+                iteration=0,
+                arguments=dict(resume_interaction.arguments or {}),
+            )
 
         for iteration in range(self._max_iterations):
             iteration_number = iteration + 1
@@ -651,62 +779,20 @@ class AgentRuntime:
                 enabled_toolsets=self._enabled_toolsets,
                 disabled_toolsets=self._disabled_toolsets,
             ):
-                tool_metadata, tool_started_at, tool_completed_at, tool_duration_ms = _pop_trace_timing(
-                    dict(tool_result.metadata)
+                arguments = next(
+                    (
+                        dict(tool_call.arguments)
+                        for tool_call in response.tool_calls
+                        if tool_call.id == tool_result.tool_call_id
+                    ),
+                    {},
                 )
-                logger.debug(
-                    "Tool executed: session_id=%s tool=%s",
-                    session_id,
-                    tool_result.name,
-                )
-                tool_results.append(tool_result)
-                tool_executions.append(
-                    ToolExecutionTrace(
-                        iteration=iteration_number,
-                        tool_call_id=tool_result.tool_call_id,
-                        tool_name=tool_result.name,
-                        status=tool_result.status,
-                        arguments=next(
-                            (
-                                tool_call.arguments
-                                for tool_call in response.tool_calls
-                                if tool_call.id == tool_result.tool_call_id
-                            ),
-                            {},
-                        ),
-                        content=tool_result.content,
-                        metadata=tool_metadata,
-                        structured_content=dict(tool_result.structured_content),
-                        approval_required=bool(
-                            tool_result.structured_content.get("approval_required")
-                        ),
-                        **_classify_tool_error(tool_result=tool_result, tool_metadata=tool_metadata),
-                        started_at=tool_started_at,
-                        completed_at=tool_completed_at,
-                        duration_ms=tool_duration_ms,
-                    )
-                )
-                publish_event(
-                    kind="observation",
-                    source="tool",
-                    name="tool.result",
+                record_tool_result(
+                    tool_result,
                     iteration=iteration_number,
-                    item_id=tool_result.tool_call_id,
-                    payload={
-                        "tool_call_id": tool_result.tool_call_id,
-                        "tool_name": tool_result.name,
-                        "status": tool_result.status,
-                        "content": tool_result.content,
-                        "metadata": tool_metadata,
-                        "structured_content": dict(tool_result.structured_content),
-                    },
-                )
-                self._session_store.append(
-                    session,
-                    Message(
-                        role="tool",
-                        content=self._render_tool_message(tool_result),
-                        tool_call_id=tool_result.tool_call_id,
+                    arguments=arguments,
+                    persist_message=(
+                        tool_result.structured_content.get("interaction_pending") is not True
                     ),
                 )
             if cancellation_token.is_cancelled:

@@ -223,6 +223,46 @@ class ToolExecutor:
             ]
             return [future.result()[0] for future in futures]
 
+    def execute_approved(
+        self,
+        tool_call: ToolCall,
+        tools_by_name: dict[str, BaseTool],
+        context: ToolContext | None = None,
+    ) -> ToolResult:
+        tool_context = _bind_tool_output(context, tool_call)
+        started_at = _utc_now_iso()
+        started_perf = perf_counter()
+        tool = tools_by_name.get(tool_call.name)
+        if tool is None:
+            return _stamp_result(
+                _tool_failure_result(
+                    name=tool_call.name,
+                    tool_call_id=tool_call.id,
+                    message=f"Unknown tool: {tool_call.name}",
+                ),
+                started_at=started_at,
+                started_perf=started_perf,
+            )
+        try:
+            output = tool.invoke(context=tool_context, **tool_call.arguments)
+            return _stamp_result(
+                output.bind(tool_call.id, tool_call.name),
+                started_at=started_at,
+                started_perf=started_perf,
+            )
+        except Exception as exc:
+            logger.exception("Approved tool execution failed: %s", tool_call.name)
+            return _stamp_result(
+                _tool_failure_result(
+                    name=tool_call.name,
+                    tool_call_id=tool_call.id,
+                    message=f"Tool execution failed: {exc}",
+                    exception=exc,
+                ),
+                started_at=started_at,
+                started_perf=started_perf,
+            )
+
 
 def _bind_tool_output(context: ToolContext | None, tool_call: ToolCall) -> ToolContext | None:
     if context is None or context.emit_output is None:
