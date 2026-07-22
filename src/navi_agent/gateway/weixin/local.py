@@ -37,6 +37,8 @@ class _WeixinUiEventSink:
 
     def handle(self, event: UiEvent) -> None:
         with self._lock:
+            if event.kind == "assistant":
+                return
             if event.event_id in self._seen_event_ids:
                 return
             self._seen_event_ids.add(event.event_id)

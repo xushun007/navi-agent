@@ -21,11 +21,13 @@ class FakeApp:
         *,
         emit_progress: bool = False,
         emit_chunks: bool = False,
+        emit_model_delta: bool = False,
     ) -> None:
         self.calls = []
         self.fail_for = fail_for or set()
         self.emit_progress = emit_progress
         self.emit_chunks = emit_chunks
+        self.emit_model_delta = emit_model_delta
         self.background_task_listener = None
         self.cancel_calls = []
         self.resolve_calls = []
@@ -89,6 +91,21 @@ class FakeApp:
                                 },
                             )
                         )
+        if self.emit_model_delta:
+            for subscriber in event_subscribers or []:
+                subscriber.handle(
+                    RuntimeEvent(
+                        session_id=request.session_id,
+                        user_id=request.user_id,
+                        run_id="run-1",
+                        sequence=10,
+                        kind="delta",
+                        source="model",
+                        name="model.delta",
+                        item_id="model:1",
+                        metadata={"delta": "partial reply"},
+                    )
+                )
         return RuntimeResult(
             session_id=request.session_id,
             status="success",
@@ -282,6 +299,24 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertTrue(any("token=<redacted> second line" in text for text in texts))
         self.assertFalse(any("super-secret" in text for text in texts))
         self.assertEqual(texts[-1], "agent reply")
+
+    def test_gateway_does_not_send_model_text_deltas(self) -> None:
+        app = FakeApp(emit_model_delta=True)
+        client = FakeClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+        message = ILinkMessage(
+            message_id="m-model-delta",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="hello",
+            context_token="ctx-1",
+        )
+
+        gateway.handle_message(message)
+
+        self.assertEqual([item["text"] for item in client.sent], ["agent reply"])
 
     def test_gateway_suppresses_progress_inside_throttle_window(self) -> None:
         app = FakeApp(emit_progress=True, emit_chunks=True)

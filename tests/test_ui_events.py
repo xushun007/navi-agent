@@ -74,6 +74,23 @@ def test_ignores_model_content_and_reasoning() -> None:
     assert ui_event is None
 
 
+def test_maps_only_public_model_text_delta() -> None:
+    ui_event = UiEventMapper().map(
+        _event(
+            "model.delta",
+            {"delta": "hello", "reasoning_content": "private reasoning"},
+            item_id="model:1",
+        )
+    )
+
+    assert ui_event is not None
+    assert ui_event.kind == "assistant"
+    assert ui_event.state == "delta"
+    assert ui_event.detail == "hello"
+    assert ui_event.item_id == "model:1"
+    assert "private" not in repr(ui_event)
+
+
 def test_maps_runtime_cancellation_without_treating_it_as_failure() -> None:
     mapper = UiEventMapper()
 
@@ -199,3 +216,29 @@ def test_console_sink_replaces_live_status_and_commits_completion() -> None:
         "\r\x1b[2K"
         "✓ 已读取文件\n"
     )
+
+
+def test_console_sink_streams_assistant_content_and_tracks_final_response() -> None:
+    from io import StringIO
+
+    output = StringIO()
+    sink = ConsoleUiEventSink(output)
+    for sequence, delta in enumerate(["hello ", "world"], start=1):
+        sink.handle(
+            UiEvent(
+                event_id=f"event-{sequence}",
+                run_id="run-1",
+                sequence=sequence,
+                kind="assistant",
+                state="delta",
+                title="",
+                item_id="model:1",
+                detail=delta,
+            )
+        )
+
+    sink.finish()
+
+    assert output.getvalue() == "hello world\n"
+    assert sink.rendered_response("hello world")
+    assert not sink.rendered_response("different response")

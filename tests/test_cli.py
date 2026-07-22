@@ -16,7 +16,13 @@ from navi_agent.evolution import (
 )
 from navi_agent.evolution import EvalSeedStore
 from navi_agent.cli import _read_interactive_message, _run_interactive, build_parser, main
-from navi_agent.runtime import CliApprovalProvider, Message, RuntimeResult, WorkspaceYoloApprovalProvider
+from navi_agent.runtime import (
+    CliApprovalProvider,
+    Message,
+    RuntimeEvent,
+    RuntimeResult,
+    WorkspaceYoloApprovalProvider,
+)
 from navi_agent.scheduler import CronRunRecord
 from navi_agent.smoke import SmokeCheckResult, SmokeRunSummary
 
@@ -1029,6 +1035,44 @@ class CliTests(unittest.TestCase):
         self.assertIn("Interactive session: s1", stdout.getvalue())
         self.assertIn("Shift+Enter for a newline", stdout.getvalue())
         self.assertEqual(stdout.getvalue().strip().splitlines()[-2:], ["done", "done"])
+
+    def test_run_interactive_streams_response_without_printing_it_twice(self) -> None:
+        class StreamingApp(FakeApp):
+            def handle(self, request, *, event_subscribers=None):
+                self.calls.append(request)
+                self.event_subscribers.append(event_subscribers)
+                for sequence, delta in enumerate(["hello ", "world"], start=1):
+                    event = RuntimeEvent(
+                        session_id=request.session_id,
+                        user_id=request.user_id,
+                        run_id="run-1",
+                        sequence=sequence,
+                        kind="delta",
+                        source="model",
+                        name="model.delta",
+                        item_id="model:1",
+                        metadata={"delta": delta},
+                    )
+                    for subscriber in event_subscribers or []:
+                        subscriber.handle(event)
+                return RuntimeResult(
+                    session_id=request.session_id,
+                    status="success",
+                    final_response="hello world",
+                )
+
+        stdout = io.StringIO()
+        with patch("builtins.input", side_effect=["hello", "exit"]):
+            with redirect_stdout(stdout):
+                exit_code = _run_interactive(
+                    app=StreamingApp(),
+                    user_id="u1",
+                    session_id="s1",
+                    system_prompt=None,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue().count("hello world"), 1)
 
     def test_read_interactive_message_uses_prompt_session(self) -> None:
         session = FakePromptSession("hello")

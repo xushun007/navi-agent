@@ -43,6 +43,9 @@ class ConsoleUiEventSink:
         self._interactive = bool(getattr(self._stream, "isatty", lambda: False)())
         self._seen_event_ids: set[str] = set()
         self._active_item_id: str | None = None
+        self._streaming_item_id: str | None = None
+        self._streamed_content: list[str] = []
+        self._stream_ends_with_newline = True
         self._lock = Lock()
 
     def handle(self, event: UiEvent) -> None:
@@ -51,12 +54,18 @@ class ConsoleUiEventSink:
                 return
             self._seen_event_ids.add(event.event_id)
 
+            if event.kind == "assistant" and event.state == "delta":
+                self._handle_assistant_delta(event)
+                return
+
             if event.state in {"started", "progress"}:
+                self._finish_stream()
                 self._active_item_id = event.item_id or event.run_id
                 if self._interactive:
                     self._replace_line(_render_console_event(event))
                 return
 
+            self._finish_stream()
             if self._active_item_id == (event.item_id or event.run_id):
                 self._clear_line()
                 self._active_item_id = None
@@ -64,8 +73,38 @@ class ConsoleUiEventSink:
 
     def finish(self) -> None:
         with self._lock:
+            self._finish_stream()
             self._clear_line()
             self._active_item_id = None
+
+    def rendered_response(self, content: str) -> bool:
+        with self._lock:
+            return bool(self._streamed_content) and "".join(self._streamed_content) == content
+
+    def _handle_assistant_delta(self, event: UiEvent) -> None:
+        delta = event.detail or ""
+        if not delta:
+            return
+        item_id = event.item_id or event.run_id
+        if self._streaming_item_id != item_id:
+            self._finish_stream()
+            self._streaming_item_id = item_id
+            self._streamed_content = []
+        self._clear_line()
+        self._active_item_id = None
+        self._stream.write(delta)
+        self._stream.flush()
+        self._streamed_content.append(delta)
+        self._stream_ends_with_newline = delta.endswith("\n")
+
+    def _finish_stream(self) -> None:
+        if self._streaming_item_id is None:
+            return
+        if not self._stream_ends_with_newline:
+            self._stream.write("\n")
+            self._stream.flush()
+        self._streaming_item_id = None
+        self._stream_ends_with_newline = True
 
     def _replace_line(self, text: str) -> None:
         self._stream.write(f"\r\x1b[2K{text}")
@@ -95,6 +134,20 @@ class UiEventEmitter:
 
 class UiEventMapper:
     def map(self, event: RuntimeEvent) -> UiEvent | None:
+        if event.name == "model.delta":
+            delta = event.metadata.get("delta")
+            if not isinstance(delta, str) or not delta:
+                return None
+            return UiEvent(
+                event_id=event.event_id,
+                run_id=event.run_id,
+                sequence=event.sequence,
+                kind="assistant",
+                state="delta",
+                title="",
+                item_id=event.item_id,
+                detail=delta,
+            )
         if event.name == "tool.call":
             return self._tool_started(event)
         if event.name == "tool.result":

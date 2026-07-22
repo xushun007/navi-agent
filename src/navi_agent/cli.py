@@ -1694,7 +1694,8 @@ def _run_interactive(
             )
         finally:
             ui_sink.finish()
-        print(result.final_response)
+        if not ui_sink.rendered_response(result.final_response):
+            print(result.final_response)
 
 
 def _build_interactive_prompt_session():
