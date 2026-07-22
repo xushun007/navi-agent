@@ -7,7 +7,8 @@ from navi_agent.evolution import (
     build_tool_use_case_from_trajectory,
     render_tool_use_case_jsonl,
 )
-from navi_agent.telemetry import RuntimeStreamEvent, RuntimeTrajectory
+from navi_agent.events import RuntimeEvent
+from navi_agent.telemetry import RuntimeTrajectory
 
 
 class ToolUseImportTests(unittest.TestCase):
@@ -16,7 +17,7 @@ class ToolUseImportTests(unittest.TestCase):
             session_id="s/1",
             run_id="runabcdef",
             events=[
-                RuntimeStreamEvent(
+                RuntimeEvent(
                     session_id="s/1",
                     user_id="u1",
                     run_id="runabcdef",
@@ -24,9 +25,9 @@ class ToolUseImportTests(unittest.TestCase):
                     kind="action",
                     source="user",
                     name="user.message",
-                    payload={"content": "读取 README.md"},
+                    metadata={"content": "读取 README.md"},
                 ),
-                RuntimeStreamEvent(
+                RuntimeEvent(
                     session_id="s/1",
                     user_id="u1",
                     run_id="runabcdef",
@@ -35,7 +36,7 @@ class ToolUseImportTests(unittest.TestCase):
                     source="agent",
                     name="tool.call",
                     iteration=2,
-                    payload={"tool_name": "read_file", "arguments": {"path": "README.md"}},
+                    metadata={"tool_name": "read_file", "arguments": {"path": "README.md"}},
                 ),
             ],
         )
@@ -55,7 +56,7 @@ class ToolUseImportTests(unittest.TestCase):
             session_id="s1",
             run_id="r1",
             events=[
-                RuntimeStreamEvent(
+                RuntimeEvent(
                     session_id="s1",
                     user_id="u1",
                     run_id="r1",
@@ -63,7 +64,7 @@ class ToolUseImportTests(unittest.TestCase):
                     kind="action",
                     source="user",
                     name="user.message",
-                    payload={"content": "hello"},
+                    metadata={"content": "hello"},
                 )
             ],
         )

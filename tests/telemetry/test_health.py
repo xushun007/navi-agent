@@ -5,15 +5,15 @@ import unittest
 from navi_agent.telemetry import (
     InMemoryRuntimeEventStore,
     RuntimeHealthService,
-    RuntimeStreamEvent,
 )
+from navi_agent.events import RuntimeEvent
 
 
 class RuntimeHealthServiceTests(unittest.TestCase):
     def test_summarizes_runtime_failures_and_tool_errors(self) -> None:
         store = InMemoryRuntimeEventStore()
         store.record(
-            RuntimeStreamEvent(
+            RuntimeEvent(
                 session_id="s1",
                 user_id="u1",
                 run_id="r1",
@@ -21,11 +21,11 @@ class RuntimeHealthServiceTests(unittest.TestCase):
                 kind="action",
                 source="agent",
                 name="tool.call",
-                payload={"tool_name": "bash"},
+                metadata={"tool_name": "bash"},
             )
         )
         store.record(
-            RuntimeStreamEvent(
+            RuntimeEvent(
                 session_id="s1",
                 user_id="u1",
                 run_id="r1",
@@ -33,7 +33,7 @@ class RuntimeHealthServiceTests(unittest.TestCase):
                 kind="observation",
                 source="tool",
                 name="tool.result",
-                payload={
+                metadata={
                     "tool_name": "bash",
                     "status": "error",
                     "metadata": {
@@ -46,7 +46,7 @@ class RuntimeHealthServiceTests(unittest.TestCase):
             )
         )
         store.record(
-            RuntimeStreamEvent(
+            RuntimeEvent(
                 session_id="s1",
                 user_id="u1",
                 run_id="r1",
@@ -54,7 +54,7 @@ class RuntimeHealthServiceTests(unittest.TestCase):
                 kind="observation",
                 source="runtime",
                 name="runtime.completed",
-                payload={"status": "failed"},
+                metadata={"status": "failed"},
             )
         )
 

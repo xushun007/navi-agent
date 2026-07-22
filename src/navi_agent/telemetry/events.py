@@ -1,47 +1,30 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import asdict
 import json
 from pathlib import Path
 from threading import Lock
-from typing import Any, Protocol
-from uuid import uuid4
+from typing import Protocol
 
-
-@dataclass(frozen=True, slots=True)
-class RuntimeStreamEvent:
-    session_id: str
-    user_id: str
-    run_id: str
-    sequence: int
-    kind: str
-    source: str
-    name: str
-    event_id: str = field(default_factory=lambda: uuid4().hex)
-    iteration: int | None = None
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-    )
-    payload: dict[str, Any] = field(default_factory=dict)
+from navi_agent.events import RuntimeEvent
 
 
 class RuntimeEventStore(Protocol):
-    def record(self, event: RuntimeStreamEvent) -> None: ...
+    def record(self, event: RuntimeEvent) -> None: ...
 
     def list_events(
         self,
         *,
         session_id: str | None = None,
         run_id: str | None = None,
-    ) -> list[RuntimeStreamEvent]: ...
+    ) -> list[RuntimeEvent]: ...
 
 
 class InMemoryRuntimeEventStore:
     def __init__(self) -> None:
-        self.events: list[RuntimeStreamEvent] = []
+        self.events: list[RuntimeEvent] = []
 
-    def record(self, event: RuntimeStreamEvent) -> None:
+    def record(self, event: RuntimeEvent) -> None:
         self.events.append(event)
 
     def list_events(
@@ -49,7 +32,7 @@ class InMemoryRuntimeEventStore:
         *,
         session_id: str | None = None,
         run_id: str | None = None,
-    ) -> list[RuntimeStreamEvent]:
+    ) -> list[RuntimeEvent]:
         events = list(self.events)
         if session_id is not None:
             events = [event for event in events if event.session_id == session_id]
@@ -63,7 +46,7 @@ class JsonlRuntimeEventStore:
         self._path = path
         self._lock = Lock()
 
-    def record(self, event: RuntimeStreamEvent) -> None:
+    def record(self, event: RuntimeEvent) -> None:
         with self._lock:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             with self._path.open("a", encoding="utf-8") as handle:
@@ -75,17 +58,20 @@ class JsonlRuntimeEventStore:
         *,
         session_id: str | None = None,
         run_id: str | None = None,
-    ) -> list[RuntimeStreamEvent]:
+    ) -> list[RuntimeEvent]:
         if not self._path.exists():
             return []
-        events: list[RuntimeStreamEvent] = []
+        events: list[RuntimeEvent] = []
         with self._lock:
             with self._path.open("r", encoding="utf-8") as handle:
                 for line in handle:
                     line = line.strip()
                     if not line:
                         continue
-                    events.append(RuntimeStreamEvent(**json.loads(line)))
+                    data = json.loads(line)
+                    if "payload" in data and "metadata" not in data:
+                        data["metadata"] = data.pop("payload")
+                    events.append(RuntimeEvent(**data))
         if session_id is not None:
             events = [event for event in events if event.session_id == session_id]
         if run_id is not None:

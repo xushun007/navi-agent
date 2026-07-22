@@ -3,14 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 
-from .events import RuntimeEventStore, RuntimeStreamEvent
+from navi_agent.events import RuntimeEvent
+
+from .events import RuntimeEventStore
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeTrajectory:
     session_id: str
     run_id: str | None
-    events: list[RuntimeStreamEvent]
+    events: list[RuntimeEvent]
 
     @property
     def empty(self) -> bool:
@@ -49,7 +51,7 @@ class RuntimeTrajectoryService:
         return "\n".join(lines)
 
 
-def _render_event(event: RuntimeStreamEvent) -> str:
+def _render_event(event: RuntimeEvent) -> str:
     prefix = f"[{event.sequence}] {event.kind}/{event.source} {event.name}"
     if event.iteration is not None:
         prefix = f"{prefix} iter={event.iteration}"
@@ -57,7 +59,7 @@ def _render_event(event: RuntimeStreamEvent) -> str:
     return f"{prefix}: {summary}" if summary else prefix
 
 
-def _event_summary(event: RuntimeStreamEvent) -> str:
+def _event_summary(event: RuntimeEvent) -> str:
     payload = event.payload
     if event.name == "user.message":
         return _compact(str(payload.get("content") or ""))

@@ -45,5 +45,14 @@ class ModelsTest(unittest.TestCase):
         self.assertEqual(len(result.tool_results), 1)
 
     def test_runtime_event(self) -> None:
-        event = RuntimeEvent(name="runtime.started", session_id="s1", user_id="u1", iteration=1)
+        event = RuntimeEvent(
+            name="runtime.started",
+            session_id="s1",
+            user_id="u1",
+            run_id="r1",
+            sequence=1,
+            kind="observation",
+            source="runtime",
+            iteration=1,
+        )
         self.assertEqual(event.name, "runtime.started")

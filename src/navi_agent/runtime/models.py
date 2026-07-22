@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from navi_agent.events import RuntimeEvent
 from navi_agent.tooling import ToolArtifact, ToolContext, ToolResult
 
 
@@ -63,12 +64,3 @@ class RuntimeResult:
     final_response: str
     messages: list[Message] = field(default_factory=list)
     tool_results: list[ToolResult] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class RuntimeEvent:
-    name: str
-    session_id: str
-    user_id: str
-    iteration: int | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)

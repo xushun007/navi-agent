@@ -11,8 +11,7 @@ from navi_agent.tooling import ToolContext
 
 from .background_tasks import BackgroundTask, BackgroundTaskManager
 from .context_engine import ContextBuildResult, ContextEngine, LLMContextSummarizer
-from .models import Message, RuntimeEvent, RuntimeResult, SessionMetadata
-from .observers import RuntimeObserver
+from .models import Message, RuntimeResult, SessionMetadata
 from .prompt_builder import PromptBuilder
 from .session import InMemorySessionStore
 from .store import SessionStore
@@ -22,11 +21,11 @@ from .transports import ModelRequest, ModelTransport
 from navi_agent.telemetry import (
     ModelCallTrace,
     RuntimeEventStore,
-    RuntimeStreamEvent,
     RuntimeTrace,
     ToolExecutionTrace,
     TraceStore,
 )
+from navi_agent.events import EventStoreWriter, RuntimeEvent, RuntimeEventPublisher, RuntimeEventSubscriber
 
 logger = logging.getLogger("navi_agent.runtime")
 
@@ -135,7 +134,7 @@ class AgentRuntime:
         session_store: SessionStore | None = None,
         prompt_builder: PromptBuilder | None = None,
         trace_store: TraceStore | None = None,
-        observers: Sequence[RuntimeObserver] | None = None,
+        event_subscribers: Sequence[RuntimeEventSubscriber] | None = None,
         tool_result_renderer: ToolResultRenderer | None = None,
         context_engine: ContextEngine | None = None,
         enabled_toolsets: list[str] | None = None,
@@ -153,12 +152,13 @@ class AgentRuntime:
         self._session_store = session_store or InMemorySessionStore()
         self._prompt_builder = prompt_builder or PromptBuilder()
         self._trace_store = trace_store
-        self._observers = list(observers or [])
+        self._event_publisher = RuntimeEventPublisher(event_subscribers or ())
         self._tool_result_renderer = tool_result_renderer or DefaultToolResultRenderer()
         self._context_engine = context_engine or ContextEngine(summarizer=LLMContextSummarizer(transport))
         self._enabled_toolsets = enabled_toolsets
         self._disabled_toolsets = disabled_toolsets
-        self._event_store = event_store
+        if event_store is not None:
+            self._event_publisher.subscribe(EventStoreWriter(event_store))
         self._background_task_manager = background_task_manager
         self._max_iterations = max_iterations
         self._agent_role = agent_role
@@ -185,20 +185,19 @@ class AgentRuntime:
         run_id = uuid4().hex
         event_sequence = 0
 
-        def record_stream_event(
+        def publish_event(
             *,
             kind: str,
             source: str,
             name: str,
             iteration: int | None = None,
+            item_id: str | None = None,
             payload: dict[str, object] | None = None,
         ) -> None:
             nonlocal event_sequence
-            if self._event_store is None:
-                return
             event_sequence += 1
-            self._event_store.record(
-                RuntimeStreamEvent(
+            self._event_publisher.publish(
+                RuntimeEvent(
                     session_id=session_id,
                     user_id=user_id,
                     run_id=run_id,
@@ -207,12 +206,13 @@ class AgentRuntime:
                     source=source,
                     name=name,
                     iteration=iteration,
-                    payload=dict(payload or {}),
+                    item_id=item_id,
+                    metadata=dict(payload or {}),
                 )
             )
 
         logger.info("Starting runtime conversation: session_id=%s user_id=%s", session_id, user_id)
-        record_stream_event(
+        publish_event(
             kind="observation",
             source="runtime",
             name="runtime.started",
@@ -220,18 +220,10 @@ class AgentRuntime:
                 "system_prompt_present": system_prompt is not None,
                 "agent_role": self._agent_role,
                 "parent_session_id": self._parent_session_id,
+                "session_source": source,
+                "model": self._model,
+                "cwd": self._cwd,
             },
-        )
-        self._emit_event(
-            RuntimeEvent(
-                name="runtime.started",
-                session_id=session_id,
-                user_id=user_id,
-                metadata={
-                    "agent_role": self._agent_role,
-                    "parent_session_id": self._parent_session_id,
-                },
-            )
         )
         session = self._session_store.load(
             session_id=session_id,
@@ -259,24 +251,16 @@ class AgentRuntime:
                     "status": task.status,
                     "description": task.description,
                 }
-                self._emit_event(
-                    RuntimeEvent(
-                        name="background_task.completed",
-                        session_id=session_id,
-                        user_id=user_id,
-                        iteration=iteration,
-                        metadata=metadata,
-                    )
-                )
-                record_stream_event(
+                publish_event(
                     kind="observation",
                     source="background_task",
                     name="background_task.completed",
                     iteration=iteration,
+                    item_id=task.task_id,
                     payload={**metadata, "content": content},
                 )
 
-        record_stream_event(
+        publish_event(
             kind="action",
             source="user",
             name="user.message",
@@ -300,13 +284,11 @@ class AgentRuntime:
                 session_id,
                 iteration_number,
             )
-            self._emit_event(
-                RuntimeEvent(
-                    name="iteration.started",
-                    session_id=session_id,
-                    user_id=user_id,
-                    iteration=iteration_number,
-                )
+            publish_event(
+                kind="observation",
+                source="runtime",
+                name="iteration.started",
+                iteration=iteration_number,
             )
             inject_background_notifications(iteration_number)
             model_started_at = _utc_now_iso()
@@ -329,16 +311,7 @@ class AgentRuntime:
                     threshold_tokens=0,
                     summary_status="failed",
                 )
-                self._emit_event(
-                    RuntimeEvent(
-                        name="context.failed",
-                        session_id=session_id,
-                        user_id=user_id,
-                        iteration=iteration_number,
-                        metadata=error_info,
-                    )
-                )
-                record_stream_event(
+                publish_event(
                     kind="observation",
                     source="runtime",
                     name="context.failed",
@@ -356,25 +329,23 @@ class AgentRuntime:
                     context_result.estimated_tokens_after,
                     context_result.threshold_tokens,
                 )
-                self._emit_event(
-                    RuntimeEvent(
-                        name="context.compressed",
-                        session_id=session_id,
-                        user_id=user_id,
-                        iteration=iteration_number,
-                        metadata={
-                            "original_message_count": context_result.original_message_count,
-                            "compressed_message_count": context_result.compressed_message_count,
-                            "final_message_count": len(context_result.messages),
-                            "estimated_tokens_before": context_result.estimated_tokens_before,
-                            "estimated_tokens_after": context_result.estimated_tokens_after,
-                            "threshold_tokens": context_result.threshold_tokens,
-                            "protected_head_count": context_result.protected_head_count,
-                            "protected_tail_count": context_result.protected_tail_count,
-                            "latest_user_anchored": context_result.latest_user_anchored,
-                            "summary_status": context_result.summary_status,
-                        },
-                    )
+                publish_event(
+                    kind="observation",
+                    source="runtime",
+                    name="context.compressed",
+                    iteration=iteration_number,
+                    payload={
+                        "original_message_count": context_result.original_message_count,
+                        "compressed_message_count": context_result.compressed_message_count,
+                        "final_message_count": len(context_result.messages),
+                        "estimated_tokens_before": context_result.estimated_tokens_before,
+                        "estimated_tokens_after": context_result.estimated_tokens_after,
+                        "threshold_tokens": context_result.threshold_tokens,
+                        "protected_head_count": context_result.protected_head_count,
+                        "protected_tail_count": context_result.protected_tail_count,
+                        "latest_user_anchored": context_result.latest_user_anchored,
+                        "summary_status": context_result.summary_status,
+                    },
                 )
             try:
                 response = self._transport.generate(
@@ -391,7 +362,7 @@ class AgentRuntime:
                 logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)
                 fallback_response = _model_failure_response(error_info)
                 self._session_store.append(session, Message(role="assistant", content=fallback_response))
-                record_stream_event(
+                publish_event(
                     kind="observation",
                     source="model",
                     name="model.failed",
@@ -419,16 +390,7 @@ class AgentRuntime:
                     error_info=error_info,
                     attempt_count=iteration_number,
                 )
-                self._emit_event(
-                    RuntimeEvent(
-                        name="runtime.completed",
-                        session_id=session.session_id,
-                        user_id=user_id,
-                        iteration=iteration_number,
-                        metadata={"status": result.status, **error_info},
-                    )
-                )
-                record_stream_event(
+                publish_event(
                     kind="observation",
                     source="runtime",
                     name="runtime.completed",
@@ -436,15 +398,6 @@ class AgentRuntime:
                     payload={"status": result.status, **error_info},
                 )
                 return result
-            self._emit_event(
-                RuntimeEvent(
-                    name="model.responded",
-                    session_id=session_id,
-                    user_id=user_id,
-                    iteration=iteration_number,
-                    metadata={"tool_call_count": len(response.tool_calls)},
-                )
-            )
             model_calls.append(
                 ModelCallTrace(
                     iteration=iteration_number,
@@ -456,7 +409,7 @@ class AgentRuntime:
                     duration_ms=_duration_ms(model_started_perf),
                 )
             )
-            record_stream_event(
+            publish_event(
                 kind="action",
                 source="agent",
                 name="model.response",
@@ -507,16 +460,7 @@ class AgentRuntime:
                     started_at=run_started_at,
                     duration_ms=_duration_ms(run_started_perf),
                 )
-                self._emit_event(
-                    RuntimeEvent(
-                        name="runtime.completed",
-                        session_id=session.session_id,
-                        user_id=user_id,
-                        iteration=iteration_number,
-                        metadata={"status": result.status},
-                    )
-                )
-                record_stream_event(
+                publish_event(
                     kind="observation",
                     source="runtime",
                     name="runtime.completed",
@@ -531,11 +475,12 @@ class AgentRuntime:
                 iteration=iteration_number,
             )
             for tool_call in response.tool_calls:
-                record_stream_event(
+                publish_event(
                     kind="action",
                     source="agent",
                     name="tool.call",
                     iteration=iteration_number,
+                    item_id=tool_call.id,
                     payload={
                         "tool_call_id": tool_call.id,
                         "tool_name": tool_call.name,
@@ -583,23 +528,12 @@ class AgentRuntime:
                         duration_ms=tool_duration_ms,
                     )
                 )
-                self._emit_event(
-                    RuntimeEvent(
-                        name="tool.executed",
-                        session_id=session_id,
-                        user_id=user_id,
-                        iteration=iteration_number,
-                        metadata={
-                            "tool_name": tool_result.name,
-                            "status": tool_result.status,
-                        },
-                    )
-                )
-                record_stream_event(
+                publish_event(
                     kind="observation",
                     source="tool",
                     name="tool.result",
                     iteration=iteration_number,
+                    item_id=tool_result.tool_call_id,
                     payload={
                         "tool_call_id": tool_result.tool_call_id,
                         "tool_name": tool_result.name,
@@ -646,16 +580,7 @@ class AgentRuntime:
                 "error_source": "runtime",
             },
         )
-        self._emit_event(
-            RuntimeEvent(
-                name="runtime.completed",
-                session_id=session.session_id,
-                user_id=user_id,
-                iteration=self._max_iterations,
-                metadata={"status": result.status},
-            )
-        )
-        record_stream_event(
+        publish_event(
             kind="observation",
             source="runtime",
             name="runtime.completed",
@@ -730,10 +655,6 @@ class AgentRuntime:
                 duration_ms=duration_ms,
             )
         )
-
-    def _emit_event(self, event: RuntimeEvent) -> None:
-        for observer in self._observers:
-            observer.on_event(event)
 
     def _render_tool_message(self, tool_result) -> str:
         rendered = self._tool_result_renderer.render(tool_result).strip()

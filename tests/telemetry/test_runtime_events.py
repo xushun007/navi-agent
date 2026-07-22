@@ -5,7 +5,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from navi_agent.telemetry import JsonlRuntimeEventStore, RuntimeStreamEvent
+from navi_agent.events import RuntimeEvent
+from navi_agent.telemetry import JsonlRuntimeEventStore
 
 
 class RuntimeEventStoreTests(unittest.TestCase):
@@ -14,7 +15,7 @@ class RuntimeEventStoreTests(unittest.TestCase):
             path = Path(tmpdir) / "events.jsonl"
             store = JsonlRuntimeEventStore(path)
             store.record(
-                RuntimeStreamEvent(
+                RuntimeEvent(
                     session_id="s1",
                     user_id="u1",
                     run_id="r1",
@@ -22,11 +23,11 @@ class RuntimeEventStoreTests(unittest.TestCase):
                     kind="action",
                     source="user",
                     name="user.message",
-                    payload={"content": "hello"},
+                    metadata={"content": "hello"},
                 )
             )
             store.record(
-                RuntimeStreamEvent(
+                RuntimeEvent(
                     session_id="s2",
                     user_id="u1",
                     run_id="r2",
@@ -49,7 +50,7 @@ class RuntimeEventStoreTests(unittest.TestCase):
 
             def record(index: int) -> None:
                 store.record(
-                    RuntimeStreamEvent(
+                    RuntimeEvent(
                         session_id=f"child-{index}",
                         user_id="u1",
                         run_id=f"run-{index}",
@@ -67,6 +68,20 @@ class RuntimeEventStoreTests(unittest.TestCase):
 
         self.assertEqual(len(events), 30)
         self.assertEqual(len({event.run_id for event in events}), 30)
+
+    def test_jsonl_event_store_reads_legacy_payload_field(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "events.jsonl"
+            path.write_text(
+                '{"session_id":"s1","user_id":"u1","run_id":"r1",'
+                '"sequence":1,"kind":"action","source":"user",'
+                '"name":"user.message","payload":{"content":"legacy"}}\n',
+                encoding="utf-8",
+            )
+
+            events = JsonlRuntimeEventStore(path).list_events()
+
+        self.assertEqual(events[0].metadata, {"content": "legacy"})
 
 
 if __name__ == "__main__":

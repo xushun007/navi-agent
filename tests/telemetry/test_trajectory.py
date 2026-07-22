@@ -4,16 +4,16 @@ import unittest
 
 from navi_agent.telemetry import (
     InMemoryRuntimeEventStore,
-    RuntimeStreamEvent,
     RuntimeTrajectoryService,
 )
+from navi_agent.events import RuntimeEvent
 
 
 class RuntimeTrajectoryServiceTests(unittest.TestCase):
     def test_render_formats_action_observation_sequence(self) -> None:
         store = InMemoryRuntimeEventStore()
         store.record(
-            RuntimeStreamEvent(
+            RuntimeEvent(
                 session_id="s1",
                 user_id="u1",
                 run_id="r1",
@@ -21,11 +21,11 @@ class RuntimeTrajectoryServiceTests(unittest.TestCase):
                 kind="action",
                 source="user",
                 name="user.message",
-                payload={"content": "read README"},
+                metadata={"content": "read README"},
             )
         )
         store.record(
-            RuntimeStreamEvent(
+            RuntimeEvent(
                 session_id="s1",
                 user_id="u1",
                 run_id="r1",
@@ -34,11 +34,11 @@ class RuntimeTrajectoryServiceTests(unittest.TestCase):
                 source="agent",
                 name="model.response",
                 iteration=1,
-                payload={"tool_calls": [{"name": "read_file"}]},
+                metadata={"tool_calls": [{"name": "read_file"}]},
             )
         )
         store.record(
-            RuntimeStreamEvent(
+            RuntimeEvent(
                 session_id="s1",
                 user_id="u1",
                 run_id="r1",
@@ -47,11 +47,11 @@ class RuntimeTrajectoryServiceTests(unittest.TestCase):
                 source="agent",
                 name="tool.call",
                 iteration=1,
-                payload={"tool_name": "read_file", "arguments": {"path": "README.md"}},
+                metadata={"tool_name": "read_file", "arguments": {"path": "README.md"}},
             )
         )
         store.record(
-            RuntimeStreamEvent(
+            RuntimeEvent(
                 session_id="s1",
                 user_id="u1",
                 run_id="r1",
@@ -60,7 +60,7 @@ class RuntimeTrajectoryServiceTests(unittest.TestCase):
                 source="tool",
                 name="tool.result",
                 iteration=1,
-                payload={"tool_name": "read_file", "status": "success"},
+                metadata={"tool_name": "read_file", "status": "success"},
             )
         )
 

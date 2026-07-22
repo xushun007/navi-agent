@@ -3,8 +3,8 @@ from .events import (
     InMemoryRuntimeEventStore,
     JsonlRuntimeEventStore,
     RuntimeEventStore,
-    RuntimeStreamEvent,
 )
+from navi_agent.events import RuntimeEvent
 from .jsonl import JsonlTraceStore
 from .health import RuntimeHealthService, RuntimeHealthSummary
 from .langfuse import LangfuseTraceExporter, is_langfuse_sdk_available
@@ -27,7 +27,7 @@ __all__ = [
     "RuntimeEventStore",
     "RuntimeHealthService",
     "RuntimeHealthSummary",
-    "RuntimeStreamEvent",
+    "RuntimeEvent",
     "RuntimeTrajectory",
     "RuntimeTrajectoryService",
     "TraceReplayResult",

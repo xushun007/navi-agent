@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from typing import Protocol
+from navi_agent.events import RuntimeEventSubscriber
 
-from .models import RuntimeEvent
-
-
-class RuntimeObserver(Protocol):
-    def on_event(self, event: RuntimeEvent) -> None: ...
+RuntimeObserver = RuntimeEventSubscriber

@@ -74,7 +74,7 @@ class RecordingObserver:
     def __init__(self) -> None:
         self.events: list[RuntimeEvent] = []
 
-    def on_event(self, event: RuntimeEvent) -> None:
+    def handle(self, event: RuntimeEvent) -> None:
         self.events.append(event)
 
 
@@ -147,24 +147,28 @@ class AgentRuntimeTests(unittest.TestCase):
             [
                 "runtime.started",
                 "user.message",
+                "iteration.started",
                 "model.response",
                 "tool.call",
                 "tool.result",
+                "iteration.started",
                 "model.response",
                 "runtime.completed",
             ],
         )
-        self.assertEqual([event.sequence for event in events], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual([event.sequence for event in events], list(range(1, 10)))
         self.assertEqual(events[1].kind, "action")
         self.assertEqual(events[1].source, "user")
-        self.assertEqual(events[3].kind, "action")
-        self.assertEqual(events[3].source, "agent")
-        self.assertEqual(events[3].payload["tool_name"], "echo")
-        self.assertEqual(events[3].payload["arguments"], {"value": "ping"})
-        self.assertEqual(events[4].kind, "observation")
-        self.assertEqual(events[4].source, "tool")
+        self.assertEqual(events[4].kind, "action")
+        self.assertEqual(events[4].source, "agent")
         self.assertEqual(events[4].payload["tool_name"], "echo")
-        self.assertEqual(events[6].payload["status"], "success")
+        self.assertEqual(events[4].payload["arguments"], {"value": "ping"})
+        self.assertEqual(events[4].item_id, "tc1")
+        self.assertEqual(events[5].kind, "observation")
+        self.assertEqual(events[5].source, "tool")
+        self.assertEqual(events[5].payload["tool_name"], "echo")
+        self.assertEqual(events[5].item_id, "tc1")
+        self.assertEqual(events[8].payload["status"], "success")
 
     def test_runtime_injects_completed_background_task_before_model_call(self) -> None:
         manager = BackgroundTaskManager()
@@ -273,7 +277,7 @@ class AgentRuntimeTests(unittest.TestCase):
                 tail_budget_ratio=0.1,
                 summarizer=LLMContextSummarizer(transport),
             ),
-            observers=[observer],
+            event_subscribers=[observer],
         )
 
         result = runtime.run_conversation(
@@ -301,7 +305,7 @@ class AgentRuntimeTests(unittest.TestCase):
         runtime = AgentRuntime(
             transport=transport,
             context_engine=FailingContextEngine(),
-            observers=[observer],
+            event_subscribers=[observer],
         )
 
         result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
@@ -509,7 +513,7 @@ class AgentRuntimeTests(unittest.TestCase):
         observer = RecordingObserver()
         runtime = AgentRuntime(
             transport=transport,
-            observers=[observer],
+            event_subscribers=[observer],
             tool_registry=ToolRegistry(tools={"echo": lambda value: ok_result("echo", f"tool:{value}")}),
         )
 
@@ -519,16 +523,18 @@ class AgentRuntimeTests(unittest.TestCase):
             [event.name for event in observer.events],
             [
                 "runtime.started",
+                "user.message",
                 "iteration.started",
-                "model.responded",
-                "tool.executed",
+                "model.response",
+                "tool.call",
+                "tool.result",
                 "iteration.started",
-                "model.responded",
+                "model.response",
                 "runtime.completed",
             ],
         )
-        self.assertEqual(observer.events[2].metadata["tool_call_count"], 1)
-        self.assertEqual(observer.events[3].metadata["tool_name"], "echo")
+        self.assertEqual(len(observer.events[3].metadata["tool_calls"]), 1)
+        self.assertEqual(observer.events[4].metadata["tool_name"], "echo")
 
     def test_runtime_records_tool_execution_trace_details(self) -> None:
         transport = FakeTransport(
