@@ -23,7 +23,17 @@ class TraceSerializerTests(unittest.TestCase):
             http_status=429,
             error_source="model",
             attempt_count=2,
-            model_calls=[ModelCallTrace(iteration=1, response_content="done")],
+            model_calls=[
+                ModelCallTrace(
+                    iteration=1,
+                    response_content="done",
+                    provider="openai-compatible",
+                    model="deepseek-v4-pro",
+                    input_tokens=100,
+                    output_tokens=20,
+                    cost_usd=0.001,
+                )
+            ],
             tool_executions=[
                 ToolExecutionTrace(
                     iteration=1,
@@ -42,11 +52,13 @@ class TraceSerializerTests(unittest.TestCase):
 
         payload = TraceSerializer.to_dict(trace)
 
-        self.assertEqual(payload["schema_version"], "trace.v2")
+        self.assertEqual(payload["schema_version"], "trace.v3")
         self.assertEqual(payload["agent_role"], "subagent")
         self.assertEqual(payload["parent_session_id"], "parent-1")
         self.assertIn("trace_id", payload)
         self.assertEqual(payload["model_calls"][0]["response_content"], "done")
+        self.assertEqual(payload["model_calls"][0]["model"], "deepseek-v4-pro")
+        self.assertEqual(payload["model_calls"][0]["input_tokens"], 100)
         self.assertEqual(payload["tool_executions"][0]["tool_name"], "echo")
         self.assertEqual(payload["injected_skill_names"], ["readme-summary"])
         self.assertEqual(payload["error_category"], "retryable")
@@ -66,7 +78,7 @@ class TraceSerializerTests(unittest.TestCase):
         payload = json.loads(TraceSerializer.to_json(trace))
 
         self.assertEqual(payload["session_id"], "s1")
-        self.assertEqual(payload["schema_version"], "trace.v2")
+        self.assertEqual(payload["schema_version"], "trace.v3")
 
     def test_traces_to_json_lines_exports_multiple_traces(self) -> None:
         traces = [

@@ -12,7 +12,7 @@ from openai import (
 
 from navi_agent.errors import RETRYABLE_HTTP_STATUSES, is_retryable_exception, retry_delay
 
-from ..models import Message, ModelResponse, ToolCall
+from ..models import Message, ModelResponse, ModelUsage, ToolCall
 from .base import ModelRequest
 
 logger = logging.getLogger("navi_agent.runtime.transport")
@@ -82,6 +82,25 @@ class OpenAICompatibleTransport:
             content=content,
             reasoning_content=reasoning_content,
             tool_calls=tool_calls,
+            provider="openai-compatible",
+            model=str(getattr(response, "model", None) or self._model),
+            usage=self._parse_usage(getattr(response, "usage", None)),
+        )
+
+    @staticmethod
+    def _parse_usage(usage: Any) -> ModelUsage:
+        if usage is None:
+            return ModelUsage()
+        prompt_details = getattr(usage, "prompt_tokens_details", None)
+        completion_details = getattr(usage, "completion_tokens_details", None)
+        cost = getattr(usage, "cost", None)
+        return ModelUsage(
+            input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(prompt_details, "cached_tokens", 0) or 0),
+            cache_write_tokens=int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
+            reasoning_tokens=int(getattr(completion_details, "reasoning_tokens", 0) or 0),
+            cost_usd=float(cost) if isinstance(cost, (int, float)) else None,
         )
 
     @staticmethod

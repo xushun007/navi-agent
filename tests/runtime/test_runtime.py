@@ -14,6 +14,7 @@ from navi_agent.runtime import (
     Message,
     ModelRequest,
     ModelResponse,
+    ModelUsage,
     PromptBuilder,
     RuntimeEvent,
     ToolArtifact,
@@ -103,7 +104,16 @@ def ok_result(name: str, content: str, **kwargs) -> ToolResult:
 
 class AgentRuntimeTests(unittest.TestCase):
     def test_runtime_returns_final_model_response(self) -> None:
-        transport = FakeTransport([ModelResponse(content="done")])
+        transport = FakeTransport(
+            [
+                ModelResponse(
+                    content="done",
+                    provider="openai-compatible",
+                    model="deepseek-v4-pro",
+                    usage=ModelUsage(input_tokens=100, output_tokens=20, cost_usd=0.001),
+                )
+            ]
+        )
         runtime = AgentRuntime(transport=transport)
 
         result = runtime.run_conversation(
@@ -435,7 +445,16 @@ class AgentRuntimeTests(unittest.TestCase):
         )
 
     def test_runtime_records_trace_on_success(self) -> None:
-        transport = FakeTransport([ModelResponse(content="done")])
+        transport = FakeTransport(
+            [
+                ModelResponse(
+                    content="done",
+                    provider="openai-compatible",
+                    model="deepseek-v4-pro",
+                    usage=ModelUsage(input_tokens=100, output_tokens=20, cost_usd=0.001),
+                )
+            ]
+        )
         trace_store = InMemoryTraceStore()
         runtime = AgentRuntime(
             transport=transport,
@@ -471,6 +490,11 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(trace.model_calls[0].started_at)
         self.assertIsNotNone(trace.model_calls[0].completed_at)
         self.assertGreaterEqual(trace.model_calls[0].duration_ms, 0)
+        self.assertEqual(trace.model_calls[0].provider, "openai-compatible")
+        self.assertEqual(trace.model_calls[0].model, "deepseek-v4-pro")
+        self.assertEqual(trace.model_calls[0].input_tokens, 100)
+        self.assertEqual(trace.model_calls[0].output_tokens, 20)
+        self.assertEqual(trace.model_calls[0].cost_usd, 0.001)
 
     def test_runtime_does_not_record_skill_index_as_injected_skill_usage(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -414,6 +414,14 @@ class AgentRuntime:
                     started_at=model_started_at,
                     completed_at=_utc_now_iso(),
                     duration_ms=_duration_ms(model_started_perf),
+                    provider=response.provider,
+                    model=response.model,
+                    input_tokens=response.usage.input_tokens,
+                    output_tokens=response.usage.output_tokens,
+                    cache_read_tokens=response.usage.cache_read_tokens,
+                    cache_write_tokens=response.usage.cache_write_tokens,
+                    reasoning_tokens=response.usage.reasoning_tokens,
+                    cost_usd=response.usage.cost_usd,
                 )
             )
             publish_event(
@@ -424,6 +432,16 @@ class AgentRuntime:
                 payload={
                     "content": response.content,
                     "reasoning_content": response.reasoning_content,
+                    "provider": response.provider,
+                    "model": response.model,
+                    "usage": {
+                        "input_tokens": response.usage.input_tokens,
+                        "output_tokens": response.usage.output_tokens,
+                        "cache_read_tokens": response.usage.cache_read_tokens,
+                        "cache_write_tokens": response.usage.cache_write_tokens,
+                        "reasoning_tokens": response.usage.reasoning_tokens,
+                        "cost_usd": response.usage.cost_usd,
+                    },
                     "tool_calls": [
                         {
                             "id": tool_call.id,

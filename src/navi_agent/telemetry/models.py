@@ -14,6 +14,14 @@ class ModelCallTrace:
     started_at: str | None = None
     completed_at: str | None = None
     duration_ms: int = 0
+    provider: str | None = None
+    model: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    reasoning_tokens: int = 0
+    cost_usd: float | None = None
 
 
 @dataclass(slots=True)
