@@ -459,15 +459,30 @@ class AgentRuntime:
                     },
                 )
             try:
-                response = self._transport.generate(
-                    ModelRequest(
-                        messages=context_result.messages,
-                        tools=self._tool_registry.schemas(
-                            enabled_toolsets=self._enabled_toolsets,
-                            disabled_toolsets=self._disabled_toolsets,
-                        ),
-                    )
+                model_request = ModelRequest(
+                    messages=context_result.messages,
+                    tools=self._tool_registry.schemas(
+                        enabled_toolsets=self._enabled_toolsets,
+                        disabled_toolsets=self._disabled_toolsets,
+                    ),
                 )
+                generate_stream = getattr(self._transport, "generate_stream", None)
+                if callable(generate_stream):
+                    model_item_id = f"model:{iteration_number}"
+
+                    def publish_text_delta(delta: str) -> None:
+                        publish_event(
+                            kind="delta",
+                            source="model",
+                            name="model.delta",
+                            iteration=iteration_number,
+                            item_id=model_item_id,
+                            payload={"delta": delta},
+                        )
+
+                    response = generate_stream(model_request, publish_text_delta)
+                else:
+                    response = self._transport.generate(model_request)
             except Exception as exc:
                 error_info = classify_exception(exc, error_source="model").to_metadata()
                 logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)

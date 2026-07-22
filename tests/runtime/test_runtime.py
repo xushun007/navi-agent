@@ -45,6 +45,22 @@ class FakeTransport:
         return self._responses.pop(0)
 
 
+class StreamingFakeTransport:
+    def __init__(self, deltas: list[str], response: ModelResponse) -> None:
+        self._deltas = deltas
+        self._response = response
+        self.calls = []
+
+    def generate(self, request: ModelRequest):
+        raise AssertionError("generate must not be used for a streaming transport")
+
+    def generate_stream(self, request: ModelRequest, on_text_delta):
+        self.calls.append(request)
+        for delta in self._deltas:
+            on_text_delta(delta)
+        return self._response
+
+
 class InterruptingTransport:
     def generate(self, request: ModelRequest):
         raise KeyboardInterrupt()
@@ -696,6 +712,32 @@ class AgentRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(len(observer.events[3].metadata["tool_calls"]), 1)
         self.assertEqual(observer.events[4].metadata["tool_name"], "echo")
+
+    def test_runtime_publishes_streamed_model_deltas(self) -> None:
+        transport = StreamingFakeTransport(
+            ["hello ", "world"],
+            ModelResponse(content="hello world", model="streaming-model"),
+        )
+        observer = RecordingObserver()
+        event_store = InMemoryRuntimeEventStore()
+        runtime = AgentRuntime(transport=transport, event_store=event_store)
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+            event_subscribers=[observer],
+        )
+
+        deltas = [event for event in observer.events if event.name == "model.delta"]
+        self.assertEqual([event.metadata["delta"] for event in deltas], ["hello ", "world"])
+        self.assertEqual({event.kind for event in deltas}, {"delta"})
+        self.assertEqual({event.item_id for event in deltas}, {"model:1"})
+        self.assertEqual(result.final_response, "hello world")
+        self.assertNotIn(
+            "model.delta",
+            [event.name for event in event_store.list_events(session_id="s1")],
+        )
 
     def test_runtime_scopes_event_subscribers_to_one_request(self) -> None:
         transport = FakeTransport([ModelResponse(content="first"), ModelResponse(content="second")])
