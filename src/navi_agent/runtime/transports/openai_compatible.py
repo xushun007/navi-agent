@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import Any, Callable
 
 from openai import (
     APIError,
@@ -64,6 +64,100 @@ class OpenAICompatibleTransport:
         if last_error is not None:
             raise last_error
         raise RuntimeError("OpenAI transport failed without raising an exception")
+
+    def generate_stream(
+        self,
+        request: ModelRequest,
+        on_text_delta: Callable[[str], None],
+    ) -> ModelResponse:
+        last_error: Exception | None = None
+        for attempt in range(1, self._max_retries + 2):
+            stream_started = False
+            try:
+                stream = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[self._serialize_message(message) for message in request.messages],
+                    tools=[self._serialize_tool(tool) for tool in request.tools] or None,
+                    stream=True,
+                    stream_options={"include_usage": True},
+                )
+                content_parts: list[str] = []
+                reasoning_parts: list[str] = []
+                tool_call_parts: dict[int, dict[str, str]] = {}
+                model = self._model
+                usage = ModelUsage()
+
+                for chunk in stream:
+                    stream_started = True
+                    model = str(getattr(chunk, "model", None) or model)
+                    chunk_usage = getattr(chunk, "usage", None)
+                    if chunk_usage is not None:
+                        usage = self._parse_usage(chunk_usage)
+                    choices = getattr(chunk, "choices", None) or []
+                    for choice in choices:
+                        delta = getattr(choice, "delta", None)
+                        if delta is None:
+                            continue
+                        content = getattr(delta, "content", None)
+                        if isinstance(content, str) and content:
+                            content_parts.append(content)
+                            on_text_delta(content)
+                        reasoning = getattr(delta, "reasoning_content", None)
+                        if isinstance(reasoning, str) and reasoning:
+                            reasoning_parts.append(reasoning)
+                        for tool_call in getattr(delta, "tool_calls", None) or []:
+                            index = int(getattr(tool_call, "index", 0) or 0)
+                            parts = tool_call_parts.setdefault(
+                                index,
+                                {"id": "", "name": "", "arguments": ""},
+                            )
+                            call_id = getattr(tool_call, "id", None)
+                            if isinstance(call_id, str):
+                                parts["id"] += call_id
+                            function = getattr(tool_call, "function", None)
+                            if function is None:
+                                continue
+                            name = getattr(function, "name", None)
+                            if isinstance(name, str):
+                                parts["name"] += name
+                            arguments = getattr(function, "arguments", None)
+                            if isinstance(arguments, str):
+                                parts["arguments"] += arguments
+
+                return ModelResponse(
+                    content="".join(content_parts),
+                    reasoning_content="".join(reasoning_parts) or None,
+                    tool_calls=[
+                        ToolCall(
+                            id=parts["id"],
+                            name=parts["name"],
+                            arguments=self._parse_tool_arguments(parts["arguments"]),
+                        )
+                        for _, parts in sorted(tool_call_parts.items())
+                    ],
+                    provider="openai-compatible",
+                    model=model,
+                    usage=usage,
+                )
+            except Exception as exc:
+                last_error = exc
+                if stream_started or attempt > self._max_retries or not _is_retryable_error(exc):
+                    raise
+                delay = retry_delay(
+                    attempt=attempt,
+                    base_seconds=self._base_backoff_seconds,
+                    max_seconds=self._max_backoff_seconds,
+                )
+                logger.warning(
+                    "OpenAI streaming transport retryable error: attempt=%s delay=%.3fs error=%s",
+                    attempt,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("OpenAI streaming transport failed without raising an exception")
 
     def _to_model_response(self, response: Any) -> ModelResponse:
         choice = response.choices[0]

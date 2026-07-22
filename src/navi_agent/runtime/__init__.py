@@ -44,7 +44,13 @@ from .tool_executor import ToolExecutor
 from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
 from .transport_factory import build_transport
 from .tools import ToolDefinition, ToolRegistry, ToolsetDefinition
-from .transports import DemoTransport, ModelRequest, ModelTransport, OpenAICompatibleTransport
+from .transports import (
+    DemoTransport,
+    ModelRequest,
+    ModelTransport,
+    OpenAICompatibleTransport,
+    StreamingModelTransport,
+)
 
 __all__ = [
     "AgentRuntime",
@@ -73,6 +79,7 @@ __all__ = [
     "ModelResponse",
     "ModelUsage",
     "ModelTransport",
+    "StreamingModelTransport",
     "OpenAICompatibleTransport",
     "PromptBuilder",
     "PendingInteraction",

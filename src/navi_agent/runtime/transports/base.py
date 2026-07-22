@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-from typing import Protocol
+from typing import Any, Callable, Protocol
 
 from ..models import Message, ModelResponse
 
@@ -15,3 +14,11 @@ class ModelRequest:
 
 class ModelTransport(Protocol):
     def generate(self, request: ModelRequest) -> ModelResponse: ...
+
+
+class StreamingModelTransport(ModelTransport, Protocol):
+    def generate_stream(
+        self,
+        request: ModelRequest,
+        on_text_delta: Callable[[str], None],
+    ) -> ModelResponse: ...

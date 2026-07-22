@@ -22,6 +22,121 @@ class FakeClient:
 
 
 class OpenAICompatibleTransportTests(unittest.TestCase):
+    def test_transport_streams_text_and_aggregates_response(self) -> None:
+        chunks = [
+            types.SimpleNamespace(
+                model="deepseek-v4-pro",
+                usage=None,
+                choices=[
+                    types.SimpleNamespace(
+                        delta=types.SimpleNamespace(
+                            content="hello ",
+                            reasoning_content="internal ",
+                            tool_calls=None,
+                        )
+                    )
+                ],
+            ),
+            types.SimpleNamespace(
+                model="deepseek-v4-pro",
+                usage=None,
+                choices=[
+                    types.SimpleNamespace(
+                        delta=types.SimpleNamespace(
+                            content="world",
+                            reasoning_content="reasoning",
+                            tool_calls=None,
+                        )
+                    )
+                ],
+            ),
+            types.SimpleNamespace(
+                model="deepseek-v4-pro",
+                usage=types.SimpleNamespace(
+                    prompt_tokens=10,
+                    completion_tokens=2,
+                    prompt_tokens_details=None,
+                    completion_tokens_details=None,
+                ),
+                choices=[],
+            ),
+        ]
+        client = FakeClient(chunks)
+        transport = OpenAICompatibleTransport(model="deepseek-v4-pro", api_key="test", client=client)
+        deltas: list[str] = []
+
+        result = transport.generate_stream(
+            ModelRequest(messages=[Message(role="user", content="hi")]),
+            deltas.append,
+        )
+
+        self.assertEqual(deltas, ["hello ", "world"])
+        self.assertEqual(result.content, "hello world")
+        self.assertEqual(result.reasoning_content, "internal reasoning")
+        self.assertEqual(result.model, "deepseek-v4-pro")
+        self.assertEqual(result.usage.input_tokens, 10)
+        self.assertEqual(result.usage.output_tokens, 2)
+        call = client.chat.completions.calls[0]
+        self.assertTrue(call["stream"])
+        self.assertEqual(call["stream_options"], {"include_usage": True})
+
+    def test_transport_aggregates_streamed_tool_calls(self) -> None:
+        chunks = [
+            types.SimpleNamespace(
+                model="model",
+                usage=None,
+                choices=[
+                    types.SimpleNamespace(
+                        delta=types.SimpleNamespace(
+                            content=None,
+                            reasoning_content=None,
+                            tool_calls=[
+                                types.SimpleNamespace(
+                                    index=0,
+                                    id="tc1",
+                                    function=types.SimpleNamespace(name="echo", arguments='{"value":'),
+                                )
+                            ],
+                        )
+                    )
+                ],
+            ),
+            types.SimpleNamespace(
+                model="model",
+                usage=None,
+                choices=[
+                    types.SimpleNamespace(
+                        delta=types.SimpleNamespace(
+                            content=None,
+                            reasoning_content=None,
+                            tool_calls=[
+                                types.SimpleNamespace(
+                                    index=0,
+                                    id=None,
+                                    function=types.SimpleNamespace(name=None, arguments='"ping"}'),
+                                )
+                            ],
+                        )
+                    )
+                ],
+            ),
+        ]
+        transport = OpenAICompatibleTransport(
+            model="model",
+            api_key="test",
+            client=FakeClient(chunks),
+        )
+
+        result = transport.generate_stream(
+            ModelRequest(messages=[Message(role="user", content="hi")]),
+            lambda _delta: None,
+        )
+
+        self.assertEqual(
+            result.tool_calls,
+            [ToolCall(id="tc1", name="echo", arguments={"value": "ping"})],
+        )
+
     def test_transport_serializes_messages_and_tools(self) -> None:
         response = types.SimpleNamespace(
             model="gpt-4o-mini-2026-07-01",
