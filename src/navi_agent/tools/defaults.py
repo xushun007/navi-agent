@@ -24,6 +24,7 @@ from .memory_tool import MemoryTool
 from .patch_tool import PatchTool
 from .read_file_tool import ReadFileTool
 from .search_files_tool import SearchFilesTool
+from .session_search_tool import SessionSearchTool
 from .skill_view_tool import SkillListTool, SkillViewTool
 from .todo_tool import TodoTool
 from .write_file_tool import WriteFileTool
@@ -36,6 +37,7 @@ def build_default_tool_registry(
     skill_store=None,
     background_task_manager: BackgroundTaskManager | None = None,
     subagent_service: SubagentService | None = None,
+    session_store=None,
     additional_roots: Iterable[Path] | None = None,
 ) -> ToolRegistry:
     workspace_root = root or Path.cwd()
@@ -60,6 +62,11 @@ def build_default_tool_registry(
             ("file", WriteFileTool(root=workspace_root, additional_roots=added_roots)),
             ("file", PatchTool(root=workspace_root, additional_roots=added_roots)),
             ("memory", MemoryTool(memory_store=shared_memory_store)),
+            *(
+                [("session", SessionSearchTool(session_store))]
+                if session_store is not None
+                else []
+            ),
             ("scheduler", CronTool(store=CronJobStore(get_cron_jobs_path()))),
             *(
                 [("delegation", DelegateTaskTool(subagent_service))]
@@ -84,6 +91,7 @@ def build_default_tool_registry(
                 tools=["read_file", "search_files", "write_file", "patch"],
             ),
             ToolsetDefinition(name="memory", tools=["memory"]),
+            ToolsetDefinition(name="session", tools=["session_search"]),
             ToolsetDefinition(name="scheduler", tools=["cron"]),
             ToolsetDefinition(name="delegation", tools=["delegate_task"]),
             ToolsetDefinition(name="skills", tools=["skill_list", "skill_view"]),
@@ -95,6 +103,7 @@ def build_default_tool_registry(
                     "code",
                     "file",
                     "memory",
+                    "session",
                     "skills",
                     "todo",
                     "scheduler",

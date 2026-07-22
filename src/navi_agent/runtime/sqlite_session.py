@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import sqlite3
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
 
-from .models import ConversationState, Message, SessionMetadata, ToolCall
+from .models import ConversationState, Message, SessionMetadata, SessionSearchHit, ToolCall
 from .sqlite_schema import SCHEMA_STATEMENTS
 
 
@@ -166,6 +167,109 @@ class SQLiteSessionStore:
             ).fetchall()
         return [str(row["id"]) for row in rows]
 
+    def search_sessions(
+        self,
+        *,
+        query: str,
+        user_id: str,
+        limit: int = 5,
+    ) -> list[SessionSearchHit]:
+        normalized_query = query.strip()
+        if not normalized_query:
+            return []
+        table = "messages_fts_trigram" if self._contains_cjk(normalized_query) else "messages_fts"
+        match_query = self._build_fts_query(normalized_query, trigram=table.endswith("trigram"))
+        if not match_query:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    messages.session_id,
+                    messages.id AS message_id,
+                    messages.role,
+                    snippet({table}, 0, '', '', ' … ', 32) AS content,
+                    messages.created_at,
+                    sessions.source,
+                    sessions.title
+                FROM {table}
+                JOIN messages ON messages.id = {table}.rowid
+                JOIN sessions ON sessions.id = messages.session_id
+                WHERE {table} MATCH ?
+                  AND sessions.user_id = ?
+                  AND messages.active = 1
+                  AND sessions.source != 'subagent'
+                ORDER BY bm25({table}), messages.created_at DESC
+                LIMIT ?
+                """,
+                (match_query, user_id, max(1, min(limit, 20))),
+            ).fetchall()
+        return [
+            SessionSearchHit(
+                session_id=str(row["session_id"]),
+                message_id=int(row["message_id"]),
+                role=str(row["role"]),
+                content=str(row["content"]),
+                created_at=float(row["created_at"]),
+                source=str(row["source"]),
+                title=row["title"],
+            )
+            for row in rows
+        ]
+
+    def messages_around(
+        self,
+        *,
+        session_id: str,
+        message_id: int,
+        user_id: str,
+        window: int = 3,
+    ) -> list[dict[str, object]]:
+        bounded_window = max(0, min(window, 10))
+        with self._connect() as connection:
+            anchor = connection.execute(
+                """
+                SELECT messages.id
+                FROM messages
+                JOIN sessions ON sessions.id = messages.session_id
+                WHERE messages.id = ? AND messages.session_id = ? AND sessions.user_id = ?
+                """,
+                (message_id, session_id, user_id),
+            ).fetchone()
+            if anchor is None:
+                return []
+            before = connection.execute(
+                """
+                SELECT id, role, content, created_at
+                FROM messages
+                WHERE session_id = ? AND active = 1 AND id <= ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (session_id, message_id, bounded_window + 1),
+            ).fetchall()
+            after = connection.execute(
+                """
+                SELECT id, role, content, created_at
+                FROM messages
+                WHERE session_id = ? AND active = 1 AND id > ?
+                ORDER BY id
+                LIMIT ?
+                """,
+                (session_id, message_id, bounded_window),
+            ).fetchall()
+        rows = [*reversed(before), *after]
+        return [
+            {
+                "id": int(row["id"]),
+                "role": str(row["role"]),
+                "content": str(row["content"]),
+                "created_at": float(row["created_at"]),
+                "anchor": int(row["id"]) == message_id,
+            }
+            for row in rows
+        ]
+
     def _initialize(self) -> None:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
@@ -214,6 +318,17 @@ class SQLiteSessionStore:
             return True
         message = str(error).lower()
         return "locked" in message or "busy" in message
+
+    @staticmethod
+    def _contains_cjk(value: str) -> bool:
+        return any("\u3400" <= character <= "\u9fff" for character in value)
+
+    @staticmethod
+    def _build_fts_query(value: str, *, trigram: bool) -> str:
+        if trigram:
+            return f'"{value.replace(chr(34), chr(34) * 2)}"'
+        tokens = re.findall(r"[\w-]+", value, flags=re.UNICODE)
+        return " AND ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens)
 
     @staticmethod
     def _serialize_tool_calls(tool_calls: list[ToolCall]) -> str:
