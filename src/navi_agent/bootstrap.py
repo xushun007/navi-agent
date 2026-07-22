@@ -112,6 +112,7 @@ def build_runtime(
             ),
             tool_registry=build_default_tool_registry(
                 memory_store=memory_store,
+                session_store=session_store,
                 approval_provider=(
                     DenyAllApprovalProvider() if non_interactive else approval_provider
                 ),

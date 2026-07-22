@@ -45,6 +45,17 @@ class SessionMetadata:
     cwd: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SessionSearchHit:
+    session_id: str
+    message_id: int
+    role: str
+    content: str
+    created_at: float
+    source: str
+    title: str | None = None
+
+
 @dataclass(slots=True)
 class RuntimeResult:
     session_id: str

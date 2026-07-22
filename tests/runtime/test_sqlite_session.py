@@ -167,6 +167,34 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertEqual(row["message_count"], 1)
             self.assertEqual(store.get_lineage("child"), ["parent", "child"])
 
+    def test_store_searches_english_and_chinese_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteSessionStore(Path(tmpdir) / "state.db")
+            first = store.load("s1", "u1")
+            second = store.load("s2", "u1")
+            other_user = store.load("s3", "u2")
+            store.append(first, Message(role="user", content="debug sqlite lock contention"))
+            store.append(first, Message(role="assistant", content="use bounded retry"))
+            store.append(second, Message(role="user", content="我喜欢简洁直接的技术回答"))
+            store.append(other_user, Message(role="user", content="debug sqlite lock contention"))
+
+            english_hits = store.search_sessions(query="sqlite lock", user_id="u1")
+            chinese_hits = store.search_sessions(query="简洁直接", user_id="u1")
+
+            self.assertEqual([hit.session_id for hit in english_hits], ["s1"])
+            self.assertEqual([hit.session_id for hit in chinese_hits], ["s2"])
+            messages = store.messages_around(
+                session_id="s1",
+                message_id=english_hits[0].message_id,
+                user_id="u1",
+                window=1,
+            )
+            self.assertEqual([item["content"] for item in messages], [
+                "debug sqlite lock contention",
+                "use bounded retry",
+            ])
+            self.assertTrue(messages[0]["anchor"])
+
 
 if __name__ == "__main__":
     unittest.main()

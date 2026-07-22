@@ -55,4 +55,26 @@ SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_messages_source_id ON messages(source_message_id)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_source_started ON sessions(source, started_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)",
+    "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content)",
+    "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts_trigram USING fts5(content, tokenize='trigram')",
+    """
+    CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        INSERT INTO messages_fts_trigram(rowid, content) VALUES (new.id, new.content);
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+        DELETE FROM messages_fts WHERE rowid = old.id;
+        DELETE FROM messages_fts_trigram WHERE rowid = old.id;
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF content ON messages BEGIN
+        DELETE FROM messages_fts WHERE rowid = old.id;
+        DELETE FROM messages_fts_trigram WHERE rowid = old.id;
+        INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        INSERT INTO messages_fts_trigram(rowid, content) VALUES (new.id, new.content);
+    END
+    """,
 )
