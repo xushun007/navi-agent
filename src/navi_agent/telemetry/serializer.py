@@ -7,7 +7,7 @@ from .models import RuntimeTrace
 
 
 class TraceSerializer:
-    SCHEMA_VERSION = "trace.v2"
+    SCHEMA_VERSION = "trace.v3"
 
     @classmethod
     def to_dict(cls, trace: RuntimeTrace) -> dict:

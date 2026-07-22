@@ -24,10 +24,23 @@ class Message:
 
 
 @dataclass(slots=True)
+class ModelUsage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    reasoning_tokens: int = 0
+    cost_usd: float | None = None
+
+
+@dataclass(slots=True)
 class ModelResponse:
     content: str = ""
     reasoning_content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    provider: str | None = None
+    model: str | None = None
+    usage: ModelUsage = field(default_factory=ModelUsage)
 
 
 @dataclass(slots=True)

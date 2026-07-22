@@ -24,6 +24,14 @@ class FakeClient:
 class OpenAICompatibleTransportTests(unittest.TestCase):
     def test_transport_serializes_messages_and_tools(self) -> None:
         response = types.SimpleNamespace(
+            model="gpt-4o-mini-2026-07-01",
+            usage=types.SimpleNamespace(
+                prompt_tokens=120,
+                completion_tokens=30,
+                prompt_tokens_details=types.SimpleNamespace(cached_tokens=40),
+                completion_tokens_details=types.SimpleNamespace(reasoning_tokens=10),
+                cost=0.0025,
+            ),
             choices=[
                 types.SimpleNamespace(
                     message=types.SimpleNamespace(
@@ -61,6 +69,13 @@ class OpenAICompatibleTransportTests(unittest.TestCase):
         result = transport.generate(request)
 
         self.assertEqual(result.content, "done")
+        self.assertEqual(result.provider, "openai-compatible")
+        self.assertEqual(result.model, "gpt-4o-mini-2026-07-01")
+        self.assertEqual(result.usage.input_tokens, 120)
+        self.assertEqual(result.usage.output_tokens, 30)
+        self.assertEqual(result.usage.cache_read_tokens, 40)
+        self.assertEqual(result.usage.reasoning_tokens, 10)
+        self.assertEqual(result.usage.cost_usd, 0.0025)
         call = client.chat.completions.calls[0]
         self.assertEqual(call["model"], "gpt-4o-mini")
         self.assertEqual(call["messages"][0]["role"], "system")
