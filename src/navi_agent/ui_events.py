@@ -57,6 +57,9 @@ class ConsoleUiEventSink:
             if event.kind == "assistant" and event.state == "delta":
                 self._handle_assistant_delta(event)
                 return
+            if event.kind == "assistant" and event.state == "completed":
+                self._finish_stream()
+                return
 
             if event.state in {"started", "progress"}:
                 self._finish_stream()
@@ -147,6 +150,16 @@ class UiEventMapper:
                 title="",
                 item_id=event.item_id,
                 detail=delta,
+            )
+        if event.name == "model.response":
+            return UiEvent(
+                event_id=event.event_id,
+                run_id=event.run_id,
+                sequence=event.sequence,
+                kind="assistant",
+                state="completed",
+                title="",
+                item_id=event.item_id,
             )
         if event.name == "tool.call":
             return self._tool_started(event)

@@ -63,15 +63,22 @@ def test_redacts_and_truncates_tool_failure_detail() -> None:
     assert len(ui_event.detail or "") <= 160
 
 
-def test_ignores_model_content_and_reasoning() -> None:
+def test_model_response_only_marks_stream_completion() -> None:
     ui_event = UiEventMapper().map(
         _event(
             "model.response",
             {"content": "answer", "reasoning_content": "private reasoning"},
+            item_id="model:1",
         )
     )
 
-    assert ui_event is None
+    assert ui_event is not None
+    assert ui_event.kind == "assistant"
+    assert ui_event.state == "completed"
+    assert ui_event.item_id == "model:1"
+    assert ui_event.detail is None
+    assert "answer" not in repr(ui_event)
+    assert "private" not in repr(ui_event)
 
 
 def test_maps_only_public_model_text_delta() -> None:
@@ -236,6 +243,17 @@ def test_console_sink_streams_assistant_content_and_tracks_final_response() -> N
                 detail=delta,
             )
         )
+    sink.handle(
+        UiEvent(
+            event_id="event-3",
+            run_id="run-1",
+            sequence=3,
+            kind="assistant",
+            state="completed",
+            title="",
+            item_id="model:1",
+        )
+    )
 
     sink.finish()
 

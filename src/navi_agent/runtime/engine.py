@@ -459,6 +459,7 @@ class AgentRuntime:
                     },
                 )
             try:
+                model_item_id = f"model:{iteration_number}"
                 model_request = ModelRequest(
                     messages=context_result.messages,
                     tools=self._tool_registry.schemas(
@@ -468,8 +469,6 @@ class AgentRuntime:
                 )
                 generate_stream = getattr(self._transport, "generate_stream", None)
                 if callable(generate_stream):
-                    model_item_id = f"model:{iteration_number}"
-
                     def publish_text_delta(delta: str) -> None:
                         publish_event(
                             kind="delta",
@@ -550,6 +549,7 @@ class AgentRuntime:
                 source="agent",
                 name="model.response",
                 iteration=iteration_number,
+                item_id=model_item_id,
                 payload={
                     "content": response.content,
                     "reasoning_content": response.reasoning_content,
