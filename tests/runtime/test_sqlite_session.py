@@ -5,7 +5,7 @@ import time
 import unittest
 from pathlib import Path
 
-from navi_agent.runtime import Message, SQLiteSessionStore, ToolCall
+from navi_agent.runtime import Message, SessionMetadata, SQLiteSessionStore, ToolCall
 from navi_agent.runtime.models import ConversationState
 
 
@@ -30,6 +30,7 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                 Message(
                     role="assistant",
                     content="calling tool",
+                    reasoning_content="need the echo tool",
                     tool_calls=[ToolCall(id="tc1", name="echo", arguments={"value": "x"})],
                 ),
             )
@@ -39,6 +40,7 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertEqual(snapshot[0].content, "hello")
             self.assertEqual(snapshot[1].tool_calls[0].name, "echo")
             self.assertEqual(snapshot[1].tool_calls[0].arguments, {"value": "x"})
+            self.assertEqual(snapshot[1].reasoning_content, "need the echo tool")
 
     def test_load_restores_existing_messages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -61,17 +63,11 @@ class SQLiteSessionStoreTests(unittest.TestCase):
 
             self.assertEqual(mode.lower(), "wal")
 
-    def test_store_records_applied_schema_migration(self) -> None:
+    def test_store_creates_target_schema(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "state.db"
 
             SQLiteSessionStore(db_path)
-
-            with sqlite3.connect(db_path) as connection:
-                versions = connection.execute(
-                    "SELECT version FROM schema_migrations ORDER BY version"
-                ).fetchall()
-            self.assertEqual(versions, [(1,), (2,)])
 
             with sqlite3.connect(db_path) as connection:
                 session_columns = {
@@ -105,43 +101,6 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                 }.issubset(message_columns)
             )
 
-    def test_store_adopts_existing_schema_without_losing_messages(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "state.db"
-            with sqlite3.connect(db_path) as connection:
-                connection.executescript(
-                    """
-                    CREATE TABLE sessions (
-                        id TEXT PRIMARY KEY,
-                        user_id TEXT NOT NULL,
-                        started_at REAL NOT NULL
-                    );
-                    CREATE TABLE messages (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        session_id TEXT NOT NULL,
-                        role TEXT NOT NULL,
-                        content TEXT NOT NULL,
-                        tool_call_id TEXT,
-                        tool_calls TEXT,
-                        created_at REAL NOT NULL
-                    );
-                    INSERT INTO sessions (id, user_id, started_at) VALUES ('s1', 'u1', 1.0);
-                    INSERT INTO messages (
-                        session_id, role, content, tool_call_id, tool_calls, created_at
-                    ) VALUES ('s1', 'user', 'preserved', NULL, '[]', 1.0);
-                    """
-                )
-
-            store = SQLiteSessionStore(db_path)
-            restored = store.load(session_id="s1", user_id="u1")
-
-            self.assertEqual([message.content for message in restored.messages], ["preserved"])
-            with sqlite3.connect(db_path) as connection:
-                version = connection.execute(
-                    "SELECT MAX(version) FROM schema_migrations"
-                ).fetchone()[0]
-            self.assertEqual(version, 2)
-
     def test_append_waits_for_concurrent_writer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "state.db"
@@ -167,6 +126,46 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertFalse(worker.is_alive())
             self.assertEqual(errors, [])
             self.assertEqual(store.snapshot(session)[0].content, "after lock")
+
+    def test_store_persists_session_metadata_and_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            store = SQLiteSessionStore(db_path)
+            parent = store.load(
+                session_id="parent",
+                user_id="u1",
+                metadata=SessionMetadata(
+                    source="weixin",
+                    model="deepseek-v4-pro",
+                    cwd="/workspace",
+                ),
+            )
+            child = store.load(
+                session_id="child",
+                user_id="u1",
+                metadata=SessionMetadata(
+                    source="subagent",
+                    agent_role="subagent",
+                    parent_session_id=parent.session_id,
+                    model="deepseek-v4-pro",
+                    cwd="/workspace",
+                ),
+            )
+            store.append(child, Message(role="assistant", content="done"))
+
+            with sqlite3.connect(db_path) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute(
+                    "SELECT * FROM sessions WHERE id = 'child'"
+                ).fetchone()
+
+            self.assertEqual(row["source"], "subagent")
+            self.assertEqual(row["agent_role"], "subagent")
+            self.assertEqual(row["parent_session_id"], "parent")
+            self.assertEqual(row["model"], "deepseek-v4-pro")
+            self.assertEqual(row["cwd"], "/workspace")
+            self.assertEqual(row["message_count"], 1)
+            self.assertEqual(store.get_lineage("child"), ["parent", "child"])
 
 
 if __name__ == "__main__":

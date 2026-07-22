@@ -126,6 +126,8 @@ def build_runtime(
             max_iterations=runtime_settings.max_iterations,
             agent_role="primary" if include_delegation else "subagent",
             parent_session_id=parent_session_id,
+            model=model_settings.model,
+            cwd=str(resolved_workspace_root),
         )
 
     subagent_service = SubagentService(

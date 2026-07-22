@@ -19,13 +19,21 @@ class FakeRuntime:
         self.session_traces = []
         self.result_messages = []
 
-    def run_conversation(self, session_id, user_id, user_message, system_prompt=None):
+    def run_conversation(
+        self,
+        session_id,
+        user_id,
+        user_message,
+        system_prompt=None,
+        source="console",
+    ):
         self.calls.append(
             {
                 "session_id": session_id,
                 "user_id": user_id,
                 "user_message": user_message,
                 "system_prompt": system_prompt,
+                "source": source,
             }
         )
         return RuntimeResult(
@@ -276,6 +284,7 @@ class ApplicationServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(result.session_id, "s1")
+        self.assertEqual(runtime.calls[0]["source"], "console")
         self.assertEqual(runtime.calls[0]["session_id"], "s1")
 
     def test_handle_generates_session_id_when_missing(self) -> None:

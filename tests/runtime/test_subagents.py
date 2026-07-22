@@ -7,13 +7,21 @@ class RecordingRuntime:
     def __init__(self, calls: list[dict[str, object]]) -> None:
         self._calls = calls
 
-    def run_conversation(self, session_id, user_id, user_message, system_prompt=None):
+    def run_conversation(
+        self,
+        session_id,
+        user_id,
+        user_message,
+        system_prompt=None,
+        source="console",
+    ):
         self._calls.append(
             {
                 "session_id": session_id,
                 "user_id": user_id,
                 "user_message": user_message,
                 "system_prompt": system_prompt,
+                "source": source,
             }
         )
         return RuntimeResult(
@@ -56,6 +64,7 @@ def test_subagent_runs_in_child_session_with_only_delegated_context() -> None:
     assert "Inspect the runtime architecture" in str(calls[0]["user_message"])
     assert "Focus on src/navi_agent/runtime." in str(calls[0]["user_message"])
     assert "parent conversation" in str(calls[0]["system_prompt"])
+    assert calls[0]["source"] == "subagent"
 
 
 def test_subagent_rejects_non_worker_toolsets() -> None:
@@ -82,7 +91,15 @@ def test_subagent_batch_runs_concurrently_and_preserves_task_order() -> None:
     factory_calls: list[tuple[list[str], str, bool]] = []
 
     class ConcurrentRuntime:
-        def run_conversation(self, session_id, user_id, user_message, system_prompt=None):
+        def run_conversation(
+            self,
+            session_id,
+            user_id,
+            user_message,
+            system_prompt=None,
+            source="console",
+        ):
+            assert source == "subagent"
             barrier.wait()
             goal = "first" if "First task" in user_message else "second"
             return RuntimeResult(
