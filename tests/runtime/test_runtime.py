@@ -536,6 +536,27 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(len(observer.events[3].metadata["tool_calls"]), 1)
         self.assertEqual(observer.events[4].metadata["tool_name"], "echo")
 
+    def test_runtime_scopes_event_subscribers_to_one_request(self) -> None:
+        transport = FakeTransport([ModelResponse(content="first"), ModelResponse(content="second")])
+        subscriber = RecordingObserver()
+        runtime = AgentRuntime(transport=transport)
+
+        runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="first",
+            event_subscribers=[subscriber],
+        )
+        runtime.run_conversation(
+            session_id="s2",
+            user_id="u2",
+            user_message="second",
+        )
+
+        self.assertTrue(subscriber.events)
+        self.assertEqual({event.session_id for event in subscriber.events}, {"s1"})
+        self.assertEqual(subscriber.events[0].sequence, 1)
+
     def test_runtime_records_tool_execution_trace_details(self) -> None:
         transport = FakeTransport(
             [

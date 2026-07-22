@@ -179,11 +179,13 @@ class AgentRuntime:
         user_message: str,
         system_prompt: str | None = None,
         source: str = "console",
+        event_subscribers: Sequence[RuntimeEventSubscriber] | None = None,
     ) -> RuntimeResult:
         run_started_at = _utc_now_iso()
         run_started_perf = perf_counter()
         run_id = uuid4().hex
         event_sequence = 0
+        request_publisher = RuntimeEventPublisher(event_subscribers or ())
 
         def publish_event(
             *,
@@ -196,20 +198,20 @@ class AgentRuntime:
         ) -> None:
             nonlocal event_sequence
             event_sequence += 1
-            self._event_publisher.publish(
-                RuntimeEvent(
-                    session_id=session_id,
-                    user_id=user_id,
-                    run_id=run_id,
-                    sequence=event_sequence,
-                    kind=kind,
-                    source=source,
-                    name=name,
-                    iteration=iteration,
-                    item_id=item_id,
-                    metadata=dict(payload or {}),
-                )
+            event = RuntimeEvent(
+                session_id=session_id,
+                user_id=user_id,
+                run_id=run_id,
+                sequence=event_sequence,
+                kind=kind,
+                source=source,
+                name=name,
+                iteration=iteration,
+                item_id=item_id,
+                metadata=dict(payload or {}),
             )
+            self._event_publisher.publish(event)
+            request_publisher.publish(event)
 
         logger.info("Starting runtime conversation: session_id=%s user_id=%s", session_id, user_id)
         publish_event(

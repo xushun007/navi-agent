@@ -28,6 +28,7 @@ from navi_agent.evolution import (
     ReviewTriggerPolicy,
 )
 from navi_agent.memory import MemoryStore
+from navi_agent.events import RuntimeEventSubscriber
 from navi_agent.runtime import AgentRuntime, BackgroundTask, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
@@ -88,7 +89,12 @@ class ApplicationService:
             else None
         )
 
-    def handle(self, request: AppRequest) -> RuntimeResult:
+    def handle(
+        self,
+        request: AppRequest,
+        *,
+        event_subscribers: list[RuntimeEventSubscriber] | None = None,
+    ) -> RuntimeResult:
         session_id = request.session_id or self._new_session_id()
         system_prompt = request.system_prompt
         if system_prompt is None:
@@ -101,6 +107,7 @@ class ApplicationService:
             user_message=request.message,
             system_prompt=system_prompt,
             source=request.source,
+            event_subscribers=event_subscribers,
         )
         if request.auto_propose_eval_case or request.auto_propose_skill:
             self._maybe_add_runtime_candidates(

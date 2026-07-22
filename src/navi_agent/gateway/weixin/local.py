@@ -7,11 +7,47 @@ from time import sleep
 
 from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.runtime import BackgroundTask
+from navi_agent.ui_events import UiEvent, UiEventEmitter
 
 from .ilink import ILinkClient, ILinkMessage, load_sync_buf, save_sync_buf
 from .pairing import WeixinPairingStore
 
 logger = logging.getLogger("navi_agent.gateway.weixin.local")
+
+
+class _WeixinUiEventSink:
+    def __init__(
+        self,
+        *,
+        client: ILinkClient,
+        to_user_id: str,
+        context_token: str | None,
+    ) -> None:
+        self._client = client
+        self._to_user_id = to_user_id
+        self._context_token = context_token
+        self._seen_event_ids: set[str] = set()
+
+    def handle(self, event: UiEvent) -> None:
+        if event.event_id in self._seen_event_ids:
+            return
+        self._seen_event_ids.add(event.event_id)
+        if event.state == "completed" or event.kind == "error":
+            return
+        text = event.title
+        if event.detail:
+            text = f"{text}\n{event.detail}"
+        send_result = self._client.send_text(
+            to_user_id=self._to_user_id,
+            text=text,
+            context_token=self._context_token,
+        )
+        if not send_result.success:
+            logger.warning(
+                "Weixin progress send failed: event_id=%s error=%s",
+                event.event_id,
+                send_result.error,
+            )
 
 
 @dataclass(slots=True)
@@ -106,13 +142,19 @@ class ILinkGateway:
             return
         route = self._remember_background_route(message)
         try:
+            ui_sink = _WeixinUiEventSink(
+                client=self.client,
+                to_user_id=message.from_user_id,
+                context_token=message.context_token,
+            )
             result = self.app.handle(
                 AppRequest(
                     user_id=message.user_id,
                     session_id=message.session_id,
                     message=message.text,
                     source="weixin",
-                )
+                ),
+                event_subscribers=[UiEventEmitter(ui_sink)],
             )
             send_result = self.client.send_text(
                 to_user_id=message.from_user_id,

@@ -26,6 +26,7 @@ class FakeRuntime:
         user_message,
         system_prompt=None,
         source="console",
+        event_subscribers=None,
     ):
         self.calls.append(
             {
@@ -34,6 +35,7 @@ class FakeRuntime:
                 "user_message": user_message,
                 "system_prompt": system_prompt,
                 "source": source,
+                "event_subscribers": event_subscribers,
             }
         )
         return RuntimeResult(
@@ -306,6 +308,18 @@ class ApplicationServiceTests(unittest.TestCase):
         service.handle(AppRequest(user_id="u1", message="hello"))
 
         self.assertEqual(runtime.calls[0]["system_prompt"], "system")
+
+    def test_handle_forwards_request_event_subscribers(self) -> None:
+        runtime = FakeRuntime()
+        service = ApplicationService(runtime=runtime)
+        subscriber = object()
+
+        service.handle(
+            AppRequest(user_id="u1", message="hello"),
+            event_subscribers=[subscriber],
+        )
+
+        self.assertEqual(runtime.calls[0]["event_subscribers"], [subscriber])
 
     def test_get_latest_trace_delegates_to_runtime(self) -> None:
         runtime = FakeRuntime()

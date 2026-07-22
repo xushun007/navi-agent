@@ -9,23 +9,48 @@ from unittest.mock import patch
 from navi_agent.gateway.weixin import ILinkClient, ILinkGateway
 from navi_agent.gateway.weixin.ilink import ILinkMessage, ILinkSendResult
 from navi_agent.gateway.weixin.pairing import WeixinPairingStore
+from navi_agent.events import RuntimeEvent
 from navi_agent.runtime import BackgroundTask, RuntimeResult, ToolResult
 
 
 class FakeApp:
-    def __init__(self, fail_for: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        fail_for: set[str] | None = None,
+        *,
+        emit_progress: bool = False,
+    ) -> None:
         self.calls = []
         self.fail_for = fail_for or set()
+        self.emit_progress = emit_progress
         self.background_task_listener = None
 
     def add_background_task_listener(self, listener) -> bool:
         self.background_task_listener = listener
         return True
 
-    def handle(self, request):
+    def handle(self, request, *, event_subscribers=None):
         self.calls.append(request)
         if request.user_id in self.fail_for:
             raise RuntimeError("runtime failed")
+        if self.emit_progress:
+            for subscriber in event_subscribers or []:
+                subscriber.handle(
+                    RuntimeEvent(
+                        session_id=request.session_id,
+                        user_id=request.user_id,
+                        run_id="run-1",
+                        sequence=1,
+                        kind="action",
+                        source="agent",
+                        name="tool.call",
+                        item_id="tc1",
+                        metadata={
+                            "tool_name": "read_file",
+                            "arguments": {"path": "README.md"},
+                        },
+                    )
+                )
         return RuntimeResult(
             session_id=request.session_id,
             status="success",
@@ -133,7 +158,7 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertFalse(result.retryable)
 
     def test_gateway_tick_dispatches_to_app_and_sends_reply(self) -> None:
-        app = FakeApp()
+        app = FakeApp(emit_progress=True)
         client = FakeClient()
         gateway = ILinkGateway(
             app=app,
@@ -150,13 +175,14 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertEqual(app.calls[0].session_id, "weixin:dm:user-1")
         self.assertEqual(app.calls[0].message, "hello")
         self.assertEqual(
-            client.sent[0],
+            client.sent[1],
             {
                 "to_user_id": "user-1",
                 "text": "agent reply",
                 "context_token": "ctx-1",
             },
         )
+        self.assertEqual(client.sent[0]["text"], "正在读取 README.md")
 
     def test_gateway_sends_completed_background_task_to_origin_session(self) -> None:
         app = FakeApp()
