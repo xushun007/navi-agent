@@ -56,7 +56,19 @@ class UiEventMapper:
             return self._tool_progress(event)
         if event.name == "background_task.completed":
             return self._background_completed(event)
+        if event.name == "runtime.cancelled":
+            return UiEvent(
+                event_id=event.event_id,
+                run_id=event.run_id,
+                sequence=event.sequence,
+                kind="runtime",
+                state="cancelled",
+                title="任务已停止",
+                severity="info",
+            )
         if event.name == "runtime.completed" and event.metadata.get("status") != "success":
+            if event.metadata.get("status") == "cancelled":
+                return None
             return UiEvent(
                 event_id=event.event_id,
                 run_id=event.run_id,

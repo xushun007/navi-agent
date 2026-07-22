@@ -27,6 +27,7 @@ class FakeRuntime:
         system_prompt=None,
         source="console",
         event_subscribers=None,
+        cancellation_token=None,
     ):
         self.calls.append(
             {
@@ -36,6 +37,7 @@ class FakeRuntime:
                 "system_prompt": system_prompt,
                 "source": source,
                 "event_subscribers": event_subscribers,
+                "cancellation_token": cancellation_token,
             }
         )
         return RuntimeResult(
@@ -273,6 +275,21 @@ class FakeSkillReviewAgentService:
 
 
 class ApplicationServiceTests(unittest.TestCase):
+    def test_cancelled_run_does_not_generate_evolution_candidates(self) -> None:
+        class CancelledRuntime(FakeRuntime):
+            def run_conversation(self, *args, **kwargs):
+                result = super().run_conversation(*args, **kwargs)
+                result.status = "cancelled"
+                return result
+
+        runtime = CancelledRuntime()
+        candidate_store = FakeCandidateStore()
+        service = ApplicationService(runtime=runtime, candidate_store=candidate_store)
+
+        service.handle(AppRequest(session_id="s1", user_id="u1", message="stop"))
+
+        self.assertEqual(candidate_store.items, [])
+
     def test_handle_uses_existing_session_id(self) -> None:
         runtime = FakeRuntime()
         service = ApplicationService(runtime=runtime)

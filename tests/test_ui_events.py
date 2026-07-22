@@ -74,6 +74,19 @@ def test_ignores_model_content_and_reasoning() -> None:
     assert ui_event is None
 
 
+def test_maps_runtime_cancellation_without_treating_it_as_failure() -> None:
+    mapper = UiEventMapper()
+
+    cancelled = mapper.map(_event("runtime.cancelled", {"reason": "user_stop"}))
+    completed = mapper.map(_event("runtime.completed", {"status": "cancelled"}))
+
+    assert cancelled is not None
+    assert cancelled.kind == "runtime"
+    assert cancelled.state == "cancelled"
+    assert cancelled.severity == "info"
+    assert completed is None
+
+
 def test_maps_tool_progress_without_exposing_secrets() -> None:
     ui_event = UiEventMapper().map(
         _event(

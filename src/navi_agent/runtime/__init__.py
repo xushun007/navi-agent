@@ -33,6 +33,7 @@ from navi_agent.events import (
 )
 from .prompt_builder import PromptBuilder
 from .request_scheduler import SessionTaskScheduler
+from .run_control import ActiveRunRegistry, RunCancellationToken
 from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
 from .store import SessionStore
@@ -46,6 +47,7 @@ from .transports import DemoTransport, ModelRequest, ModelTransport, OpenAICompa
 
 __all__ = [
     "AgentRuntime",
+    "ActiveRunRegistry",
     "ApprovalDecision",
     "ApprovalProvider",
     "ApprovalRequest",
@@ -74,6 +76,7 @@ __all__ = [
     "RuntimeEventPublisher",
     "RuntimeEventSubscriber",
     "RuntimeResult",
+    "RunCancellationToken",
     "SessionMetadata",
     "SessionSearchHit",
     "SessionTaskScheduler",

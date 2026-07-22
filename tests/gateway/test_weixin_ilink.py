@@ -26,9 +26,14 @@ class FakeApp:
         self.emit_progress = emit_progress
         self.emit_chunks = emit_chunks
         self.background_task_listener = None
+        self.cancel_calls = []
 
     def add_background_task_listener(self, listener) -> bool:
         self.background_task_listener = listener
+        return True
+
+    def cancel_session(self, session_id, *, reason="user_requested") -> bool:
+        self.cancel_calls.append((session_id, reason))
         return True
 
     def handle(self, request, *, event_subscribers=None):
@@ -476,6 +481,49 @@ class WeixinILinkTests(unittest.TestCase):
         release.set()
         self.assertTrue(gateway.wait_for_idle(1))
         gateway.close()
+
+    def test_gateway_stop_cancels_active_session_without_queuing_run(self) -> None:
+        app = FakeApp()
+        client = FakeClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+        message = ILinkMessage(
+            message_id="m-stop",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="/stop",
+            context_token="ctx-stop",
+        )
+
+        gateway.submit_message(message)
+        gateway.close()
+
+        self.assertEqual(app.calls, [])
+        self.assertEqual(app.cancel_calls, [(message.session_id, "user_stop")])
+        self.assertEqual(client.sent[0]["text"], "已请求停止当前任务。")
+
+    def test_gateway_steer_cancels_active_run_and_queues_new_instruction(self) -> None:
+        app = FakeApp()
+        client = FakeClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+        message = ILinkMessage(
+            message_id="m-steer",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="/steer 改为只运行单元测试",
+            context_token="ctx-steer",
+        )
+
+        gateway.submit_message(message)
+        self.assertTrue(gateway.wait_for_idle(1))
+        gateway.close()
+
+        self.assertEqual(app.cancel_calls, [(message.session_id, "user_steer")])
+        self.assertEqual(app.calls[0].message, "改为只运行单元测试")
+        self.assertEqual(client.sent[-1]["text"], "agent reply")
 
     def test_gateway_run_forever_backs_off_after_get_updates_error(self) -> None:
         app = FakeApp()
