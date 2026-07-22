@@ -24,13 +24,15 @@ from navi_agent.smoke import SmokeCheckResult, SmokeRunSummary
 class FakeApp:
     def __init__(self) -> None:
         self.calls = []
+        self.event_subscribers = []
         self.saved_candidates = []
         self.saved_eval_cases = []
         self.applied_candidate = None
         self.rolled_back_candidate = None
 
-    def handle(self, request):
+    def handle(self, request, *, event_subscribers=None):
         self.calls.append(request)
+        self.event_subscribers.append(event_subscribers)
         return RuntimeResult(
             session_id=request.session_id or "generated",
             status="success",
@@ -1022,6 +1024,7 @@ class CliTests(unittest.TestCase):
             [(request.session_id, request.message) for request in fake_app.calls],
             [("s1", "hello"), ("s1", "again")],
         )
+        self.assertTrue(all(len(items or []) == 1 for items in fake_app.event_subscribers))
         self.assertIn("powered by xushun", stdout.getvalue())
         self.assertIn("Interactive session: s1", stdout.getvalue())
         self.assertIn("Shift+Enter for a newline", stdout.getvalue())

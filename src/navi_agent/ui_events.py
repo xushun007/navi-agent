@@ -4,7 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Protocol
+import sys
+from threading import Lock
+from typing import Protocol, TextIO
 
 from navi_agent.events import RuntimeEvent
 
@@ -33,6 +35,51 @@ class CallableUiEventSink:
 
     def handle(self, event: UiEvent) -> None:
         self._callback(event)
+
+
+class ConsoleUiEventSink:
+    def __init__(self, stream: TextIO | None = None) -> None:
+        self._stream = stream or sys.stdout
+        self._interactive = bool(getattr(self._stream, "isatty", lambda: False)())
+        self._seen_event_ids: set[str] = set()
+        self._active_item_id: str | None = None
+        self._lock = Lock()
+
+    def handle(self, event: UiEvent) -> None:
+        with self._lock:
+            if event.event_id in self._seen_event_ids:
+                return
+            self._seen_event_ids.add(event.event_id)
+
+            if event.state in {"started", "progress"}:
+                self._active_item_id = event.item_id or event.run_id
+                if self._interactive:
+                    self._replace_line(_render_console_event(event))
+                return
+
+            if self._active_item_id == (event.item_id or event.run_id):
+                self._clear_line()
+                self._active_item_id = None
+            self._write_line(_render_console_event(event))
+
+    def finish(self) -> None:
+        with self._lock:
+            self._clear_line()
+            self._active_item_id = None
+
+    def _replace_line(self, text: str) -> None:
+        self._stream.write(f"\r\x1b[2K{text}")
+        self._stream.flush()
+
+    def _clear_line(self) -> None:
+        if not self._interactive or self._active_item_id is None:
+            return
+        self._stream.write("\r\x1b[2K")
+        self._stream.flush()
+
+    def _write_line(self, text: str) -> None:
+        self._stream.write(f"{text}\n")
+        self._stream.flush()
 
 
 class UiEventEmitter:
@@ -237,3 +284,18 @@ def _compact(text: str, *, limit: int) -> str:
     if len(compacted) <= limit:
         return compacted
     return f"{compacted[: limit - 1]}…"
+
+
+def _render_console_event(event: UiEvent) -> str:
+    marker = {
+        "started": "›",
+        "progress": "·",
+        "completed": "✓",
+        "failed": "✗",
+        "cancelled": "■",
+        "waiting": "›",
+    }.get(event.state, "·")
+    text = f"{marker} {event.title}"
+    if event.detail:
+        text = f"{text} — {event.detail}"
+    return text

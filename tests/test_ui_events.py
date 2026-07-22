@@ -1,5 +1,5 @@
 from navi_agent.events import RuntimeEvent
-from navi_agent.ui_events import UiEvent, UiEventEmitter, UiEventMapper
+from navi_agent.ui_events import ConsoleUiEventSink, UiEvent, UiEventEmitter, UiEventMapper
 
 
 def _event(name: str, metadata: dict[str, object], *, item_id: str | None = None) -> RuntimeEvent:
@@ -136,3 +136,66 @@ def test_emitter_only_sends_derived_ui_events() -> None:
     )
 
     assert [event.title for event in received] == ["正在搜索文件"]
+
+
+def test_console_sink_renders_safe_ui_events_once() -> None:
+    from io import StringIO
+
+    output = StringIO()
+    sink = ConsoleUiEventSink(output)
+    event = UiEvent(
+        event_id="event-1",
+        run_id="run-1",
+        sequence=1,
+        kind="tool",
+        state="failed",
+        title="命令执行失败",
+        detail="exit code 1",
+        severity="error",
+    )
+
+    sink.handle(event)
+    sink.handle(event)
+
+    assert output.getvalue() == "✗ 命令执行失败 — exit code 1\n"
+
+
+def test_console_sink_replaces_live_status_and_commits_completion() -> None:
+    from io import StringIO
+
+    class TerminalBuffer(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    output = TerminalBuffer()
+    sink = ConsoleUiEventSink(output)
+    sink.handle(
+        UiEvent(
+            event_id="event-1",
+            run_id="run-1",
+            sequence=1,
+            kind="tool",
+            state="started",
+            title="正在读取 README.md",
+            item_id="tool-1",
+            replaceable=True,
+        )
+    )
+    sink.handle(
+        UiEvent(
+            event_id="event-2",
+            run_id="run-1",
+            sequence=2,
+            kind="tool",
+            state="completed",
+            title="已读取文件",
+            item_id="tool-1",
+            replaceable=True,
+        )
+    )
+
+    assert output.getvalue() == (
+        "\r\x1b[2K› 正在读取 README.md"
+        "\r\x1b[2K"
+        "✓ 已读取文件\n"
+    )

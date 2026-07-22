@@ -72,6 +72,7 @@ from navi_agent.telemetry import (
     RuntimeHealthService,
     RuntimeTrajectoryService,
 )
+from navi_agent.ui_events import ConsoleUiEventSink, UiEventEmitter
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.runtime import ConversationState
 from navi_agent.runtime import DeferredApprovalProvider
@@ -1665,6 +1666,8 @@ def _run_interactive(
 
     pending_message = first_message
     prompt_session = _build_interactive_prompt_session()
+    ui_sink = ConsoleUiEventSink()
+    ui_emitter = UiEventEmitter(ui_sink)
     while True:
         message = pending_message
         pending_message = None
@@ -1679,14 +1682,18 @@ def _run_interactive(
         if message.lower() in {"exit", "quit"}:
             _drain_background_reviews(app)
             return 0
-        result = app.handle(
-            AppRequest(
-                user_id=user_id,
-                session_id=session_id,
-                message=message,
-                system_prompt=system_prompt,
+        try:
+            result = app.handle(
+                AppRequest(
+                    user_id=user_id,
+                    session_id=session_id,
+                    message=message,
+                    system_prompt=system_prompt,
+                ),
+                event_subscribers=[ui_emitter],
             )
-        )
+        finally:
+            ui_sink.finish()
         print(result.final_response)
 
 
