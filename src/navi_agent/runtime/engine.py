@@ -14,6 +14,7 @@ from .background_tasks import BackgroundTask, BackgroundTaskManager
 from .context_engine import ContextBuildResult, ContextEngine, LLMContextSummarizer
 from .models import Message, RuntimeResult, SessionMetadata
 from .prompt_builder import PromptBuilder
+from .run_control import RunCancellationToken
 from .session import InMemorySessionStore
 from .store import SessionStore
 from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
@@ -31,6 +32,7 @@ from navi_agent.events import EventStoreWriter, RuntimeEvent, RuntimeEventPublis
 logger = logging.getLogger("navi_agent.runtime")
 
 _ITERATION_LIMIT_RESPONSE = "任务未能在当前执行次数内完成。请缩小任务范围或补充更明确的信息后重试。"
+_CANCELLED_RESPONSE = "当前任务已停止。"
 
 
 def _utc_now_iso() -> str:
@@ -183,7 +185,9 @@ class AgentRuntime:
         system_prompt: str | None = None,
         source: str = "console",
         event_subscribers: Sequence[RuntimeEventSubscriber] | None = None,
+        cancellation_token: RunCancellationToken | None = None,
     ) -> RuntimeResult:
+        cancellation_token = cancellation_token or RunCancellationToken()
         run_started_at = _utc_now_iso()
         run_started_perf = perf_counter()
         run_id = uuid4().hex
@@ -284,8 +288,61 @@ class AgentRuntime:
         model_calls: list[ModelCallTrace] = []
         tool_executions: list[ToolExecutionTrace] = []
 
+        def finish_cancelled(iteration: int) -> RuntimeResult:
+            reason = cancellation_token.reason or "user_requested"
+            self._session_store.append(
+                session,
+                Message(role="assistant", content=_CANCELLED_RESPONSE),
+            )
+            result = RuntimeResult(
+                session_id=session.session_id,
+                status="cancelled",
+                final_response=_CANCELLED_RESPONSE,
+                messages=self._session_store.snapshot(session),
+                tool_results=tool_results,
+            )
+            error_info: dict[str, object] = {
+                "error_category": "cancelled",
+                "error_type": "RunCancelled",
+                "error_message": reason,
+                "retryable": False,
+                "http_status": None,
+                "error_source": "runtime",
+            }
+            self._record_trace(
+                session_id=session.session_id,
+                user_id=user_id,
+                user_message=user_message,
+                system_prompt=system_prompt,
+                injected_skill_names=injected_skill_names,
+                result=result,
+                model_calls=model_calls,
+                tool_executions=tool_executions,
+                started_at=run_started_at,
+                duration_ms=_duration_ms(run_started_perf),
+                error_info=error_info,
+                attempt_count=iteration,
+            )
+            publish_event(
+                kind="observation",
+                source="runtime",
+                name="runtime.cancelled",
+                iteration=iteration or None,
+                payload={"status": result.status, "reason": reason},
+            )
+            publish_event(
+                kind="observation",
+                source="runtime",
+                name="runtime.completed",
+                iteration=iteration or None,
+                payload={"status": result.status, "reason": reason},
+            )
+            return result
+
         for iteration in range(self._max_iterations):
             iteration_number = iteration + 1
+            if cancellation_token.is_cancelled:
+                return finish_cancelled(iteration)
             logger.debug(
                 "Running iteration: session_id=%s iteration=%s",
                 session_id,
@@ -424,6 +481,8 @@ class AgentRuntime:
                     cost_usd=response.usage.cost_usd,
                 )
             )
+            if cancellation_token.is_cancelled:
+                return finish_cancelled(iteration_number)
             publish_event(
                 kind="action",
                 source="agent",
@@ -588,6 +647,8 @@ class AgentRuntime:
                         tool_call_id=tool_result.tool_call_id,
                     ),
                 )
+            if cancellation_token.is_cancelled:
+                return finish_cancelled(iteration_number)
 
         logger.error("Runtime iteration limit exceeded: session_id=%s", session_id)
         self._session_store.append(

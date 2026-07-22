@@ -2,6 +2,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from threading import Event, Thread
 
 from navi_agent.tooling import ToolDecision
 from navi_agent.evolution import FileSkillStore
@@ -17,6 +18,7 @@ from navi_agent.runtime import (
     ModelUsage,
     PromptBuilder,
     RuntimeEvent,
+    RunCancellationToken,
     ToolArtifact,
     ToolCall,
     ToolContext,
@@ -103,6 +105,52 @@ def ok_result(name: str, content: str, **kwargs) -> ToolResult:
 
 
 class AgentRuntimeTests(unittest.TestCase):
+    def test_runtime_discards_model_response_when_run_is_cancelled(self) -> None:
+        started = Event()
+        release = Event()
+
+        class BlockingTransport:
+            def generate(self, request: ModelRequest):
+                started.set()
+                release.wait(1)
+                return ModelResponse(content="stale response")
+
+        observer = RecordingObserver()
+        trace_store = InMemoryTraceStore()
+        token = RunCancellationToken()
+        runtime = AgentRuntime(
+            transport=BlockingTransport(),
+            event_subscribers=[observer],
+            trace_store=trace_store,
+        )
+        results = []
+        worker = Thread(
+            target=lambda: results.append(
+                runtime.run_conversation(
+                    session_id="s1",
+                    user_id="u1",
+                    user_message="long task",
+                    cancellation_token=token,
+                )
+            )
+        )
+
+        worker.start()
+        self.assertTrue(started.wait(1))
+        self.assertTrue(token.cancel("user_steer"))
+        release.set()
+        worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(results[0].status, "cancelled")
+        self.assertEqual(results[0].final_response, "当前任务已停止。")
+        self.assertFalse(any(message.content == "stale response" for message in results[0].messages))
+        self.assertEqual(trace_store.traces[0].status, "cancelled")
+        self.assertEqual(
+            [event.name for event in observer.events[-2:]],
+            ["runtime.cancelled", "runtime.completed"],
+        )
+
     def test_runtime_returns_final_model_response(self) -> None:
         transport = FakeTransport(
             [

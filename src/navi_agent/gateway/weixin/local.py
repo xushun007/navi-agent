@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 from threading import Event, Lock
 from time import monotonic, sleep
@@ -59,7 +59,7 @@ class _WeixinUiEventSink:
                 return
             self._pending_progress.pop(item_key, None)
             self._last_progress_at.pop(item_key, None)
-            if event.state == "completed" or event.kind == "error":
+            if event.state in {"completed", "cancelled"} or event.kind == "error":
                 return
             text = event.title if not event.detail else f"{event.title}\n{event.detail}"
             self._submit(event.event_id, text)
@@ -162,6 +162,18 @@ class ILinkGateway:
     def submit_message(self, message: ILinkMessage) -> None:
         if not self._accept_message(message):
             return
+        command, separator, argument = message.text.strip().partition(" ")
+        if command == "/stop":
+            cancelled = self.app.cancel_session(message.session_id, reason="user_stop")
+            self.client.send_text(
+                to_user_id=message.from_user_id,
+                text="已请求停止当前任务。" if cancelled else "当前没有正在执行的任务。",
+                context_token=message.context_token,
+            )
+            return
+        if command == "/steer" and separator and argument.strip():
+            self.app.cancel_session(message.session_id, reason="user_steer")
+            message = replace(message, text=argument.strip())
         self._request_scheduler.submit(
             message.session_id,
             lambda: self._handle_accepted_message_safely(message),
