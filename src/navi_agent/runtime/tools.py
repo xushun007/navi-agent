@@ -8,6 +8,7 @@ from navi_agent.tooling import ToolContext, ToolPolicy, ToolResult
 
 from .approval import ApprovalProvider
 from .models import ToolCall
+from .tool_concurrency import should_run_tools_concurrently
 from .tool_executor import ToolExecutor
 from .tool_policy import AllowAllToolPolicy
 from navi_agent.tools.base import BaseTool, FunctionTool
@@ -123,6 +124,17 @@ class ToolRegistry:
             )
             if tool.is_available()
         }
+        dispatch_tools = selected_tools or self._tools
+        if (
+            should_run_tools_concurrently(tool_calls, dispatch_tools)
+            and self._executor.can_execute_concurrently(tool_calls, context)
+        ):
+            return self._executor.execute_concurrently(
+                tool_calls=tool_calls,
+                tools_by_name=dispatch_tools,
+                context=context,
+            )
+
         results: list[ToolResult] = []
         for tool_call in tool_calls:
             if selected_tools and tool_call.name not in selected_tools:
@@ -137,7 +149,7 @@ class ToolRegistry:
                 continue
             current_results = self._executor.execute(
                 tool_calls=[tool_call],
-                tools_by_name=selected_tools or self._tools,
+                tools_by_name=dispatch_tools,
                 context=context,
             )
             results.extend(current_results)

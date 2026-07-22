@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import replace
 from datetime import datetime, timezone
 import logging
@@ -12,6 +14,8 @@ from .approval import ApprovalProvider, ApprovalRequest, DenyAllApprovalProvider
 from .models import ToolCall
 
 logger = logging.getLogger("navi_agent.runtime.tool_executor")
+
+_MAX_TOOL_WORKERS = 8
 
 
 def _utc_now_iso() -> str:
@@ -51,6 +55,17 @@ class ToolExecutor:
     ) -> None:
         self._policy = policy
         self._approval_provider = approval_provider or DenyAllApprovalProvider()
+
+    def can_execute_concurrently(
+        self,
+        tool_calls: list[ToolCall],
+        context: ToolContext | None = None,
+    ) -> bool:
+        """Keep approval and denial flows on the sequential dispatch path."""
+        return all(
+            self._policy.decide(tool_call.name, tool_call.arguments, context).allows_execution
+            for tool_call in tool_calls
+        )
 
     def execute(
         self,
@@ -180,6 +195,33 @@ class ToolExecutor:
                     )
                 )
         return results
+
+    def execute_concurrently(
+        self,
+        tool_calls: list[ToolCall],
+        tools_by_name: dict[str, BaseTool],
+        context: ToolContext | None = None,
+    ) -> list[ToolResult]:
+        """Execute independent tool calls concurrently and preserve call order."""
+        if len(tool_calls) <= 1:
+            return self.execute(tool_calls, tools_by_name, context)
+
+        max_workers = min(len(tool_calls), _MAX_TOOL_WORKERS)
+        with ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="navi-tool",
+        ) as executor:
+            futures = [
+                executor.submit(
+                    copy_context().run,
+                    self.execute,
+                    [tool_call],
+                    tools_by_name,
+                    context,
+                )
+                for tool_call in tool_calls
+            ]
+            return [future.result()[0] for future in futures]
 
 
 def _bind_tool_output(context: ToolContext | None, tool_call: ToolCall) -> ToolContext | None:
