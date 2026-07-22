@@ -804,7 +804,12 @@ class AgentRuntimeTests(unittest.TestCase):
         )
 
         runtime.run_conversation(session_id="s1", user_id="u1", user_message="remember this")
-        runtime.run_conversation(session_id="s2", user_id="u1", user_message="hello again", system_prompt="system")
+        runtime.run_conversation(
+            session_id="s2",
+            user_id="u1",
+            user_message="How terse should replies be?",
+            system_prompt="system",
+        )
 
         request = transport.calls[-1]
         self.assertIn("[Memory]", request.messages[0].content)

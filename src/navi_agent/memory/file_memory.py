@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 from .models import MemoryRecord
+from .search import search_memories
 from .validation import normalize_memory_content, validate_memory_content
 
 try:
@@ -30,6 +31,9 @@ class FileMemoryStore:
 
     def list_for_user(self, user_id: str) -> list[MemoryRecord]:
         return [record for record in self._read_all() if record.user_id == user_id]
+
+    def search_for_user(self, user_id: str, query: str, limit: int) -> list[MemoryRecord]:
+        return search_memories(self.list_for_user(user_id), query=query, limit=limit)
 
     def add_for_user(
         self,

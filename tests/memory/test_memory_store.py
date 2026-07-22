@@ -57,6 +57,18 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(len(store.list_for_user("u1")), 1)
 
+    def test_search_keeps_preferences_and_selects_relevant_facts(self) -> None:
+        store = InMemoryMemoryStore()
+        preference = store.add_for_user(
+            "u1", "Prefers concise technical answers", kind="preference", target="user"
+        )
+        python_fact = store.add_for_user("u1", "The backend uses Python")
+        store.add_for_user("u1", "The frontend uses TypeScript")
+
+        records = store.search_for_user("u1", "How is the Python backend built?", limit=5)
+
+        self.assertEqual({record.id for record in records}, {preference.id, python_fact.id})
+
 
 class FileMemoryStoreTests(unittest.TestCase):
     def test_persists_records_to_memory_files(self) -> None:
