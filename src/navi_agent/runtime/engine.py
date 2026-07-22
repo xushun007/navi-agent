@@ -29,6 +29,8 @@ from navi_agent.events import EventStoreWriter, RuntimeEvent, RuntimeEventPublis
 
 logger = logging.getLogger("navi_agent.runtime")
 
+_ITERATION_LIMIT_RESPONSE = "任务未能在当前执行次数内完成。请缩小任务范围或补充更明确的信息后重试。"
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
@@ -555,10 +557,14 @@ class AgentRuntime:
                 )
 
         logger.error("Runtime iteration limit exceeded: session_id=%s", session_id)
+        self._session_store.append(
+            session,
+            Message(role="assistant", content=_ITERATION_LIMIT_RESPONSE),
+        )
         result = RuntimeResult(
             session_id=session.session_id,
             status="iteration_limit_exceeded",
-            final_response="",
+            final_response=_ITERATION_LIMIT_RESPONSE,
             messages=self._session_store.snapshot(session),
             tool_results=tool_results,
         )

@@ -600,7 +600,9 @@ class AgentRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "iteration_limit_exceeded")
-        self.assertEqual(result.final_response, "")
+        self.assertIn("任务未能", result.final_response)
+        self.assertEqual(result.messages[-1].role, "assistant")
+        self.assertEqual(result.messages[-1].content, result.final_response)
         self.assertEqual(trace_store.traces[0].status, "iteration_limit_exceeded")
         self.assertEqual(trace_store.traces[0].error_source, "runtime")
         self.assertEqual(trace_store.traces[0].error_type, "IterationLimitExceeded")
