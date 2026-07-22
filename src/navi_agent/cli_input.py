@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from prompt_toolkit.formatted_text.utils import fragment_list_len
+from prompt_toolkit.layout.processors import Processor, Transformation, TransformationInput
+
+
+INPUT_MIN_HEIGHT = 1
+INPUT_MAX_HEIGHT = 6
+
 
 INTERACTIVE_STYLE = {
     "frame.border": "ansibrightblack",
@@ -10,6 +17,34 @@ INTERACTIVE_STYLE = {
     "prompt": "ansibrightyellow bold",
     "toolbar": "ansibrightblack",
 }
+
+
+class PromptPlaceholderProcessor(Processor):
+    def __init__(self, text_area: Any, placeholder: str) -> None:
+        self._text_area = text_area
+        self._placeholder = placeholder
+
+    def apply_transformation(self, transformation_input: TransformationInput) -> Transformation:
+        if transformation_input.lineno != 0:
+            return Transformation(transformation_input.fragments)
+
+        prompt_fragments = [("class:prompt", "❯ ")]
+        visible_fragments = list(prompt_fragments)
+        show_placeholder = bool(self._placeholder and not self._text_area.text)
+        if show_placeholder:
+            visible_fragments.append(("class:placeholder", self._placeholder))
+        visible_fragments.extend(transformation_input.fragments)
+
+        cursor_offset = fragment_list_len(prompt_fragments)
+        return Transformation(
+            visible_fragments,
+            source_to_display=lambda position: position + cursor_offset,
+            display_to_source=(
+                (lambda _position: 0)
+                if show_placeholder
+                else (lambda position: max(0, position - cursor_offset))
+            ),
+        )
 
 
 def install_shift_enter_alias() -> int:
@@ -44,7 +79,6 @@ class InteractivePromptSession:
         from prompt_toolkit.layout.containers import HSplit, Window
         from prompt_toolkit.layout.controls import FormattedTextControl
         from prompt_toolkit.layout.dimension import Dimension
-        from prompt_toolkit.layout.processors import BeforeInput
         from prompt_toolkit.styles import Style
         from prompt_toolkit.widgets import Frame, TextArea
 
@@ -52,18 +86,14 @@ class InteractivePromptSession:
         text_area = TextArea(
             multiline=True,
             history=self._history,
-            height=Dimension(min=3, max=8),
+            height=Dimension(min=INPUT_MIN_HEIGHT, max=INPUT_MAX_HEIGHT),
+            dont_extend_height=True,
             style="class:input",
             wrap_lines=True,
         )
-
-        def prompt_fragments():
-            fragments = [("class:prompt", "❯ ")]
-            if placeholder and not text_area.text:
-                fragments.append(("class:placeholder", placeholder))
-            return fragments
-
-        text_area.control.input_processors.append(BeforeInput(prompt_fragments))
+        text_area.control.input_processors.append(
+            PromptPlaceholderProcessor(text_area, placeholder)
+        )
 
         @bindings.add("enter")
         def submit(event):
