@@ -110,8 +110,15 @@ class ApplicationService:
         if system_prompt is None:
             system_prompt = self._default_system_prompt
 
+        resume_interaction = None
         if self._interaction_store is not None:
-            self._interaction_store.resolve_clarification(session_id)
+            pending = self._interaction_store.get_pending(session_id)
+            if pending is not None and pending.kind == "clarification":
+                self._interaction_store.resolve_clarification(
+                    session_id,
+                    response=request.message,
+                )
+            resume_interaction = self._interaction_store.get_resolved(session_id)
 
         self._hydrate_review_trigger(session_id=session_id, user_id=request.user_id)
         cancellation_token = self._active_runs.start(session_id)
@@ -124,11 +131,14 @@ class ApplicationService:
                 source=request.source,
                 event_subscribers=event_subscribers,
                 cancellation_token=cancellation_token,
+                resume_interaction=resume_interaction,
             )
         finally:
             self._active_runs.finish(session_id, cancellation_token)
-            if self._interaction_store is not None:
-                self._interaction_store.discard_approved(session_id)
+        if self._interaction_store is not None and result.status == "awaiting_input":
+            self._attach_pending_tool_call(result)
+        if self._interaction_store is not None and resume_interaction is not None:
+            self._interaction_store.complete(resume_interaction.interaction_id)
         if request.auto_propose_eval_case or request.auto_propose_skill:
             self._maybe_add_runtime_candidates(
                 result=result,
@@ -151,6 +161,40 @@ class ApplicationService:
         if self._interaction_store is None:
             return None
         return self._interaction_store.resolve(session_id, approved=approved)
+
+    def _attach_pending_tool_call(self, result: RuntimeResult) -> None:
+        if self._interaction_store is None:
+            return
+        pending_result = next(
+            (
+                item
+                for item in result.tool_results
+                if item.structured_content.get("interaction_pending") is True
+            ),
+            None,
+        )
+        if pending_result is None:
+            return
+        interaction_id = pending_result.structured_content.get("interaction_id")
+        if not isinstance(interaction_id, str) or not interaction_id:
+            return
+        tool_call = next(
+            (
+                tool_call
+                for message in reversed(result.messages)
+                for tool_call in message.tool_calls
+                if tool_call.id == pending_result.tool_call_id
+            ),
+            None,
+        )
+        if tool_call is None:
+            return
+        self._interaction_store.attach_tool_call(
+            interaction_id,
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            arguments=tool_call.arguments,
+        )
 
     def get_latest_trace(
         self,

@@ -193,10 +193,7 @@ class ILinkGateway:
                 )
                 return
             action = "已批准" if approved else "已拒绝"
-            instruction = (
-                f"用户{action}工具 {interaction.tool_name} 的授权请求。"
-                + ("请使用完全相同的参数重试该工具。" if approved else "不要执行该工具，继续响应用户。")
-            )
+            instruction = f"用户{action}工具 {interaction.tool_name} 的授权请求。"
             message = replace(message, text=instruction)
         if command == "/steer" and separator and argument.strip():
             self.app.cancel_session(message.session_id, reason="user_steer")

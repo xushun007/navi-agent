@@ -611,7 +611,7 @@ class WeixinILinkTests(unittest.TestCase):
         gateway.close()
 
         self.assertEqual(app.resolve_calls, [(message.session_id, True)])
-        self.assertIn("完全相同的参数重试", app.calls[0].message)
+        self.assertEqual(app.calls[0].message, "用户已批准工具 bash 的授权请求。")
         self.assertEqual(client.sent[-1]["text"], "agent reply")
 
     def test_gateway_run_forever_backs_off_after_get_updates_error(self) -> None:

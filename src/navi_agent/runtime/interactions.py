@@ -20,6 +20,8 @@ class PendingInteraction:
     prompt: str
     tool_name: str | None = None
     arguments: dict[str, Any] | None = None
+    tool_call_id: str | None = None
+    response: str | None = None
     status: str = "pending"
     created_at: str = ""
 
@@ -74,7 +76,13 @@ class JsonPendingInteractionStore:
                 None,
             )
 
-    def resolve(self, session_id: str, *, approved: bool) -> PendingInteraction | None:
+    def resolve(
+        self,
+        session_id: str,
+        *,
+        approved: bool,
+        response: str | None = None,
+    ) -> PendingInteraction | None:
         with self._lock:
             items = self._load_active()
             target = next(
@@ -84,11 +92,61 @@ class JsonPendingInteractionStore:
             if target is None:
                 return None
             items.remove(target)
-            if approved and target.kind == "approval":
-                target = PendingInteraction(**{**asdict(target), "status": "approved"})
-                items.append(target)
+            status = "approved" if approved else "denied"
+            target = PendingInteraction(
+                **{**asdict(target), "status": status, "response": response}
+            )
+            items.append(target)
             self._save(items)
             return target
+
+    def attach_tool_call(
+        self,
+        interaction_id: str,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> PendingInteraction | None:
+        with self._lock:
+            items = self._load_active()
+            target = next(
+                (item for item in items if item.interaction_id == interaction_id),
+                None,
+            )
+            if target is None:
+                return None
+            items.remove(target)
+            target = PendingInteraction(
+                **{
+                    **asdict(target),
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "arguments": dict(arguments),
+                }
+            )
+            items.append(target)
+            self._save(items)
+            return target
+
+    def get_resolved(self, session_id: str) -> PendingInteraction | None:
+        with self._lock:
+            items = self._load_active()
+            return next(
+                (
+                    item
+                    for item in items
+                    if item.session_id == session_id and item.status in {"approved", "denied"}
+                ),
+                None,
+            )
+
+    def complete(self, interaction_id: str) -> None:
+        with self._lock:
+            items = self._load_active()
+            remaining = [item for item in items if item.interaction_id != interaction_id]
+            if len(remaining) != len(items):
+                self._save(remaining)
 
     def consume_approval(
         self,
@@ -115,7 +173,11 @@ class JsonPendingInteractionStore:
                 self._save(items)
             return target
 
-    def resolve_clarification(self, session_id: str) -> PendingInteraction | None:
+    def resolve_clarification(
+        self,
+        session_id: str,
+        response: str,
+    ) -> PendingInteraction | None:
         with self._lock:
             items = self._load_active()
             target = next(
@@ -130,6 +192,10 @@ class JsonPendingInteractionStore:
             )
             if target is not None:
                 items.remove(target)
+                target = PendingInteraction(
+                    **{**asdict(target), "status": "approved", "response": response}
+                )
+                items.append(target)
                 self._save(items)
             return target
 
