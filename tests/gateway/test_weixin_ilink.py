@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from unittest.mock import patch
 
 from navi_agent.gateway.weixin import ILinkClient, ILinkGateway
@@ -192,6 +192,8 @@ class WeixinILinkTests(unittest.TestCase):
 
         with patch("navi_agent.gateway.weixin.local.save_sync_buf") as save_sync_buf_mock:
             next_sync = gateway.tick("old-sync")
+            self.assertTrue(gateway.wait_for_idle(1))
+        gateway.close()
 
         self.assertEqual(next_sync, "next-sync")
         save_sync_buf_mock.assert_called_once_with("account-1", "next-sync")
@@ -392,6 +394,8 @@ class WeixinILinkTests(unittest.TestCase):
         with patch("navi_agent.gateway.weixin.local.save_sync_buf"):
             with self.assertLogs("navi_agent.gateway.weixin.local", level="ERROR") as logs:
                 gateway.tick("old-sync")
+                self.assertTrue(gateway.wait_for_idle(1))
+        gateway.close()
 
         self.assertEqual([call.user_id for call in app.calls], ["user-1", "user-2"])
         self.assertEqual(client.sent[0]["to_user_id"], "user-2")
@@ -440,10 +444,38 @@ class WeixinILinkTests(unittest.TestCase):
         with patch("navi_agent.gateway.weixin.local.save_sync_buf"):
             with self.assertLogs("navi_agent.gateway.weixin.local", level="INFO") as logs:
                 gateway.tick("old-sync")
+                self.assertTrue(gateway.wait_for_idle(1))
+        gateway.close()
 
         self.assertEqual(len(app.calls), 1)
         self.assertEqual(len(client.sent), 1)
         self.assertIn("Skipped duplicate Weixin message", "\n".join(logs.output))
+
+    def test_gateway_tick_does_not_wait_for_runtime_completion(self) -> None:
+        started = Event()
+        release = Event()
+
+        class BlockingApp(FakeApp):
+            def handle(self, request, *, event_subscribers=None):
+                started.set()
+                release.wait(1)
+                return super().handle(request, event_subscribers=event_subscribers)
+
+        gateway = ILinkGateway(
+            app=BlockingApp(),
+            client=FakeClient(),
+            account_id="account-1",
+        )
+
+        with patch("navi_agent.gateway.weixin.local.save_sync_buf"):
+            next_sync = gateway.tick("old-sync")
+
+        self.assertEqual(next_sync, "next-sync")
+        self.assertTrue(started.wait(1))
+        self.assertFalse(gateway.wait_for_idle(0.01))
+        release.set()
+        self.assertTrue(gateway.wait_for_idle(1))
+        gateway.close()
 
     def test_gateway_run_forever_backs_off_after_get_updates_error(self) -> None:
         app = FakeApp()

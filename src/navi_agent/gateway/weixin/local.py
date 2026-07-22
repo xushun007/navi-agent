@@ -7,7 +7,7 @@ from threading import Event, Lock
 from time import monotonic, sleep
 
 from navi_agent.app import AppRequest, ApplicationService
-from navi_agent.runtime import BackgroundTask
+from navi_agent.runtime import BackgroundTask, SessionTaskScheduler
 from navi_agent.ui_events import UiEvent, UiEventEmitter
 
 from .ilink import ILinkClient, ILinkMessage, load_sync_buf, save_sync_buf
@@ -107,6 +107,7 @@ class ILinkGateway:
     pairing_store: WeixinPairingStore | None = None
     error_backoff_seconds: float = 5.0
     progress_interval_seconds: float = 3.0
+    max_concurrent_requests: int = 4
     seen_message_ids: set[str] = field(default_factory=set)
     _background_routes: dict[str, _BackgroundRoute] = field(
         default_factory=dict,
@@ -114,8 +115,10 @@ class ILinkGateway:
         repr=False,
     )
     _background_routes_lock: Lock = field(default_factory=Lock, init=False, repr=False)
+    _request_scheduler: SessionTaskScheduler = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        self._request_scheduler = SessionTaskScheduler(max_workers=self.max_concurrent_requests)
         register_listener = getattr(self.app, "add_background_task_listener", None)
         if callable(register_listener):
             register_listener(self._send_background_notification)
@@ -128,20 +131,23 @@ class ILinkGateway:
             bool(sync_buf),
             self.dm_policy,
         )
-        while True:
-            try:
-                sync_buf = self.tick(sync_buf)
-                sleep(self.poll_interval_seconds)
-            except KeyboardInterrupt:
-                logger.info("Stopping Weixin iLink polling: account_id=%s", self.account_id)
-                raise
-            except Exception:
-                logger.exception(
-                    "Weixin iLink polling error; backing off: account_id=%s backoff_seconds=%s",
-                    self.account_id,
-                    self.error_backoff_seconds,
-                )
-                sleep(self.error_backoff_seconds)
+        try:
+            while True:
+                try:
+                    sync_buf = self.tick(sync_buf)
+                    sleep(self.poll_interval_seconds)
+                except Exception:
+                    logger.exception(
+                        "Weixin iLink polling error; backing off: account_id=%s backoff_seconds=%s",
+                        self.account_id,
+                        self.error_backoff_seconds,
+                    )
+                    sleep(self.error_backoff_seconds)
+        except KeyboardInterrupt:
+            logger.info("Stopping Weixin iLink polling: account_id=%s", self.account_id)
+            raise
+        finally:
+            self.close()
 
     def tick(self, sync_buf: str = "") -> str:
         next_sync_buf, messages = self.client.get_updates(sync_buf)
@@ -150,24 +156,36 @@ class ILinkGateway:
         if messages:
             logger.info("Processing Weixin iLink messages: count=%s", len(messages))
         for message in messages:
-            try:
-                self.handle_message(message)
-            except Exception:
-                logger.exception(
-                    "Failed to process Weixin iLink message: message_id=%s user_id=%s",
-                    message.message_id,
-                    message.user_id,
-                )
+            self.submit_message(message)
         return next_sync_buf
 
+    def submit_message(self, message: ILinkMessage) -> None:
+        if not self._accept_message(message):
+            return
+        self._request_scheduler.submit(
+            message.session_id,
+            lambda: self._handle_accepted_message_safely(message),
+        )
+
     def handle_message(self, message: ILinkMessage) -> None:
+        if not self._accept_message(message):
+            return
+        self._handle_accepted_message(message)
+
+    def wait_for_idle(self, timeout: float | None = None) -> bool:
+        return self._request_scheduler.wait_for_idle(timeout)
+
+    def close(self, *, wait: bool = True) -> None:
+        self._request_scheduler.close(wait=wait)
+
+    def _accept_message(self, message: ILinkMessage) -> bool:
         if message.message_id and message.message_id in self.seen_message_ids:
             logger.info(
                 "Skipped duplicate Weixin message: message_id=%s user_id=%s",
                 message.message_id,
                 message.user_id,
             )
-            return
+            return False
         if message.message_id:
             self.seen_message_ids.add(message.message_id)
         logger.info(
@@ -178,7 +196,20 @@ class ILinkGateway:
             len(message.text),
         )
         if not self._is_allowed(message):
-            return
+            return False
+        return True
+
+    def _handle_accepted_message_safely(self, message: ILinkMessage) -> None:
+        try:
+            self._handle_accepted_message(message)
+        except Exception:
+            logger.exception(
+                "Failed to process Weixin iLink message: message_id=%s user_id=%s",
+                message.message_id,
+                message.user_id,
+            )
+
+    def _handle_accepted_message(self, message: ILinkMessage) -> None:
         route = self._remember_background_route(message)
         try:
             ui_sink = _WeixinUiEventSink(
