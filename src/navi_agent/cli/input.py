@@ -404,7 +404,7 @@ def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, s
     lines = text.splitlines()
     if not lines:
         return [(style or "", text)]
-    fragments = [(style or "", lines[0])]
+    fragments = [("", "\n"), (style, lines[0])] if style else [("", lines[0])]
     for line in lines[1:]:
         fragments.extend(
             [
@@ -412,4 +412,6 @@ def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, s
                 ("class:event.output", line),
             ]
         )
+    if style:
+        fragments.append(("", "\n"))
     return fragments

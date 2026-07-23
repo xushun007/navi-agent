@@ -11,6 +11,7 @@ from navi_agent.cli.input import (
     INTERACTIVE_STYLE,
     InteractivePromptSession,
     PromptPlaceholderProcessor,
+    _styled_history_fragments,
     install_shift_enter_alias,
 )
 from navi_agent.ui_events import UiEvent
@@ -27,6 +28,17 @@ def test_install_shift_enter_alias_maps_modern_terminal_sequences() -> None:
             ANSI_SEQUENCES[sequence] == Keys.F24
             for sequence in sequences
         )
+
+
+def test_styled_event_history_has_vertical_spacing() -> None:
+    fragments = _styled_history_fragments(
+        "✓ Ran · 71 ms\n  $ ls -1 | wc -l\n  └ 13",
+        "class:event.success",
+    )
+
+    assert "".join(text for _style, text in fragments) == (
+        "\n✓ Ran · 71 ms\n  $ ls -1 | wc -l\n  └ 13\n"
+    )
 
 
 def test_install_shift_enter_alias_is_idempotent() -> None:
