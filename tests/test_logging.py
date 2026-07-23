@@ -1,4 +1,6 @@
 import logging
+from logging.handlers import RotatingFileHandler
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +23,28 @@ class LoggingTests(unittest.TestCase):
         logger = setup_logging(level="WARNING")
 
         self.assertEqual(logger.level, logging.WARNING)
+
+    def test_setup_logging_rotates_and_protects_log_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "logs" / "navi-agent.log"
+            logger = setup_logging(
+                level="INFO",
+                log_path=log_path,
+                max_bytes=200,
+                backup_count=2,
+            )
+
+            for index in range(20):
+                logger.info("message-%s %s", index, "x" * 40)
+
+            file_handler = next(
+                handler for handler in logger.handlers if isinstance(handler, RotatingFileHandler)
+            )
+            self.assertEqual(file_handler.maxBytes, 200)
+            self.assertEqual(file_handler.backupCount, 2)
+            self.assertTrue(log_path.with_suffix(".log.1").exists())
+            self.assertEqual(stat.S_IMODE(log_path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(log_path.parent.stat().st_mode), 0o700)
 
     def test_set_console_log_level_preserves_file_logging(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

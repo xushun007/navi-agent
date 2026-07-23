@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from logging.handlers import RotatingFileHandler
+import os
 from pathlib import Path
 import re
 
@@ -23,7 +25,20 @@ class RedactingFormatter(logging.Formatter):
         return redact_sensitive_data(super().format(record))
 
 
-def setup_logging(level: str = "INFO", log_path: str | Path | None = None) -> logging.Logger:
+class SecureRotatingFileHandler(RotatingFileHandler):
+    def _open(self):
+        stream = super()._open()
+        os.chmod(self.baseFilename, 0o600)
+        return stream
+
+
+def setup_logging(
+    level: str = "INFO",
+    log_path: str | Path | None = None,
+    *,
+    max_bytes: int = 10 * 1024 * 1024,
+    backup_count: int = 5,
+) -> logging.Logger:
     logger = logging.getLogger("navi_agent")
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
     logger.propagate = False
@@ -43,8 +58,14 @@ def setup_logging(level: str = "INFO", log_path: str | Path | None = None) -> lo
 
     if log_path is not None:
         path = Path(log_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(path, encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(path.parent, 0o700)
+        file_handler = SecureRotatingFileHandler(
+            path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
