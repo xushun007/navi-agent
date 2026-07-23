@@ -362,9 +362,8 @@ class ILinkGateway:
                 context_token=message.context_token,
             )
             logger.info(
-                "Requested Weixin pairing approval: user_id=%s code=%s",
+                "Requested Weixin pairing approval: user_id=%s",
                 message.user_id,
-                request.code,
             )
             return False
         logger.warning("Rejected Weixin DM because policy is unknown: policy=%s user_id=%s", policy, message.user_id)

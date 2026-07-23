@@ -146,10 +146,10 @@ class ILinkClient:
             logger.info("Sent iLink text reply: to_user_id=%s", to_user_id)
         else:
             logger.warning(
-                "Failed to send iLink text reply: to_user_id=%s error=%s response=%s",
+                "Failed to send iLink text reply: to_user_id=%s error_type=%s error=%s",
                 to_user_id,
+                result.error_type,
                 result.error,
-                response,
             )
         return result
 
