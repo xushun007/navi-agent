@@ -677,6 +677,15 @@ class AgentRuntime:
                     payload=model_payload,
                 )
                 return finish_cancelled(iteration_number)
+            if response.tool_calls:
+                publish_event(
+                    kind="observation",
+                    source="model",
+                    name="model.plan",
+                    iteration=iteration_number,
+                    item_id=model_item_id,
+                    payload={"tool_calls": model_payload["tool_calls"]},
+                )
             publish_event(
                 kind="action",
                 source="agent",

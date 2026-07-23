@@ -1801,6 +1801,10 @@ def _run_persistent_interactive(
                 prompt_session.show_notice("No approval request is waiting.")
                 return
             action = "approved" if approved else "denied"
+            prompt_session.show_notice(
+                f"{'✓ 已授权' if approved else '■ 已拒绝'} · "
+                f"{interaction.tool_name or 'tool'}"
+            )
             instruction = (
                 f"The user {action} the tool {interaction.tool_name}. "
                 + (

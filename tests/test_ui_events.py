@@ -1,5 +1,11 @@
 from navi_agent.events import RuntimeEvent
-from navi_agent.ui_events import ConsoleUiEventSink, UiEvent, UiEventEmitter, UiEventMapper
+from navi_agent.ui_events import (
+    ConsoleUiEventSink,
+    UiEvent,
+    UiEventEmitter,
+    UiEventMapper,
+    render_ui_event,
+)
 
 
 def _event(name: str, metadata: dict[str, object], *, item_id: str | None = None) -> RuntimeEvent:
@@ -38,6 +44,7 @@ def test_maps_tool_lifecycle_with_stable_item_identity() -> None:
     assert started.item_id == completed.item_id == "tc1"
     assert started.state == "started"
     assert started.title == "正在读取 README.md"
+    assert started.detail == "path: /workspace/README.md"
     assert completed.state == "completed"
     assert completed.title == "已读取文件"
 
@@ -154,6 +161,84 @@ def test_maps_tool_progress_without_exposing_secrets() -> None:
     assert ui_event.detail == "token=<redacted> tests are still running"
 
 
+def test_maps_bash_command_and_result_as_a_safe_execution_timeline() -> None:
+    mapper = UiEventMapper()
+
+    started = mapper.map(
+        _event(
+            "tool.call",
+            {
+                "tool_name": "bash",
+                "arguments": {"command": "find . -type f | wc -l"},
+            },
+            item_id="tc1",
+        )
+    )
+    completed = mapper.map(
+        _event(
+            "tool.result",
+            {
+                "tool_name": "bash",
+                "status": "success",
+                "duration_ms": 83,
+                "structured_content": {"stdout": "1825\n", "exit_code": 0},
+            },
+            item_id="tc1",
+        )
+    )
+
+    assert started is not None
+    assert started.title == "正在执行 Bash"
+    assert started.detail == "$ find . -type f | wc -l"
+    assert completed is not None
+    assert completed.title == "Bash 已完成 · 83 ms"
+    assert completed.detail == "1825"
+
+
+def test_maps_deferred_approval_with_safe_tool_context() -> None:
+    ui_event = UiEventMapper().map(
+        _event(
+            "tool.result",
+            {
+                "tool_name": "bash",
+                "status": "error",
+                "arguments": {"command": "TOKEN=secret uv run pytest"},
+                "structured_content": {"approval_required": True},
+            },
+            item_id="tc1",
+        )
+    )
+
+    assert ui_event is not None
+    assert ui_event.kind == "approval"
+    assert ui_event.state == "waiting"
+    assert ui_event.title == "需要授权 · Bash"
+    assert ui_event.detail == "$ TOKEN=<redacted> uv run pytest"
+    assert render_ui_event(ui_event).startswith("! 需要授权")
+
+
+def test_maps_safe_execution_plan_without_model_reasoning() -> None:
+    ui_event = UiEventMapper().map(
+        _event(
+            "model.plan",
+            {
+                "tool_calls": [
+                    {"name": "search_files", "arguments": {"query": "secret"}},
+                    {"name": "bash", "arguments": {"command": "pytest"}},
+                ],
+                "reasoning_content": "private chain of thought",
+            },
+            item_id="model:1",
+        )
+    )
+
+    assert ui_event is not None
+    assert ui_event.kind == "reasoning"
+    assert ui_event.title == "执行计划"
+    assert ui_event.detail == "文件搜索 → Bash"
+    assert "private" not in repr(ui_event)
+
+
 def test_emitter_only_sends_derived_ui_events() -> None:
     received: list[UiEvent] = []
 
@@ -171,7 +256,43 @@ def test_emitter_only_sends_derived_ui_events() -> None:
         )
     )
 
-    assert [event.title for event in received] == ["正在搜索文件"]
+    assert [event.title for event in received] == ["正在分析请求", "正在搜索文件"]
+
+
+def test_console_sink_keeps_started_and_completed_events_in_non_tty_history() -> None:
+    from io import StringIO
+
+    output = StringIO()
+    sink = ConsoleUiEventSink(output)
+    sink.handle(
+        UiEvent(
+            event_id="event-1",
+            run_id="run-1",
+            sequence=1,
+            kind="tool",
+            state="started",
+            title="正在执行 Bash",
+            item_id="tool-1",
+            detail="$ pwd",
+        )
+    )
+    sink.handle(
+        UiEvent(
+            event_id="event-2",
+            run_id="run-1",
+            sequence=2,
+            kind="tool",
+            state="completed",
+            title="Bash 已完成 · 12 ms",
+            item_id="tool-1",
+            detail="/workspace",
+        )
+    )
+
+    assert output.getvalue() == (
+        "› 正在执行 Bash — $ pwd\n"
+        "✓ Bash 已完成 · 12 ms — /workspace\n"
+    )
 
 
 def test_console_sink_renders_safe_ui_events_once() -> None:

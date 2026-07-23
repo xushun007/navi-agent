@@ -7,7 +7,7 @@ from typing import Any
 from prompt_toolkit.formatted_text.utils import fragment_list_len
 from prompt_toolkit.layout.processors import Processor, Transformation, TransformationInput
 
-from navi_agent.ui_events import UiEvent
+from navi_agent.ui_events import UiEvent, render_ui_event
 
 
 INPUT_MIN_HEIGHT = 1
@@ -81,6 +81,7 @@ class InteractivePromptSession:
         self._status_text = ""
         self._response_text = ""
         self._busy = False
+        self._seen_event_ids: set[str] = set()
 
     def prompt(self, _message: Any = None, *, placeholder: str = "") -> str:
         from prompt_toolkit import Application
@@ -260,7 +261,12 @@ class InteractivePromptSession:
         self.invalidate()
 
     def handle(self, event: UiEvent) -> None:
+        history_line: str | None = None
         with self._lock:
+            if event.event_id in self._seen_event_ids:
+                return
+            self._seen_event_ids.add(event.event_id)
+
             if event.kind == "assistant" and event.state == "delta":
                 self._response_text += event.detail or ""
                 self._status_text = ""
@@ -270,10 +276,21 @@ class InteractivePromptSession:
                 self._status_text = event.title
                 if event.detail:
                     self._status_text = f"{self._status_text} — {event.detail}"
+                if event.state == "started" and event.kind == "tool":
+                    history_line = render_ui_event(event)
+            elif event.kind in {"tool", "reasoning", "approval"}:
+                self._status_text = (
+                    event.title if event.state in {"waiting", "failed"} else ""
+                )
+                history_line = render_ui_event(event)
             elif event.kind == "error" or event.state == "failed":
                 self._status_text = event.title
+                history_line = render_ui_event(event)
             elif event.state in {"waiting", "cancelled"}:
                 self._status_text = event.title
+                history_line = render_ui_event(event)
+        if history_line:
+            self.commit_history(history_line)
         self.invalidate()
 
     def complete_response(self, final_response: str) -> None:

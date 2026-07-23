@@ -61,18 +61,27 @@ class ConsoleUiEventSink:
                 self._finish_stream()
                 return
 
-            if event.state in {"started", "progress"}:
+            if event.state == "started":
                 self._finish_stream()
                 self._active_item_id = event.item_id or event.run_id
                 if self._interactive:
-                    self._replace_line(_render_console_event(event))
+                    self._replace_line(render_ui_event(event))
+                else:
+                    self._write_line(render_ui_event(event))
+                return
+
+            if event.state == "progress":
+                self._finish_stream()
+                self._active_item_id = event.item_id or event.run_id
+                if self._interactive:
+                    self._replace_line(render_ui_event(event))
                 return
 
             self._finish_stream()
             if self._active_item_id == (event.item_id or event.run_id):
                 self._clear_line()
                 self._active_item_id = None
-            self._write_line(_render_console_event(event))
+            self._write_line(render_ui_event(event))
 
     def finish(self) -> None:
         with self._lock:
@@ -137,6 +146,28 @@ class UiEventEmitter:
 
 class UiEventMapper:
     def map(self, event: RuntimeEvent) -> UiEvent | None:
+        if event.name == "iteration.started":
+            return UiEvent(
+                event_id=event.event_id,
+                run_id=event.run_id,
+                sequence=event.sequence,
+                kind="activity",
+                state="started",
+                title="正在分析请求",
+                item_id=f"iteration:{event.iteration or 0}",
+                replaceable=True,
+            )
+        if event.name == "model.plan":
+            return UiEvent(
+                event_id=event.event_id,
+                run_id=event.run_id,
+                sequence=event.sequence,
+                kind="reasoning",
+                state="completed",
+                title="执行计划",
+                item_id=event.item_id,
+                detail=_plan_detail(event.metadata),
+            )
         if event.name == "model.delta":
             delta = event.metadata.get("delta")
             if not isinstance(delta, str) or not delta:
@@ -180,14 +211,17 @@ class UiEventMapper:
                 severity="info",
             )
         if event.name == "runtime.waiting":
+            if event.metadata.get("interaction_kind") == "approval":
+                return None
             return UiEvent(
                 event_id=event.event_id,
                 run_id=event.run_id,
                 sequence=event.sequence,
                 kind="runtime",
                 state="waiting",
-                title="等待你的回复",
+                title="需要你的输入",
                 item_id=event.item_id,
+                detail=_safe_prompt(event.metadata.get("prompt")),
                 severity="info",
             )
         if event.name == "runtime.interaction_expired":
@@ -227,25 +261,45 @@ class UiEventMapper:
             state="started",
             title=_tool_title(tool_name, event.metadata, completed=False),
             item_id=event.item_id,
+            detail=_tool_call_detail(tool_name, event.metadata),
             replaceable=True,
         )
 
     def _tool_completed(self, event: RuntimeEvent) -> UiEvent:
         tool_name = _tool_name(event)
+        structured = event.metadata.get("structured_content")
+        if isinstance(structured, dict) and structured.get("approval_required") is True:
+            return UiEvent(
+                event_id=event.event_id,
+                run_id=event.run_id,
+                sequence=event.sequence,
+                kind="approval",
+                state="waiting",
+                title=f"需要授权 · {_tool_label(tool_name)}",
+                item_id=event.item_id,
+                detail=_tool_call_detail(tool_name, event.metadata),
+                severity="warning",
+            )
         failed = event.metadata.get("status") == "error"
+        title = (
+            f"{_tool_label(tool_name)}失败"
+            if failed
+            else _tool_title(tool_name, event.metadata, completed=True)
+        )
+        title = f"{title}{_duration_suffix(event.metadata.get('duration_ms'))}"
         return UiEvent(
             event_id=event.event_id,
             run_id=event.run_id,
             sequence=event.sequence,
             kind="tool",
             state="failed" if failed else "completed",
-            title=(
-                f"{_tool_label(tool_name)}失败"
-                if failed
-                else _tool_title(tool_name, event.metadata, completed=True)
-            ),
+            title=title,
             item_id=event.item_id,
-            detail=_safe_error_detail(event.metadata) if failed else None,
+            detail=(
+                _safe_error_detail(event.metadata)
+                if failed
+                else _tool_result_detail(tool_name, event.metadata)
+            ),
             severity="error" if failed else "info",
             replaceable=True,
         )
@@ -282,11 +336,21 @@ class UiEventMapper:
 
 
 _TOOL_LABELS = {
-    "bash": "命令执行",
+    "ask_user": "用户确认",
+    "background_task": "后台任务",
+    "bash": "Bash",
+    "code_executor": "代码执行",
+    "cron": "定时任务",
     "delegate_task": "子任务",
+    "memory": "记忆",
     "patch": "文件修改",
     "read_file": "文件读取",
     "search_files": "文件搜索",
+    "session_search": "会话搜索",
+    "skill_list": "技能列表",
+    "skill_manage": "技能管理",
+    "skill_view": "技能读取",
+    "todo": "任务清单",
     "write_file": "文件写入",
 }
 
@@ -319,10 +383,109 @@ def _tool_title(tool_name: str, metadata: dict[str, object], *, completed: bool)
     if tool_name == "search_files":
         return f"{verb}搜索文件"
     if tool_name == "bash":
-        return "已运行命令" if completed else "正在执行命令"
+        return "Bash 已完成" if completed else "正在执行 Bash"
     if tool_name == "delegate_task":
         return "子任务已完成" if completed else "正在处理子任务"
     return f"{_tool_label(tool_name)}{'已完成' if completed else '中'}"
+
+
+def _tool_call_detail(tool_name: str, metadata: dict[str, object]) -> str | None:
+    arguments = metadata.get("arguments")
+    if not isinstance(arguments, dict):
+        return None
+
+    if tool_name == "bash":
+        command = arguments.get("command")
+        return _safe_prefixed("$ ", command, limit=240)
+    if tool_name in {"read_file", "write_file", "patch"}:
+        return _safe_prefixed("path: ", arguments.get("path"), limit=180)
+    if tool_name == "search_files":
+        query = _safe_text(arguments.get("query"), limit=140)
+        path = _safe_text(arguments.get("path"), limit=80)
+        parts = [f"query: {query}" if query else "", f"path: {path}" if path else ""]
+        return " · ".join(part for part in parts if part) or None
+    if tool_name == "delegate_task":
+        return _safe_prefixed("goal: ", arguments.get("goal"), limit=200)
+    if tool_name in {"memory", "todo", "cron", "background_task", "skill_manage"}:
+        return _safe_prefixed("action: ", arguments.get("action"), limit=80)
+    if tool_name == "session_search":
+        return _safe_prefixed("query: ", arguments.get("query"), limit=160)
+    if tool_name == "skill_view":
+        return _safe_prefixed("skill: ", arguments.get("skill_name"), limit=120)
+    return None
+
+
+def _tool_result_detail(tool_name: str, metadata: dict[str, object]) -> str | None:
+    structured = metadata.get("structured_content")
+    structured = structured if isinstance(structured, dict) else {}
+
+    if tool_name == "bash":
+        stdout = _safe_text(structured.get("stdout"), limit=240)
+        stderr = _safe_text(structured.get("stderr"), limit=180)
+        if stdout:
+            return stdout
+        if stderr:
+            return f"stderr: {stderr}"
+        exit_code = structured.get("exit_code")
+        return f"exit code: {exit_code}" if isinstance(exit_code, int) else None
+    if tool_name == "read_file":
+        line_count = structured.get("line_count")
+        path = _safe_text(structured.get("path"), limit=120)
+        if isinstance(line_count, int):
+            return f"{line_count} lines{f' · {path}' if path else ''}"
+    if tool_name == "search_files":
+        count = structured.get("match_count")
+        if isinstance(count, int):
+            return f"{count} matches"
+    if tool_name == "write_file":
+        count = structured.get("bytes_written")
+        if isinstance(count, int):
+            return f"{count} bytes written"
+    if tool_name == "patch":
+        count = structured.get("replacements")
+        if isinstance(count, int):
+            return f"{count} replacement{'s' if count != 1 else ''}"
+
+    return _safe_text(metadata.get("content"), limit=240)
+
+
+def _plan_detail(metadata: dict[str, object]) -> str | None:
+    tool_calls = metadata.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        return None
+    labels: list[str] = []
+    for item in tool_calls:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if isinstance(name, str) and name:
+            labels.append(_tool_label(name))
+    if not labels:
+        return None
+    return " → ".join(labels)
+
+
+def _duration_suffix(value: object) -> str:
+    if not isinstance(value, int) or value < 0:
+        return ""
+    if value < 1000:
+        return f" · {value} ms"
+    return f" · {value / 1000:.1f} s"
+
+
+def _safe_prefixed(prefix: str, value: object, *, limit: int) -> str | None:
+    text = _safe_text(value, limit=max(1, limit - len(prefix)))
+    return f"{prefix}{text}" if text else None
+
+
+def _safe_text(value: object, *, limit: int) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return _compact(_redact(value), limit=limit)
+
+
+def _safe_prompt(value: object) -> str | None:
+    return _safe_text(value, limit=240)
 
 
 def _safe_path(value: object) -> str | None:
@@ -363,7 +526,7 @@ def _compact(text: str, *, limit: int) -> str:
     return f"{compacted[: limit - 1]}…"
 
 
-def _render_console_event(event: UiEvent) -> str:
+def render_ui_event(event: UiEvent) -> str:
     marker = {
         "started": "›",
         "progress": "·",
@@ -372,6 +535,10 @@ def _render_console_event(event: UiEvent) -> str:
         "cancelled": "■",
         "waiting": "›",
     }.get(event.state, "·")
+    if event.kind == "reasoning":
+        marker = "◇"
+    elif event.kind == "approval":
+        marker = "!"
     text = f"{marker} {event.title}"
     if event.detail:
         text = f"{text} — {event.detail}"

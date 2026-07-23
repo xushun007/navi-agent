@@ -70,20 +70,22 @@ def test_persistent_interactive_application_keeps_input_active() -> None:
 def test_persistent_interactive_state_tracks_runtime_events() -> None:
     session = InteractivePromptSession()
     session.set_busy(True)
-    session.handle(
-        UiEvent(
-            event_id="event-1",
-            run_id="run-1",
-            sequence=1,
-            kind="tool",
-            state="started",
-            title="正在读取 README.md",
-            item_id="tool-1",
+    with patch.object(session, "commit_history") as commit_history:
+        session.handle(
+            UiEvent(
+                event_id="event-1",
+                run_id="run-1",
+                sequence=1,
+                kind="tool",
+                state="started",
+                title="正在读取 README.md",
+                item_id="tool-1",
+            )
         )
-    )
 
     assert session.is_busy
     assert session.status_text == "正在读取 README.md"
+    commit_history.assert_called_once_with("› 正在读取 README.md")
 
     session.handle(
         UiEvent(
@@ -100,6 +102,50 @@ def test_persistent_interactive_state_tracks_runtime_events() -> None:
 
     assert session.status_text == ""
     assert session._render_response() == [("class:response", "hello")]
+
+
+def test_persistent_interactive_session_commits_execution_timeline_once() -> None:
+    session = InteractivePromptSession()
+    events = [
+        UiEvent(
+            event_id="plan-1",
+            run_id="run-1",
+            sequence=1,
+            kind="reasoning",
+            state="completed",
+            title="执行计划",
+            detail="Bash",
+        ),
+        UiEvent(
+            event_id="approval-1",
+            run_id="run-1",
+            sequence=2,
+            kind="approval",
+            state="waiting",
+            title="需要授权 · Bash",
+            detail="$ find . -type f",
+        ),
+        UiEvent(
+            event_id="result-1",
+            run_id="run-1",
+            sequence=3,
+            kind="tool",
+            state="completed",
+            title="Bash 已完成 · 42 ms",
+            detail="1825",
+        ),
+    ]
+
+    with patch.object(session, "commit_history") as commit_history:
+        for event in events:
+            session.handle(event)
+        session.handle(events[-1])
+
+    assert [call.args[0] for call in commit_history.call_args_list] == [
+        "◇ 执行计划 — Bash",
+        "! 需要授权 · Bash — $ find . -type f",
+        "✓ Bash 已完成 · 42 ms — 1825",
+    ]
 
 
 def test_commit_history_does_not_reschedule_run_in_terminal_future() -> None:
