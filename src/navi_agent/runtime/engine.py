@@ -22,10 +22,9 @@ from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
 from .tools import ToolRegistry
 from .transports import ModelRequest, ModelTransport
 from navi_agent.telemetry import (
-    ModelCallTrace,
     RuntimeEventStore,
     RuntimeTrace,
-    ToolExecutionTrace,
+    TraceBuilder,
     TraceStore,
 )
 from navi_agent.events import EventStoreWriter, RuntimeEvent, RuntimeEventPublisher, RuntimeEventSubscriber
@@ -163,6 +162,8 @@ class AgentRuntime:
         self._context_engine = context_engine or ContextEngine(summarizer=LLMContextSummarizer(transport))
         self._enabled_toolsets = enabled_toolsets
         self._disabled_toolsets = disabled_toolsets
+        if trace_store is not None:
+            self._event_publisher.subscribe(TraceBuilder(trace_store))
         if event_store is not None:
             self._event_publisher.subscribe(EventStoreWriter(event_store))
         self._background_task_manager = background_task_manager
@@ -244,6 +245,7 @@ class AgentRuntime:
                 "session_source": source,
                 "model": self._model,
                 "cwd": self._cwd,
+                "started_at": run_started_at,
             },
         )
         session = self._session_store.load(
@@ -303,8 +305,30 @@ class AgentRuntime:
         else:
             injected_skill_names = []
         tool_results = []
-        model_calls: list[ModelCallTrace] = []
-        tool_executions: list[ToolExecutionTrace] = []
+        publish_event(
+            kind="observation",
+            source="runtime",
+            name="runtime.context_ready",
+            payload={
+                "system_prompt": system_prompt,
+                "injected_skill_names": list(injected_skill_names),
+            },
+        )
+
+        def completion_payload(
+            result: RuntimeResult,
+            *,
+            attempt_count: int,
+            error_info: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            return {
+                "status": result.status,
+                "final_response": result.final_response,
+                "attempt_count": attempt_count,
+                "completed_at": _utc_now_iso(),
+                "duration_ms": _duration_ms(run_started_perf),
+                **(error_info or {}),
+            }
 
         def finish_cancelled(iteration: int) -> RuntimeResult:
             reason = cancellation_token.reason or "user_requested"
@@ -327,20 +351,6 @@ class AgentRuntime:
                 "http_status": None,
                 "error_source": "runtime",
             }
-            self._record_trace(
-                session_id=session.session_id,
-                user_id=user_id,
-                user_message=user_message,
-                system_prompt=system_prompt,
-                injected_skill_names=injected_skill_names,
-                result=result,
-                model_calls=model_calls,
-                tool_executions=tool_executions,
-                started_at=run_started_at,
-                duration_ms=_duration_ms(run_started_perf),
-                error_info=error_info,
-                attempt_count=iteration,
-            )
             publish_event(
                 kind="observation",
                 source="runtime",
@@ -353,7 +363,11 @@ class AgentRuntime:
                 source="runtime",
                 name="runtime.completed",
                 iteration=iteration or None,
-                payload={"status": result.status, "reason": reason},
+                payload=completion_payload(
+                    result,
+                    attempt_count=iteration,
+                    error_info=error_info,
+                ),
             )
             return result
 
@@ -367,19 +381,6 @@ class AgentRuntime:
                 final_response=prompt,
                 messages=self._session_store.snapshot(session),
                 tool_results=tool_results,
-            )
-            self._record_trace(
-                session_id=session.session_id,
-                user_id=user_id,
-                user_message=user_message,
-                system_prompt=system_prompt,
-                injected_skill_names=injected_skill_names,
-                result=result,
-                model_calls=model_calls,
-                tool_executions=tool_executions,
-                started_at=run_started_at,
-                duration_ms=_duration_ms(run_started_perf),
-                attempt_count=iteration,
             )
             payload = {
                 "status": result.status,
@@ -400,7 +401,7 @@ class AgentRuntime:
                 source="runtime",
                 name="runtime.completed",
                 iteration=iteration,
-                payload={"status": result.status},
+                payload=completion_payload(result, attempt_count=iteration),
             )
             return result
 
@@ -420,27 +421,9 @@ class AgentRuntime:
                 tool_result.name,
             )
             tool_results.append(tool_result)
-            tool_executions.append(
-                ToolExecutionTrace(
-                    iteration=iteration,
-                    tool_call_id=tool_result.tool_call_id,
-                    tool_name=tool_result.name,
-                    status=tool_result.status,
-                    arguments=arguments,
-                    content=tool_result.content,
-                    metadata=tool_metadata,
-                    structured_content=dict(tool_result.structured_content),
-                    approval_required=bool(
-                        tool_result.structured_content.get("approval_required")
-                    ),
-                    **_classify_tool_error(
-                        tool_result=tool_result,
-                        tool_metadata=tool_metadata,
-                    ),
-                    started_at=tool_started_at,
-                    completed_at=tool_completed_at,
-                    duration_ms=tool_duration_ms,
-                )
+            error_info = _classify_tool_error(
+                tool_result=tool_result,
+                tool_metadata=tool_metadata,
             )
             publish_event(
                 kind="observation",
@@ -452,9 +435,14 @@ class AgentRuntime:
                     "tool_call_id": tool_result.tool_call_id,
                     "tool_name": tool_result.name,
                     "status": tool_result.status,
+                    "arguments": arguments,
                     "content": tool_result.content,
                     "metadata": tool_metadata,
                     "structured_content": dict(tool_result.structured_content),
+                    "started_at": tool_started_at,
+                    "completed_at": tool_completed_at,
+                    "duration_ms": tool_duration_ms,
+                    **error_info,
                 },
             )
             if persist_message:
@@ -642,48 +630,52 @@ class AgentRuntime:
                     messages=self._session_store.snapshot(session),
                     tool_results=tool_results,
                 )
-                self._record_trace(
-                    session_id=session.session_id,
-                    user_id=user_id,
-                    user_message=user_message,
-                    system_prompt=system_prompt,
-                    injected_skill_names=injected_skill_names,
-                    result=result,
-                    model_calls=model_calls,
-                    tool_executions=tool_executions,
-                    started_at=run_started_at,
-                    duration_ms=_duration_ms(run_started_perf),
-                    error_info=error_info,
-                    attempt_count=iteration_number,
-                )
                 publish_event(
                     kind="observation",
                     source="runtime",
                     name="runtime.completed",
                     iteration=iteration_number,
-                    payload={"status": result.status, **error_info},
+                    payload=completion_payload(
+                        result,
+                        attempt_count=iteration_number,
+                        error_info=error_info,
+                    ),
                 )
                 return result
-            model_calls.append(
-                ModelCallTrace(
-                    iteration=iteration_number,
-                    response_content=response.content,
-                    tool_call_names=[tool_call.name for tool_call in response.tool_calls],
-                    reasoning_content=response.reasoning_content,
-                    started_at=model_started_at,
-                    completed_at=_utc_now_iso(),
-                    duration_ms=_duration_ms(model_started_perf),
-                    provider=response.provider,
-                    model=response.model,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                    cache_read_tokens=response.usage.cache_read_tokens,
-                    cache_write_tokens=response.usage.cache_write_tokens,
-                    reasoning_tokens=response.usage.reasoning_tokens,
-                    cost_usd=response.usage.cost_usd,
-                )
-            )
+            model_payload = {
+                "content": response.content,
+                "reasoning_content": response.reasoning_content,
+                "provider": response.provider,
+                "model": response.model,
+                "started_at": model_started_at,
+                "completed_at": _utc_now_iso(),
+                "duration_ms": _duration_ms(model_started_perf),
+                "usage": {
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                    "cache_read_tokens": response.usage.cache_read_tokens,
+                    "cache_write_tokens": response.usage.cache_write_tokens,
+                    "reasoning_tokens": response.usage.reasoning_tokens,
+                    "cost_usd": response.usage.cost_usd,
+                },
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "name": tool_call.name,
+                        "arguments": dict(tool_call.arguments),
+                    }
+                    for tool_call in response.tool_calls
+                ],
+            }
             if cancellation_token.is_cancelled:
+                publish_event(
+                    kind="observation",
+                    source="model",
+                    name="model.discarded",
+                    iteration=iteration_number,
+                    item_id=model_item_id,
+                    payload=model_payload,
+                )
                 return finish_cancelled(iteration_number)
             publish_event(
                 kind="action",
@@ -691,28 +683,7 @@ class AgentRuntime:
                 name="model.response",
                 iteration=iteration_number,
                 item_id=model_item_id,
-                payload={
-                    "content": response.content,
-                    "reasoning_content": response.reasoning_content,
-                    "provider": response.provider,
-                    "model": response.model,
-                    "usage": {
-                        "input_tokens": response.usage.input_tokens,
-                        "output_tokens": response.usage.output_tokens,
-                        "cache_read_tokens": response.usage.cache_read_tokens,
-                        "cache_write_tokens": response.usage.cache_write_tokens,
-                        "reasoning_tokens": response.usage.reasoning_tokens,
-                        "cost_usd": response.usage.cost_usd,
-                    },
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "name": tool_call.name,
-                            "arguments": dict(tool_call.arguments),
-                        }
-                        for tool_call in response.tool_calls
-                    ],
-                },
+                payload=model_payload,
             )
 
             assistant_message = Message(
@@ -735,24 +706,12 @@ class AgentRuntime:
                     messages=self._session_store.snapshot(session),
                     tool_results=tool_results,
                 )
-                self._record_trace(
-                    session_id=session.session_id,
-                    user_id=user_id,
-                    user_message=user_message,
-                    system_prompt=system_prompt,
-                    injected_skill_names=injected_skill_names,
-                    result=result,
-                    model_calls=model_calls,
-                    tool_executions=tool_executions,
-                    started_at=run_started_at,
-                    duration_ms=_duration_ms(run_started_perf),
-                )
                 publish_event(
                     kind="observation",
                     source="runtime",
                     name="runtime.completed",
                     iteration=iteration_number,
-                    payload={"status": result.status},
+                    payload=completion_payload(result, attempt_count=iteration_number),
                 )
                 return result
 
@@ -835,32 +794,24 @@ class AgentRuntime:
             messages=self._session_store.snapshot(session),
             tool_results=tool_results,
         )
-        self._record_trace(
-            session_id=session.session_id,
-            user_id=user_id,
-            user_message=user_message,
-            system_prompt=system_prompt,
-            injected_skill_names=injected_skill_names,
-            result=result,
-            model_calls=model_calls,
-            tool_executions=tool_executions,
-            started_at=run_started_at,
-            duration_ms=_duration_ms(run_started_perf),
-            error_info={
-                "error_category": "fatal",
-                "error_type": "IterationLimitExceeded",
-                "error_message": "Runtime iteration limit exceeded",
-                "retryable": False,
-                "http_status": None,
-                "error_source": "runtime",
-            },
-        )
+        error_info = {
+            "error_category": "fatal",
+            "error_type": "IterationLimitExceeded",
+            "error_message": "Runtime iteration limit exceeded",
+            "retryable": False,
+            "http_status": None,
+            "error_source": "runtime",
+        }
         publish_event(
             kind="observation",
             source="runtime",
             name="runtime.completed",
             iteration=self._max_iterations,
-            payload={"status": result.status, "error_type": "IterationLimitExceeded"},
+            payload=completion_payload(
+                result,
+                attempt_count=self._max_iterations,
+                error_info=error_info,
+            ),
         )
         return result
 
@@ -882,54 +833,6 @@ class AgentRuntime:
                 ]
             )
         return "\n".join(lines)
-
-    def _record_trace(
-        self,
-        session_id: str,
-        user_id: str,
-        user_message: str,
-        system_prompt: str | None,
-        injected_skill_names: list[str],
-        result: RuntimeResult,
-        model_calls: list[ModelCallTrace],
-        tool_executions: list[ToolExecutionTrace],
-        started_at: str,
-        duration_ms: int,
-        error_info: dict[str, object] | None = None,
-        attempt_count: int = 0,
-    ) -> None:
-        if self._trace_store is None:
-            return
-        error_info = error_info or {}
-        self._trace_store.record(
-            RuntimeTrace(
-                session_id=session_id,
-                user_id=user_id,
-                user_message=user_message,
-                final_response=result.final_response,
-                status=result.status,
-                agent_role=self._agent_role,
-                parent_session_id=self._parent_session_id,
-                system_prompt=system_prompt,
-                injected_skill_names=list(injected_skill_names),
-                tool_names=[item.name for item in result.tool_results],
-                model_calls=list(model_calls),
-                tool_executions=list(tool_executions),
-                total_iterations=len(model_calls),
-                approval_count=sum(1 for item in tool_executions if item.approval_required),
-                error_count=sum(1 for item in tool_executions if item.status == "error"),
-                error_category=error_info.get("error_category") if isinstance(error_info.get("error_category"), str) else None,
-                error_type=error_info.get("error_type") if isinstance(error_info.get("error_type"), str) else None,
-                error_message=error_info.get("error_message") if isinstance(error_info.get("error_message"), str) else None,
-                retryable=error_info.get("retryable") if isinstance(error_info.get("retryable"), bool) else None,
-                http_status=error_info.get("http_status") if isinstance(error_info.get("http_status"), int) else None,
-                error_source=error_info.get("error_source") if isinstance(error_info.get("error_source"), str) else None,
-                attempt_count=attempt_count,
-                started_at=started_at,
-                completed_at=_utc_now_iso(),
-                duration_ms=duration_ms,
-            )
-        )
 
     def _render_tool_message(self, tool_result) -> str:
         rendered = self._tool_result_renderer.render(tool_result).strip()

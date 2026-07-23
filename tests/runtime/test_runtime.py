@@ -355,6 +355,7 @@ class AgentRuntimeTests(unittest.TestCase):
             [
                 "runtime.started",
                 "user.message",
+                "runtime.context_ready",
                 "iteration.started",
                 "model.response",
                 "tool.call",
@@ -364,19 +365,19 @@ class AgentRuntimeTests(unittest.TestCase):
                 "runtime.completed",
             ],
         )
-        self.assertEqual([event.sequence for event in events], list(range(1, 10)))
+        self.assertEqual([event.sequence for event in events], list(range(1, 11)))
         self.assertEqual(events[1].kind, "action")
         self.assertEqual(events[1].source, "user")
         self.assertEqual(events[4].kind, "action")
         self.assertEqual(events[4].source, "agent")
-        self.assertEqual(events[4].payload["tool_name"], "echo")
-        self.assertEqual(events[4].payload["arguments"], {"value": "ping"})
-        self.assertEqual(events[4].item_id, "tc1")
-        self.assertEqual(events[5].kind, "observation")
-        self.assertEqual(events[5].source, "tool")
         self.assertEqual(events[5].payload["tool_name"], "echo")
+        self.assertEqual(events[5].payload["arguments"], {"value": "ping"})
         self.assertEqual(events[5].item_id, "tc1")
-        self.assertEqual(events[8].payload["status"], "success")
+        self.assertEqual(events[6].kind, "observation")
+        self.assertEqual(events[6].source, "tool")
+        self.assertEqual(events[6].payload["tool_name"], "echo")
+        self.assertEqual(events[6].item_id, "tc1")
+        self.assertEqual(events[9].payload["status"], "success")
 
     def test_runtime_injects_completed_background_task_before_model_call(self) -> None:
         manager = BackgroundTaskManager()
@@ -654,9 +655,11 @@ class AgentRuntimeTests(unittest.TestCase):
             ]
         )
         trace_store = InMemoryTraceStore()
+        observer = RecordingObserver()
         runtime = AgentRuntime(
             transport=transport,
             trace_store=trace_store,
+            event_subscribers=[observer],
             tool_registry=ToolRegistry(
                 definitions=[
                     ToolDefinition(
@@ -679,6 +682,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(trace.user_message, "hello")
         self.assertEqual(trace.final_response, "done")
         self.assertEqual(trace.status, "success")
+        self.assertEqual(trace.trace_id, observer.events[0].run_id)
         self.assertEqual(trace.total_iterations, 1)
         self.assertTrue(trace.trace_id)
         self.assertIsNotNone(trace.started_at)
@@ -746,6 +750,7 @@ class AgentRuntimeTests(unittest.TestCase):
             [
                 "runtime.started",
                 "user.message",
+                "runtime.context_ready",
                 "iteration.started",
                 "model.response",
                 "tool.call",
@@ -755,8 +760,8 @@ class AgentRuntimeTests(unittest.TestCase):
                 "runtime.completed",
             ],
         )
-        self.assertEqual(len(observer.events[3].metadata["tool_calls"]), 1)
-        self.assertEqual(observer.events[4].metadata["tool_name"], "echo")
+        self.assertEqual(len(observer.events[4].metadata["tool_calls"]), 1)
+        self.assertEqual(observer.events[5].metadata["tool_name"], "echo")
 
     def test_runtime_publishes_streamed_model_deltas(self) -> None:
         transport = StreamingFakeTransport(
