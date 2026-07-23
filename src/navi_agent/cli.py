@@ -342,7 +342,7 @@ def main() -> int:
         interaction_store=interaction_store,
     )
     if interactive_mode:
-        set_console_log_level("WARNING")
+        set_console_log_level("CRITICAL")
         return _run_interactive(
             app=app,
             user_id=args.user_id,
