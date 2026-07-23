@@ -18,6 +18,7 @@ class PendingInteraction:
     user_id: str
     kind: str
     prompt: str
+    run_id: str | None = None
     tool_name: str | None = None
     arguments: dict[str, Any] | None = None
     tool_call_id: str | None = None
@@ -39,6 +40,7 @@ class JsonPendingInteractionStore:
         user_id: str,
         kind: str,
         prompt: str,
+        run_id: str | None = None,
         tool_name: str | None = None,
         arguments: dict[str, Any] | None = None,
     ) -> PendingInteraction:
@@ -59,6 +61,7 @@ class JsonPendingInteractionStore:
                 user_id=user_id,
                 kind=kind,
                 prompt=prompt,
+                run_id=run_id,
                 tool_name=tool_name,
                 arguments=dict(arguments or {}) or None,
                 created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -148,6 +151,21 @@ class JsonPendingInteractionStore:
             if len(remaining) != len(items):
                 self._save(remaining)
 
+    def expire(self, session_id: str | None = None) -> list[PendingInteraction]:
+        with self._lock:
+            items = self._load_all()
+            cutoff = datetime.now(timezone.utc) - self._ttl
+            expired = [
+                item
+                for item in items
+                if _created_at(item) < cutoff
+                and (session_id is None or item.session_id == session_id)
+            ]
+            if expired:
+                expired_ids = {item.interaction_id for item in expired}
+                self._save([item for item in items if item.interaction_id not in expired_ids])
+            return expired
+
     def consume_approval(
         self,
         *,
@@ -211,6 +229,11 @@ class JsonPendingInteractionStore:
                 self._save(remaining)
 
     def _load_active(self) -> list[PendingInteraction]:
+        items = self._load_all()
+        cutoff = datetime.now(timezone.utc) - self._ttl
+        return [item for item in items if _created_at(item) >= cutoff]
+
+    def _load_all(self) -> list[PendingInteraction]:
         if not self._path.exists():
             return []
         try:
@@ -218,8 +241,7 @@ class JsonPendingInteractionStore:
             items = [PendingInteraction(**item) for item in payload if isinstance(item, dict)]
         except Exception:
             return []
-        cutoff = datetime.now(timezone.utc) - self._ttl
-        return [item for item in items if _created_at(item) >= cutoff]
+        return items
 
     def _save(self, items: list[PendingInteraction]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +277,7 @@ class DeferredApprovalProvider:
             user_id=context.user_id,
             kind="approval",
             prompt=prompt,
+            run_id=context.run_id,
             tool_name=request.tool_name,
             arguments=request.arguments,
         )

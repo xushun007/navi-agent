@@ -1,9 +1,13 @@
 import threading
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
+from threading import Event, Thread
+from uuid import uuid4
 
 from navi_agent.app import AppRequest, ApplicationService
+from navi_agent.events import RuntimeEvent
 from navi_agent.evolution import (
     EvolutionCandidate,
     EvalCase,
@@ -279,6 +283,98 @@ class FakeSkillReviewAgentService:
 
 
 class ApplicationServiceTests(unittest.TestCase):
+    def test_run_state_is_queryable_while_request_is_active(self) -> None:
+        started = Event()
+        release = Event()
+
+        class LifecycleRuntime(FakeRuntime):
+            def run_conversation(self, session_id, user_id, user_message, **kwargs):
+                subscribers = kwargs["event_subscribers"]
+                run_id = uuid4().hex
+                event = RuntimeEvent(
+                    session_id=session_id,
+                    user_id=user_id,
+                    run_id=run_id,
+                    sequence=1,
+                    kind="observation",
+                    source="runtime",
+                    name="runtime.started",
+                )
+                for subscriber in subscribers:
+                    subscriber.handle(event)
+                started.set()
+                release.wait(1)
+                completed = RuntimeEvent(
+                    session_id=session_id,
+                    user_id=user_id,
+                    run_id=run_id,
+                    sequence=2,
+                    kind="observation",
+                    source="runtime",
+                    name="runtime.completed",
+                    metadata={"status": "success"},
+                )
+                for subscriber in subscribers:
+                    subscriber.handle(completed)
+                return RuntimeResult(
+                    session_id=session_id,
+                    status="success",
+                    final_response="done",
+                )
+
+        service = ApplicationService(runtime=LifecycleRuntime())
+        worker = Thread(
+            target=lambda: service.handle(
+                AppRequest(session_id="s1", user_id="u1", message="hello")
+            )
+        )
+
+        worker.start()
+        self.assertTrue(started.wait(1))
+        self.assertEqual(service.get_run_state("s1").status, "running")
+        release.set()
+        worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(service.get_run_state("s1").status, "completed")
+
+    def test_expired_interaction_is_published_and_queryable(self) -> None:
+        class Subscriber:
+            def __init__(self) -> None:
+                self.events = []
+
+            def handle(self, event) -> None:
+                self.events.append(event)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            interaction_store = JsonPendingInteractionStore(
+                Path(tmpdir) / "pending.json",
+                ttl=timedelta(seconds=-1),
+            )
+            interaction_store.create(
+                session_id="s1",
+                user_id="u1",
+                kind="approval",
+                prompt="Approve?",
+                run_id="origin-run",
+            )
+            subscriber = Subscriber()
+            service = ApplicationService(
+                runtime=FakeRuntime(),
+                interaction_store=interaction_store,
+            )
+
+            service.handle(
+                AppRequest(session_id="s1", user_id="u1", message="hello"),
+                event_subscribers=[subscriber],
+            )
+
+        expired = next(
+            event for event in subscriber.events if event.name == "runtime.interaction_expired"
+        )
+        self.assertEqual(expired.metadata["origin_run_id"], "origin-run")
+        self.assertEqual(service.get_run_state("s1").status, "expired")
+
     def test_user_reply_resolves_pending_clarification_before_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             interaction_store = JsonPendingInteractionStore(Path(tmpdir) / "pending.json")
@@ -358,7 +454,7 @@ class ApplicationServiceTests(unittest.TestCase):
             event_subscribers=[subscriber],
         )
 
-        self.assertEqual(runtime.calls[0]["event_subscribers"], [subscriber])
+        self.assertIs(runtime.calls[0]["event_subscribers"][-1], subscriber)
 
     def test_get_latest_trace_delegates_to_runtime(self) -> None:
         runtime = FakeRuntime()

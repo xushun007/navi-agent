@@ -178,6 +178,14 @@ class AgentRuntime:
         self._background_task_manager.add_completion_listener(listener)
         return True
 
+    def publish_runtime_event(
+        self,
+        event: RuntimeEvent,
+        event_subscribers: Sequence[RuntimeEventSubscriber] | None = None,
+    ) -> None:
+        self._event_publisher.publish(event)
+        RuntimeEventPublisher(event_subscribers or ()).publish(event)
+
     def run_conversation(
         self,
         session_id: str,
@@ -482,6 +490,7 @@ class AgentRuntime:
                 session_id=session.session_id,
                 user_id=user_id,
                 iteration=0,
+                run_id=run_id,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
             )
             if resume_interaction.kind == "approval" and resume_interaction.status == "approved":
@@ -762,6 +771,7 @@ class AgentRuntime:
                 session_id=session.session_id,
                 user_id=user_id,
                 iteration=iteration_number,
+                run_id=run_id,
                 emit_output=emit_tool_output,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
             )

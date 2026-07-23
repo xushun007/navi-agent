@@ -190,6 +190,17 @@ class UiEventMapper:
                 item_id=event.item_id,
                 severity="info",
             )
+        if event.name == "runtime.interaction_expired":
+            return UiEvent(
+                event_id=event.event_id,
+                run_id=event.run_id,
+                sequence=event.sequence,
+                kind="runtime",
+                state="expired",
+                title="请求已过期",
+                item_id=event.item_id,
+                severity="info",
+            )
         if event.name == "runtime.completed" and event.metadata.get("status") != "success":
             if event.metadata.get("status") in {"cancelled", "awaiting_input"}:
                 return None

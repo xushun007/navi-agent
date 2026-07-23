@@ -11,6 +11,7 @@ class ToolContext:
     session_id: str
     user_id: str
     iteration: int
+    run_id: str | None = None
     emit_output: Callable[[dict[str, Any]], None] | None = None
     cancellation_requested: Callable[[], bool] | None = None
 

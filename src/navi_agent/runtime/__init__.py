@@ -34,6 +34,7 @@ from navi_agent.events import (
 from .prompt_builder import PromptBuilder
 from .request_scheduler import SessionTaskScheduler
 from .run_control import ActiveRunRegistry, RunCancellationToken
+from .run_state import RuntimeRunState, RunStateTracker
 from .interactions import DeferredApprovalProvider, JsonPendingInteractionStore, PendingInteraction
 from .session import InMemorySessionStore
 from .sqlite_session import SQLiteSessionStore
@@ -88,6 +89,8 @@ __all__ = [
     "RuntimeEventSubscriber",
     "RuntimeResult",
     "RunCancellationToken",
+    "RuntimeRunState",
+    "RunStateTracker",
     "SessionMetadata",
     "SessionSearchHit",
     "SessionTaskScheduler",

@@ -44,6 +44,7 @@ class AskUserTool(BaseTool):
             user_id=context.user_id,
             kind="clarification",
             prompt=question,
+            run_id=context.run_id,
         )
         return ToolResult.ok(
             name=self.name,
