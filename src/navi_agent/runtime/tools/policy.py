@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from navi_agent.bash_command import assess_bash_command
 from navi_agent.tooling import ToolContext, ToolDecision, ToolPolicy
 
 
@@ -59,3 +60,32 @@ class SensitiveToolPolicy:
             )
 
         return ToolDecision.allow()
+
+
+class BashCommandPolicy:
+    def __init__(self, fallback: ToolPolicy | None = None) -> None:
+        self._fallback = fallback or SensitiveToolPolicy()
+
+    def decide(
+        self,
+        tool_name: str,
+        arguments: dict,
+        context: ToolContext | None,
+    ) -> ToolDecision:
+        if tool_name != "bash":
+            return self._fallback.decide(tool_name, arguments, context)
+
+        assessment = assess_bash_command(
+            str(arguments.get("command") or ""),
+            background=arguments.get("background") is True,
+        )
+        metadata = {
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "risk_action": assessment.action,
+        }
+        if assessment.action == "allow":
+            return ToolDecision.allow()
+        if assessment.action == "deny":
+            return ToolDecision.deny(assessment.reason, metadata=metadata)
+        return ToolDecision.ask(assessment.reason, metadata=metadata)

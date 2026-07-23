@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from navi_agent.tooling import ToolContext, ToolResult
+from navi_agent.bash_command import assess_bash_command
 
 from .workspace_tool import WorkspaceTool
 
@@ -20,16 +21,24 @@ if TYPE_CHECKING:
 
 
 class BashTool(WorkspaceTool):
-    _DANGEROUS_COMMAND_REASONS = {
-        "sudo": "sudo commands require approval",
-        "shutdown": "shutdown commands are not allowed",
-        "reboot": "reboot commands are not allowed",
-        "halt": "halt commands are not allowed",
-        "poweroff": "poweroff commands are not allowed",
-        "mkfs": "filesystem formatting commands are not allowed",
-        "dd": "raw device write commands are not allowed",
+    _WORKSPACE_PATH_COMMANDS = {
+        "cat",
+        "cd",
+        "cp",
+        "find",
+        "git",
+        "grep",
+        "head",
+        "ls",
+        "mkdir",
+        "mv",
+        "rg",
+        "rm",
+        "stat",
+        "tail",
+        "touch",
+        "wc",
     }
-    _WORKSPACE_PATH_COMMANDS = {"cd", "ls", "cat", "touch", "mkdir", "rm", "mv", "cp"}
 
     def __init__(
         self,
@@ -333,25 +342,28 @@ class BashTool(WorkspaceTool):
         if not tokens:
             return ToolResult.error(name=self.name, content="Command must not be empty")
 
-        command_name = tokens[0]
-        dangerous_reason = self._DANGEROUS_COMMAND_REASONS.get(command_name)
-        if dangerous_reason is not None:
+        assessment = assess_bash_command(command)
+        if assessment.action == "deny":
             return ToolResult.error(
                 name=self.name,
-                content=dangerous_reason,
-                structured_content={"command": command, "command_name": command_name},
+                content=assessment.reason,
+                structured_content={"command": command, "command_name": tokens[0]},
             )
 
         if re.search(r"\brm\s+-[^\n]*r[^\n]*f[^\n]*\s+(/|~)\b", command):
             return ToolResult.error(
                 name=self.name,
                 content="Destructive root-level delete commands are not allowed",
-                structured_content={"command": command, "command_name": command_name},
+                structured_content={"command": command, "command_name": tokens[0]},
             )
 
-        if command_name in self._WORKSPACE_PATH_COMMANDS:
-            for token in tokens[1:]:
-                if token.startswith("-"):
+        commands = assessment.commands or (tuple(tokens),)
+        for words in commands:
+            command_name = words[0]
+            if command_name not in self._WORKSPACE_PATH_COMMANDS:
+                continue
+            for token in words[1:]:
+                if token.startswith("-") or token in {"!", "(", ")"}:
                     continue
                 try:
                     self._resolve_command_path(token, cwd)

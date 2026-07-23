@@ -40,7 +40,7 @@ from .sessions.memory import InMemorySessionStore
 from .sessions.sqlite import SQLiteSessionStore
 from .sessions.store import SessionStore
 from .tasks.subagents import SubagentRun, SubagentService, SubagentTask
-from .tools.policy import AllowAllToolPolicy
+from .tools.policy import AllowAllToolPolicy, BashCommandPolicy
 from .tools.executor import ToolExecutor
 from .tools.rendering import DefaultToolResultRenderer, ToolResultRenderer
 from .transports.factory import build_transport
@@ -63,6 +63,7 @@ __all__ = [
     "AutoApproveApprovalProvider",
     "BackgroundTask",
     "BackgroundTaskManager",
+    "BashCommandPolicy",
     "CliApprovalProvider",
     "ContextBuildResult",
     "ContextEngine",

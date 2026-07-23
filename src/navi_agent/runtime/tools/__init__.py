@@ -1,6 +1,6 @@
 from .approval import ApprovalDecision, ApprovalProvider, ApprovalRequest
 from .executor import ToolExecutor
-from .policy import AllowAllToolPolicy, SensitiveToolPolicy, StaticToolPolicy
+from .policy import AllowAllToolPolicy, BashCommandPolicy, SensitiveToolPolicy, StaticToolPolicy
 from .registry import ToolDefinition, ToolRegistry, ToolsetDefinition
 from .rendering import DefaultToolResultRenderer, ToolResultRenderer
 
@@ -9,6 +9,7 @@ __all__ = [
     "ApprovalDecision",
     "ApprovalProvider",
     "ApprovalRequest",
+    "BashCommandPolicy",
     "DefaultToolResultRenderer",
     "SensitiveToolPolicy",
     "StaticToolPolicy",
