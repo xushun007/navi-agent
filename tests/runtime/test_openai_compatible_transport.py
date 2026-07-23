@@ -2,6 +2,7 @@ import types
 import unittest
 
 from navi_agent.runtime import Message, ModelRequest, OpenAICompatibleTransport, ToolCall
+from navi_agent.runtime.run_control import RunCancelledError
 
 
 class FakeCompletions:
@@ -22,6 +23,46 @@ class FakeClient:
 
 
 class OpenAICompatibleTransportTests(unittest.TestCase):
+    def test_stream_closes_when_request_is_cancelled(self) -> None:
+        class CancellableStream:
+            def __init__(self) -> None:
+                self.closed = False
+                self._chunks = iter([object(), object()])
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return next(self._chunks)
+
+            def close(self) -> None:
+                self.closed = True
+
+        cancelled = False
+        stream = CancellableStream()
+        transport = OpenAICompatibleTransport(
+            model="model",
+            api_key="test",
+            client=FakeClient(stream),
+        )
+
+        def cancellation_requested() -> bool:
+            nonlocal cancelled
+            was_cancelled = cancelled
+            cancelled = True
+            return was_cancelled
+
+        with self.assertRaises(RunCancelledError):
+            transport.generate_stream(
+                ModelRequest(
+                    messages=[Message(role="user", content="hi")],
+                    cancellation_requested=cancellation_requested,
+                ),
+                lambda _delta: None,
+            )
+
+        self.assertTrue(stream.closed)
+
     def test_transport_streams_text_and_aggregates_response(self) -> None:
         chunks = [
             types.SimpleNamespace(

@@ -2,12 +2,45 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from threading import Event, Thread
 
 from navi_agent.runtime import BackgroundTaskManager, ToolContext
 from navi_agent.tools import BashTool
 
 
 class BashToolTests(unittest.TestCase):
+    def test_cancels_foreground_command(self) -> None:
+        cancelled = Event()
+        results = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir), default_timeout_seconds=10)
+            started = time.monotonic()
+            worker = Thread(
+                target=lambda: results.append(
+                    tool.invoke(
+                        context=ToolContext(
+                            session_id="s1",
+                            user_id="u1",
+                            iteration=1,
+                            cancellation_requested=cancelled.is_set,
+                        ),
+                        command="python -c 'import time; time.sleep(10)'",
+                    )
+                )
+            )
+
+            worker.start()
+            time.sleep(0.1)
+            cancelled.set()
+            worker.join(2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(results[0].status, "error")
+        self.assertEqual(results[0].content, "Command cancelled")
+        self.assertTrue(results[0].structured_content["cancelled"])
+        self.assertFalse(results[0].structured_content["timed_out"])
+
     def test_rejects_empty_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tool = BashTool(root=Path(tmpdir))

@@ -13,6 +13,7 @@ from openai import (
 from navi_agent.errors import RETRYABLE_HTTP_STATUSES, is_retryable_exception, retry_delay
 
 from ..models import Message, ModelResponse, ModelUsage, ToolCall
+from ..run_control import RunCancelledError
 from .base import ModelRequest
 
 logger = logging.getLogger("navi_agent.runtime.transport")
@@ -38,12 +39,14 @@ class OpenAICompatibleTransport:
     def generate(self, request: ModelRequest) -> ModelResponse:
         last_error: Exception | None = None
         for attempt in range(1, self._max_retries + 2):
+            self._raise_if_cancelled(request)
             try:
                 response = self._client.chat.completions.create(
                     model=self._model,
                     messages=[self._serialize_message(message) for message in request.messages],
                     tools=[self._serialize_tool(tool) for tool in request.tools] or None,
                 )
+                self._raise_if_cancelled(request)
                 return self._to_model_response(response)
             except Exception as exc:
                 last_error = exc
@@ -72,7 +75,9 @@ class OpenAICompatibleTransport:
     ) -> ModelResponse:
         last_error: Exception | None = None
         for attempt in range(1, self._max_retries + 2):
+            self._raise_if_cancelled(request)
             stream_started = False
+            stream = None
             try:
                 stream = self._client.chat.completions.create(
                     model=self._model,
@@ -88,6 +93,7 @@ class OpenAICompatibleTransport:
                 usage = ModelUsage()
 
                 for chunk in stream:
+                    self._raise_if_cancelled(request)
                     stream_started = True
                     model = str(getattr(chunk, "model", None) or model)
                     chunk_usage = getattr(chunk, "usage", None)
@@ -139,6 +145,11 @@ class OpenAICompatibleTransport:
                     model=model,
                     usage=usage,
                 )
+            except RunCancelledError:
+                close = getattr(stream, "close", None)
+                if callable(close):
+                    close()
+                raise
             except Exception as exc:
                 last_error = exc
                 if stream_started or attempt > self._max_retries or not _is_retryable_error(exc):
@@ -158,6 +169,11 @@ class OpenAICompatibleTransport:
         if last_error is not None:
             raise last_error
         raise RuntimeError("OpenAI streaming transport failed without raising an exception")
+
+    @staticmethod
+    def _raise_if_cancelled(request: ModelRequest) -> None:
+        if request.cancellation_requested is not None and request.cancellation_requested():
+            raise RunCancelledError("model request cancelled")
 
     def _to_model_response(self, response: Any) -> ModelResponse:
         choice = response.choices[0]
