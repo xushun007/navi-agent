@@ -107,6 +107,19 @@ def test_interactive_input_height_starts_single_line_and_is_bounded() -> None:
     assert INPUT_MAX_HEIGHT == 6
 
 
+def test_streamed_response_height_accounts_for_wrapping() -> None:
+    session = InteractivePromptSession()
+    session._response_text = "x" * 120
+
+    with patch(
+        "navi_agent.cli_input.shutil.get_terminal_size",
+        return_value=SimpleNamespace(columns=40),
+    ):
+        height = session._response_height()
+
+    assert height == 3
+
+
 def test_placeholder_does_not_move_cursor_after_placeholder_text() -> None:
     text_area = SimpleNamespace(text="")
     processor = PromptPlaceholderProcessor(text_area, "Message Navi Agent")
