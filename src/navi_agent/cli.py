@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from threading import Lock, Thread
 from time import sleep
 from uuid import uuid4
 
@@ -328,12 +329,19 @@ def main() -> int:
             return 1
         print(f"rolled back prompt overlay to {args.rollback_prompt_overlay}")
         return 0
+    interactive_mode = args.interactive or not args.message
+    interaction_store = None
+    approval_provider = _build_approval_provider(args)
+    if interactive_mode and not getattr(args, "yolo", False):
+        interaction_store = JsonPendingInteractionStore(get_pending_interactions_path())
+        approval_provider = DeferredApprovalProvider(interaction_store)
     app = build_application(
         default_system_prompt=args.system_prompt,
-        approval_provider=_build_approval_provider(args),
+        approval_provider=approval_provider,
         additional_workspace_roots=args.add_dir,
+        interaction_store=interaction_store,
     )
-    if args.interactive or not args.message:
+    if interactive_mode:
         set_console_log_level("WARNING")
         return _run_interactive(
             app=app,
@@ -1668,6 +1676,15 @@ def _run_interactive(
 
     pending_message = first_message
     prompt_session = _build_interactive_prompt_session()
+    if prompt_session is not None:
+        return _run_persistent_interactive(
+            app=app,
+            prompt_session=prompt_session,
+            user_id=user_id,
+            session_id=session_id,
+            system_prompt=system_prompt,
+            first_message=first_message,
+        )
     ui_sink = ConsoleUiEventSink()
     ui_emitter = UiEventEmitter(ui_sink)
     while True:
@@ -1698,6 +1715,120 @@ def _run_interactive(
             ui_sink.finish()
         if not ui_sink.rendered_response(result.final_response):
             print(result.final_response)
+
+
+def _run_persistent_interactive(
+    *,
+    app,
+    prompt_session: InteractivePromptSession,
+    user_id: str,
+    session_id: str,
+    system_prompt: str | None,
+    first_message: str | None,
+) -> int:
+    state_lock = Lock()
+    active = False
+    pending_message: str | None = None
+    exit_when_idle = False
+
+    def start_run(message: str) -> None:
+        nonlocal active
+        with state_lock:
+            if active:
+                return
+            active = True
+        prompt_session.set_busy(True)
+
+        def execute() -> None:
+            nonlocal active, pending_message, exit_when_idle
+            try:
+                result = app.handle(
+                    AppRequest(
+                        user_id=user_id,
+                        session_id=session_id,
+                        message=message,
+                        system_prompt=system_prompt,
+                    ),
+                    event_subscribers=[UiEventEmitter(prompt_session)],
+                )
+                prompt_session.complete_response(result.final_response)
+            except Exception as exc:
+                prompt_session.complete_response(f"Task failed: {exc}")
+
+            with state_lock:
+                active = False
+                next_message = pending_message
+                pending_message = None
+                should_exit = exit_when_idle and next_message is None
+            if next_message is not None:
+                start_run(next_message)
+            elif should_exit:
+                _drain_background_reviews(app)
+                prompt_session.exit()
+
+        Thread(target=execute, daemon=True, name="navi-interactive-runtime").start()
+
+    def submit(message: str) -> None:
+        nonlocal pending_message, exit_when_idle
+        command, separator, argument = message.strip().partition(" ")
+        if command in {"exit", "quit"}:
+            with state_lock:
+                running = active
+                exit_when_idle = running
+            if running:
+                app.cancel_session(session_id, reason="user_exit")
+                prompt_session.show_notice("Stopping current task before exit…")
+            else:
+                _drain_background_reviews(app)
+                prompt_session.exit()
+            return
+        if command == "/stop":
+            cancelled = app.cancel_session(session_id, reason="user_stop")
+            if not cancelled:
+                interaction = app.resolve_interaction(session_id, approved=False)
+                prompt_session.show_notice(
+                    "Cancelled pending request."
+                    if interaction is not None
+                    else "No active task."
+                )
+            else:
+                prompt_session.show_notice("Stopping current task…")
+            return
+        if command in {"/approve", "/deny"}:
+            approved = command == "/approve"
+            interaction = app.resolve_interaction(session_id, approved=approved)
+            if interaction is None or interaction.kind != "approval":
+                prompt_session.show_notice("No approval request is waiting.")
+                return
+            action = "approved" if approved else "denied"
+            instruction = (
+                f"The user {action} the tool {interaction.tool_name}. "
+                + (
+                    "Retry it with exactly the same arguments."
+                    if approved
+                    else "Do not execute it and continue responding."
+                )
+            )
+            start_run(instruction)
+            return
+        if command == "/steer":
+            if not separator or not argument.strip():
+                prompt_session.show_notice("Usage: /steer <message>")
+                return
+            message = argument.strip()
+
+        with state_lock:
+            running = active
+            if running:
+                pending_message = message
+        if running:
+            app.cancel_session(session_id, reason="user_steer")
+            prompt_session.show_notice("Steering current task…")
+            return
+        start_run(message)
+
+    prompt_session.run(submit, first_message=first_message)
+    return 0
 
 
 def _build_interactive_prompt_session():
