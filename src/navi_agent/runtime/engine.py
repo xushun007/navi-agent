@@ -15,7 +15,7 @@ from .context_engine import ContextBuildResult, ContextEngine, LLMContextSummari
 from .interactions import PendingInteraction
 from .models import Message, RuntimeResult, SessionMetadata, ToolCall
 from .prompt_builder import PromptBuilder
-from .run_control import RunCancellationToken
+from .run_control import RunCancellationToken, RunCancelledError
 from .session import InMemorySessionStore
 from .store import SessionStore
 from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
@@ -482,6 +482,7 @@ class AgentRuntime:
                 session_id=session.session_id,
                 user_id=user_id,
                 iteration=0,
+                cancellation_requested=lambda: cancellation_token.is_cancelled,
             )
             if resume_interaction.kind == "approval" and resume_interaction.status == "approved":
                 resumed_result = self._tool_registry.dispatch_approved(
@@ -594,6 +595,7 @@ class AgentRuntime:
                         enabled_toolsets=self._enabled_toolsets,
                         disabled_toolsets=self._disabled_toolsets,
                     ),
+                    cancellation_requested=lambda: cancellation_token.is_cancelled,
                 )
                 generate_stream = getattr(self._transport, "generate_stream", None)
                 if callable(generate_stream):
@@ -610,6 +612,8 @@ class AgentRuntime:
                     response = generate_stream(model_request, publish_text_delta)
                 else:
                     response = self._transport.generate(model_request)
+            except RunCancelledError:
+                return finish_cancelled(iteration_number)
             except Exception as exc:
                 error_info = classify_exception(exc, error_source="model").to_metadata()
                 logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)
@@ -759,6 +763,7 @@ class AgentRuntime:
                 user_id=user_id,
                 iteration=iteration_number,
                 emit_output=emit_tool_output,
+                cancellation_requested=lambda: cancellation_token.is_cancelled,
             )
             for tool_call in response.tool_calls:
                 publish_event(

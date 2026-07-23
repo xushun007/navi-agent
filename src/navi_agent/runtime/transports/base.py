@@ -10,6 +10,7 @@ from ..models import Message, ModelResponse
 class ModelRequest:
     messages: list[Message]
     tools: list[dict[str, Any]] = field(default_factory=list)
+    cancellation_requested: Callable[[], bool] | None = None
 
 
 class ModelTransport(Protocol):

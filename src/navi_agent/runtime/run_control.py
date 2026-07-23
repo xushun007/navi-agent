@@ -3,6 +3,10 @@ from __future__ import annotations
 from threading import Event, Lock
 
 
+class RunCancelledError(Exception):
+    """Raised when active runtime work observes a cancellation request."""
+
+
 class RunCancellationToken:
     def __init__(self) -> None:
         self._cancelled = Event()

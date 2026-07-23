@@ -12,6 +12,7 @@ class ToolContext:
     user_id: str
     iteration: int
     emit_output: Callable[[dict[str, Any]], None] | None = None
+    cancellation_requested: Callable[[], bool] | None = None
 
 
 @dataclass(slots=True)

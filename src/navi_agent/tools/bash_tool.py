@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import re
 import shlex
+import signal
 import subprocess
 import threading
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -103,6 +106,7 @@ class BashTool(WorkspaceTool):
                         cwd=cwd,
                         timeout_seconds=timeout_seconds,
                         emit_output=None,
+                        cancellation_requested=None,
                     ),
                 )
             except RuntimeError as exc:
@@ -128,11 +132,25 @@ class BashTool(WorkspaceTool):
             cwd=cwd,
             timeout_seconds=timeout_seconds,
             emit_output=context.emit_output if context is not None else None,
+            cancellation_requested=(
+                context.cancellation_requested if context is not None else None
+            ),
         )
 
-    def _execute(self, *, command: str, cwd, timeout_seconds: int, emit_output) -> ToolResult:
+    def _execute(
+        self,
+        *,
+        command: str,
+        cwd,
+        timeout_seconds: int,
+        emit_output,
+        cancellation_requested,
+    ) -> ToolResult:
         stdout_chunks: list[str] = []
         stderr_chunks: list[str] = []
+
+        if cancellation_requested is not None and cancellation_requested():
+            return self._cancelled_result(command, cwd, timeout_seconds, "", "", emit_output)
 
         try:
             process = subprocess.Popen(
@@ -143,6 +161,7 @@ class BashTool(WorkspaceTool):
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
+                start_new_session=True,
             )
             stdout_thread = threading.Thread(
                 target=self._consume_stream,
@@ -156,11 +175,27 @@ class BashTool(WorkspaceTool):
             )
             stdout_thread.start()
             stderr_thread.start()
-            process.wait(timeout=timeout_seconds)
+            deadline = time.monotonic() + timeout_seconds
+            while process.poll() is None:
+                if cancellation_requested is not None and cancellation_requested():
+                    self._terminate_process(process)
+                    stdout_thread.join()
+                    stderr_thread.join()
+                    return self._cancelled_result(
+                        command,
+                        cwd,
+                        timeout_seconds,
+                        "".join(stdout_chunks).strip(),
+                        "".join(stderr_chunks).strip(),
+                        emit_output,
+                    )
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(command, timeout_seconds)
+                time.sleep(0.05)
             stdout_thread.join()
             stderr_thread.join()
         except subprocess.TimeoutExpired:
-            process.kill()
+            self._terminate_process(process)
             stdout_thread.join()
             stderr_thread.join()
             stdout = "".join(stdout_chunks).strip()
@@ -213,6 +248,47 @@ class BashTool(WorkspaceTool):
             },
             metadata={"cwd": str(cwd), "timeout_seconds": timeout_seconds, "command": command},
         )
+
+    def _cancelled_result(
+        self,
+        command: str,
+        cwd,
+        timeout_seconds: int,
+        stdout: str,
+        stderr: str,
+        emit_output,
+    ) -> ToolResult:
+        return ToolResult.error(
+            name=self.name,
+            content="Command cancelled",
+            structured_content={
+                "exit_code": None,
+                "stdout": stdout,
+                "stderr": stderr,
+                "cancelled": True,
+                "timed_out": False,
+                "command": command,
+                "streaming": emit_output is not None,
+            },
+            metadata={"cwd": str(cwd), "timeout_seconds": timeout_seconds, "command": command},
+        )
+
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            process.terminate()
+        try:
+            process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                process.kill()
+            process.wait()
 
     def _consume_stream(
         self,

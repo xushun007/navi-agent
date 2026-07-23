@@ -30,6 +30,7 @@ from navi_agent.runtime import (
     ToolsetDefinition,
 )
 from navi_agent.runtime.tool_policy import SensitiveToolPolicy
+from navi_agent.runtime.run_control import RunCancelledError
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
 from navi_agent.tools import BashTool, MemoryTool
 from navi_agent.telemetry import InMemoryRuntimeEventStore, InMemoryTraceStore
@@ -124,6 +125,50 @@ def ok_result(name: str, content: str, **kwargs) -> ToolResult:
 
 
 class AgentRuntimeTests(unittest.TestCase):
+    def test_runtime_interrupts_streaming_model_when_cancelled(self) -> None:
+        started = Event()
+
+        class CancellableStreamingTransport:
+            def generate(self, request: ModelRequest):
+                raise AssertionError("generate must not be used")
+
+            def generate_stream(self, request: ModelRequest, on_text_delta):
+                started.set()
+                while not request.cancellation_requested():
+                    time.sleep(0.01)
+                raise RunCancelledError("cancelled")
+
+        observer = RecordingObserver()
+        token = RunCancellationToken()
+        runtime = AgentRuntime(
+            transport=CancellableStreamingTransport(),
+            event_subscribers=[observer],
+        )
+        results = []
+        worker = Thread(
+            target=lambda: results.append(
+                runtime.run_conversation(
+                    session_id="s1",
+                    user_id="u1",
+                    user_message="long task",
+                    cancellation_token=token,
+                )
+            )
+        )
+
+        worker.start()
+        self.assertTrue(started.wait(1))
+        self.assertTrue(token.cancel("user_stop"))
+        worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(results[0].status, "cancelled")
+        self.assertNotIn("model.failed", [event.name for event in observer.events])
+        self.assertEqual(
+            [event.name for event in observer.events[-2:]],
+            ["runtime.cancelled", "runtime.completed"],
+        )
+
     def test_runtime_discards_model_response_when_run_is_cancelled(self) -> None:
         started = Event()
         release = Event()
