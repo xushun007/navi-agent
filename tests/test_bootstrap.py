@@ -58,7 +58,7 @@ class BootstrapTests(unittest.TestCase):
         setup_logging_mock.assert_called_once()
         build_registry_mock.assert_called_once()
 
-    def test_build_runtime_uses_default_sensitive_tool_policy(self) -> None:
+    def test_build_runtime_auto_approves_read_only_bash(self) -> None:
         runtime_settings = RuntimeSettings(max_iterations=3)
 
         with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
@@ -73,9 +73,8 @@ class BootstrapTests(unittest.TestCase):
             context=ToolContext(session_id="s1", user_id="u1", iteration=1),
         )
 
-        self.assertEqual(result[0].status, "error")
-        self.assertIn("approval", result[0].content)
-        self.assertTrue(result[0].structured_content["approval_required"])
+        self.assertEqual(result[0].status, "success")
+        self.assertIn("exit_code: 0", result[0].content)
 
     def test_build_runtime_passes_approval_provider_to_default_registry(self) -> None:
         provider = AutoApproveApprovalProvider()

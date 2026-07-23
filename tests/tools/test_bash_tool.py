@@ -139,7 +139,23 @@ class BashToolTests(unittest.TestCase):
             result = tool.invoke(command="sudo ls")
 
         self.assertEqual(result.status, "error")
-        self.assertIn("require approval", result.content)
+        self.assertIn("not allowed", result.content)
+
+    def test_rejects_read_only_command_path_outside_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir))
+            result = tool.invoke(command="find .. -type f | wc -l")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("outside workspace", result.content)
+
+    def test_rejects_git_path_outside_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir))
+            result = tool.invoke(command="git diff --no-index /dev/null /etc/passwd")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("outside workspace", result.content)
 
     def test_rejects_command_paths_outside_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

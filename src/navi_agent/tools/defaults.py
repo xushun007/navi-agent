@@ -14,7 +14,7 @@ from navi_agent.runtime import (
 )
 from navi_agent.runtime.tasks.cron import CronJobStore
 from navi_agent.runtime.tools.approval import ApprovalProvider
-from navi_agent.runtime.tools.policy import SensitiveToolPolicy
+from navi_agent.runtime.tools.policy import BashCommandPolicy, SensitiveToolPolicy
 
 from .bash_tool import BashTool
 from .ask_user_tool import AskUserTool
@@ -122,12 +122,13 @@ def build_default_tool_registry(
             ),
         ],
         approval_provider=approval_provider,
-        policy=SensitiveToolPolicy(
-            approval_required_tools={
-                "bash": "bash requires approval",
-                "code_executor": "code_executor requires approval",
-                "write_file": "write_file requires approval",
-                "patch": "patch requires approval",
-            }
+        policy=BashCommandPolicy(
+            fallback=SensitiveToolPolicy(
+                approval_required_tools={
+                    "code_executor": "code_executor requires approval",
+                    "write_file": "write_file requires approval",
+                    "patch": "patch requires approval",
+                }
+            )
         ),
     )
