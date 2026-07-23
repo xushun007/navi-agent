@@ -30,3 +30,13 @@ def setup_logging(level: str = "INFO", log_path: str | Path | None = None) -> lo
         logger.addHandler(file_handler)
 
     return logger
+
+
+def set_console_log_level(level: str) -> None:
+    resolved_level = getattr(logging, level.upper(), logging.WARNING)
+    logger = logging.getLogger("navi_agent")
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            continue
+        if isinstance(handler, logging.StreamHandler):
+            handler.setLevel(resolved_level)

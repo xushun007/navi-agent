@@ -47,6 +47,7 @@ from navi_agent.gateway.weixin import (
     ILinkGateway,
     WeixinPairingStore,
 )
+from navi_agent.logging import set_console_log_level
 from navi_agent.paths import get_evolution_reports_dir
 from navi_agent.paths import get_eval_seed_reports_dir
 from navi_agent.paths import get_eval_seed_path
@@ -333,6 +334,7 @@ def main() -> int:
         additional_workspace_roots=args.add_dir,
     )
     if args.interactive or not args.message:
+        set_console_log_level("WARNING")
         return _run_interactive(
             app=app,
             user_id=args.user_id,
