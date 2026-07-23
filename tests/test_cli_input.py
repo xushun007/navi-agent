@@ -102,6 +102,22 @@ def test_persistent_interactive_state_tracks_runtime_events() -> None:
     assert session._render_response() == [("class:response", "hello")]
 
 
+def test_commit_history_does_not_reschedule_run_in_terminal_future() -> None:
+    application = SimpleNamespace(
+        loop=SimpleNamespace(is_running=lambda: False),
+        create_background_task=lambda _future: (_ for _ in ()).throw(
+            AssertionError("future must not be scheduled twice")
+        ),
+    )
+    session = InteractivePromptSession()
+    session._application = application
+
+    with patch("prompt_toolkit.application.run_in_terminal") as run_in_terminal:
+        session.commit_history("done")
+
+    run_in_terminal.assert_called_once()
+
+
 def test_interactive_input_height_starts_single_line_and_is_bounded() -> None:
     assert INPUT_MIN_HEIGHT == 1
     assert INPUT_MAX_HEIGHT == 6

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import shutil
 from threading import Lock
 from typing import Any
@@ -315,9 +314,7 @@ class InteractivePromptSession:
             from prompt_toolkit import print_formatted_text
             from prompt_toolkit.application import run_in_terminal
 
-            result = run_in_terminal(lambda: print_formatted_text(text))
-            if inspect.isawaitable(result):
-                application.create_background_task(result)
+            run_in_terminal(lambda: print_formatted_text(text))
 
         loop = getattr(application, "loop", None)
         if loop is not None and loop.is_running():
