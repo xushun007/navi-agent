@@ -123,6 +123,18 @@ def test_maps_runtime_waiting_without_treating_it_as_failure() -> None:
     assert completed is None
 
 
+def test_maps_expired_interaction_as_runtime_information() -> None:
+    ui_event = UiEventMapper().map(
+        _event("runtime.interaction_expired", {"interaction_id": "i1"}, item_id="i1")
+    )
+
+    assert ui_event is not None
+    assert ui_event.kind == "runtime"
+    assert ui_event.state == "expired"
+    assert ui_event.title == "请求已过期"
+    assert ui_event.severity == "info"
+
+
 def test_maps_tool_progress_without_exposing_secrets() -> None:
     ui_event = UiEventMapper().map(
         _event(

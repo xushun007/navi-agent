@@ -14,7 +14,7 @@ def test_ask_user_creates_persisted_clarification() -> None:
         tool = AskUserTool(store)
 
         result = tool.invoke(
-            context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+            context=ToolContext(session_id="s1", user_id="u1", iteration=1, run_id="r1"),
             question="Which environment?",
         )
         pending = store.get_pending("s1")
@@ -24,3 +24,4 @@ def test_ask_user_creates_persisted_clarification() -> None:
     assert pending is not None
     assert pending.kind == "clarification"
     assert pending.prompt == "Which environment?"
+    assert pending.run_id == "r1"

@@ -28,7 +28,7 @@ from navi_agent.evolution import (
     ReviewTriggerPolicy,
 )
 from navi_agent.memory import MemoryStore
-from navi_agent.events import RuntimeEventSubscriber
+from navi_agent.events import RuntimeEvent, RuntimeEventPublisher, RuntimeEventSubscriber
 from navi_agent.runtime import (
     ActiveRunRegistry,
     AgentRuntime,
@@ -36,6 +36,8 @@ from navi_agent.runtime import (
     JsonPendingInteractionStore,
     PendingInteraction,
     RuntimeResult,
+    RuntimeRunState,
+    RunStateTracker,
 )
 from navi_agent.telemetry import RuntimeTrace
 
@@ -78,6 +80,7 @@ class ApplicationService:
     ) -> None:
         self._runtime = runtime
         self._active_runs = ActiveRunRegistry()
+        self._run_states = RunStateTracker()
         self._default_system_prompt = default_system_prompt
         self._candidate_store = candidate_store
         self._eval_case_store = eval_case_store
@@ -112,6 +115,10 @@ class ApplicationService:
 
         resume_interaction = None
         if self._interaction_store is not None:
+            self._publish_expired_interactions(
+                session_id=session_id,
+                event_subscribers=event_subscribers,
+            )
             pending = self._interaction_store.get_pending(session_id)
             if pending is not None and pending.kind == "clarification":
                 self._interaction_store.resolve_clarification(
@@ -129,7 +136,7 @@ class ApplicationService:
                 user_message=request.message,
                 system_prompt=system_prompt,
                 source=request.source,
-                event_subscribers=event_subscribers,
+                event_subscribers=[self._run_states, *(event_subscribers or [])],
                 cancellation_token=cancellation_token,
                 resume_interaction=resume_interaction,
             )
@@ -152,6 +159,9 @@ class ApplicationService:
     def cancel_session(self, session_id: str, *, reason: str = "user_requested") -> bool:
         return self._active_runs.cancel(session_id, reason)
 
+    def get_run_state(self, session_id: str) -> RuntimeRunState | None:
+        return self._run_states.get(session_id)
+
     def resolve_interaction(
         self,
         session_id: str,
@@ -160,7 +170,41 @@ class ApplicationService:
     ) -> PendingInteraction | None:
         if self._interaction_store is None:
             return None
+        self._publish_expired_interactions(session_id=session_id)
         return self._interaction_store.resolve(session_id, approved=approved)
+
+    def _publish_expired_interactions(
+        self,
+        *,
+        session_id: str,
+        event_subscribers: list[RuntimeEventSubscriber] | None = None,
+    ) -> None:
+        if self._interaction_store is None:
+            return
+        subscribers = [self._run_states, *(event_subscribers or [])]
+        for interaction in self._interaction_store.expire(session_id):
+            event = RuntimeEvent(
+                session_id=interaction.session_id,
+                user_id=interaction.user_id,
+                run_id=f"interaction:{interaction.interaction_id}",
+                sequence=1,
+                kind="observation",
+                source="runtime",
+                name="runtime.interaction_expired",
+                item_id=interaction.interaction_id,
+                metadata={
+                    "status": "expired",
+                    "interaction_id": interaction.interaction_id,
+                    "interaction_kind": interaction.kind,
+                    "origin_run_id": interaction.run_id,
+                    "reason": "interaction_ttl_elapsed",
+                },
+            )
+            publish = getattr(self._runtime, "publish_runtime_event", None)
+            if callable(publish):
+                publish(event, subscribers)
+            else:
+                RuntimeEventPublisher(subscribers).publish(event)
 
     def _attach_pending_tool_call(self, result: RuntimeResult) -> None:
         if self._interaction_store is None:

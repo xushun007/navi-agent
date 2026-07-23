@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 
 from navi_agent.runtime import DeferredApprovalProvider, JsonPendingInteractionStore
@@ -10,6 +11,25 @@ from navi_agent.tooling import ToolContext
 
 
 class JsonPendingInteractionStoreTests(unittest.TestCase):
+    def test_expire_returns_and_removes_stale_interactions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = JsonPendingInteractionStore(
+                Path(tmpdir) / "pending.json",
+                ttl=timedelta(seconds=-1),
+            )
+            created = store.create(
+                session_id="s1",
+                user_id="u1",
+                kind="clarification",
+                prompt="Which environment?",
+                run_id="run-1",
+            )
+
+            expired = store.expire("s1")
+
+            self.assertEqual(expired, [created])
+            self.assertIsNone(store.get_pending("s1"))
+
     def test_pending_interaction_survives_store_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "pending.json"
