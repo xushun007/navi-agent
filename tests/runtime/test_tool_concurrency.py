@@ -5,8 +5,8 @@ from time import sleep
 import unittest
 
 from navi_agent.runtime import ToolCall, ToolDefinition, ToolRegistry, ToolResult
-from navi_agent.runtime.approval import ApprovalDecision
-from navi_agent.runtime.tool_policy import SensitiveToolPolicy
+from navi_agent.runtime.tools.approval import ApprovalDecision
+from navi_agent.runtime.tools.policy import SensitiveToolPolicy
 
 
 def _ok(name: str, content: str) -> ToolResult:

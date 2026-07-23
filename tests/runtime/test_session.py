@@ -1,7 +1,7 @@
 import unittest
 
 from navi_agent.runtime.models import Message
-from navi_agent.runtime.session import InMemorySessionStore
+from navi_agent.runtime.sessions.memory import InMemorySessionStore
 
 
 class InMemorySessionStoreTest(unittest.TestCase):

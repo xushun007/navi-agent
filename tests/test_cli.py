@@ -15,7 +15,7 @@ from navi_agent.evolution import (
     SkillUsageRecord,
 )
 from navi_agent.evolution import EvalSeedStore
-from navi_agent.cli import (
+from navi_agent.cli.main import (
     _read_interactive_message,
     _run_interactive,
     _run_persistent_interactive,
@@ -30,8 +30,8 @@ from navi_agent.runtime import (
     RuntimeResult,
     WorkspaceYoloApprovalProvider,
 )
-from navi_agent.scheduler import CronRunRecord
-from navi_agent.smoke import SmokeCheckResult, SmokeRunSummary
+from navi_agent.runtime.tasks.cron import CronRunRecord
+from navi_agent.evolution.evals.smoke import SmokeCheckResult, SmokeRunSummary
 
 
 class FakeApp:
@@ -320,7 +320,7 @@ class CliTests(unittest.TestCase):
         fake_app = FakeApp()
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application_mock:
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app) as build_application_mock:
             with patch("sys.argv", ["navi-agent", "--user-id", "u1", "hello"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -338,7 +338,7 @@ class CliTests(unittest.TestCase):
     def test_main_passes_added_directories_to_application(self) -> None:
         fake_app = FakeApp()
         with tempfile.TemporaryDirectory() as added_dir:
-            with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application_mock:
+            with patch("navi_agent.cli.main.build_application", return_value=fake_app) as build_application_mock:
                 with patch("sys.argv", ["navi-agent", "--add-dir", added_dir, "hello"]):
                     exit_code = main()
 
@@ -350,7 +350,7 @@ class CliTests(unittest.TestCase):
         fake_app = FakeApp()
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application_mock:
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app) as build_application_mock:
             with patch("sys.argv", ["navi-agent", "--yolo", "hello"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -363,7 +363,7 @@ class CliTests(unittest.TestCase):
         fake_app = FakeApp()
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
             with patch("builtins.input", side_effect=EOFError):
                 with patch("sys.argv", ["navi-agent"]):
                     with redirect_stdout(stdout):
@@ -376,7 +376,7 @@ class CliTests(unittest.TestCase):
     def test_main_interactive_uses_deferred_approval_provider(self) -> None:
         fake_app = FakeApp()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application:
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app) as build_application:
             with patch("builtins.input", side_effect=EOFError):
                 with patch("sys.argv", ["navi-agent"]):
                     main()
@@ -394,9 +394,9 @@ class CliTests(unittest.TestCase):
                 Message(role="assistant", content="summary output"),
             ]
 
-            with patch("navi_agent.cli.get_state_db_path", return_value=Path(tmpdir) / "state.db"):
-                with patch("navi_agent.cli.get_ifeval_drafts_path", return_value=draft_path):
-                    with patch("navi_agent.cli.SQLiteSessionStore", return_value=FakeSessionStore(messages)):
+            with patch("navi_agent.cli.main.get_state_db_path", return_value=Path(tmpdir) / "state.db"):
+                with patch("navi_agent.cli.main.get_ifeval_drafts_path", return_value=draft_path):
+                    with patch("navi_agent.cli.main.SQLiteSessionStore", return_value=FakeSessionStore(messages)):
                         with patch(
                             "sys.argv",
                             [
@@ -425,7 +425,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(draft_seed.kwargs, [{"foo": "bar"}])
 
     def test_main_runs_doctor_mode(self) -> None:
-        with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:
+        with patch("navi_agent.cli.main.run_doctor", return_value=0) as run_doctor_mock:
             with patch("sys.argv", ["navi-agent", "--doctor"]):
                 exit_code = main()
 
@@ -433,7 +433,7 @@ class CliTests(unittest.TestCase):
         run_doctor_mock.assert_called_once_with(gateway=None)
 
     def test_main_runs_doctor_command(self) -> None:
-        with patch("navi_agent.cli.run_doctor", return_value=0) as run_doctor_mock:
+        with patch("navi_agent.cli.main.run_doctor", return_value=0) as run_doctor_mock:
             with patch("sys.argv", ["navi-agent", "doctor", "--doctor-gateway", "weixin"]):
                 exit_code = main()
 
@@ -481,9 +481,9 @@ class CliTests(unittest.TestCase):
         }
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.load_config", return_value=config):
-                with patch("navi_agent.cli.ILinkGateway") as gateway_cls:
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.main.load_config", return_value=config):
+                with patch("navi_agent.cli.main.ILinkGateway") as gateway_cls:
                     with patch("sys.argv", ["navi-agent", "gateway", "start"]):
                         with redirect_stdout(stdout):
                             exit_code = main()
@@ -496,8 +496,8 @@ class CliTests(unittest.TestCase):
         fake_app = FakeApp()
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app) as build_app_mock:
-            with patch("navi_agent.cli.CronSchedulerService") as scheduler_cls:
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app) as build_app_mock:
+            with patch("navi_agent.cli.main.CronSchedulerService") as scheduler_cls:
                 scheduler_cls.return_value.run_due.return_value = [
                     CronRunRecord(
                         job_id="job-1",
@@ -507,8 +507,8 @@ class CliTests(unittest.TestCase):
                         ran_at="2026-07-21T09:00:00+00:00",
                     )
                 ]
-                with patch("navi_agent.cli.get_cron_jobs_path", return_value=Path("/tmp/jobs.json")):
-                    with patch("navi_agent.cli.get_cron_tick_lock_path", return_value=Path("/tmp/.tick.lock")):
+                with patch("navi_agent.cli.main.get_cron_jobs_path", return_value=Path("/tmp/jobs.json")):
+                    with patch("navi_agent.cli.main.get_cron_tick_lock_path", return_value=Path("/tmp/.tick.lock")):
                         with patch("sys.argv", ["navi-agent", "cron", "run"]):
                             with redirect_stdout(stdout):
                                 exit_code = main()
@@ -537,7 +537,7 @@ class CliTests(unittest.TestCase):
     def test_main_requires_weixin_token_for_gateway_mode(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.load_config", return_value={}):
+        with patch("navi_agent.cli.main.load_config", return_value={}):
             with patch("sys.argv", ["navi-agent", "--gateway", "weixin"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -560,9 +560,9 @@ class CliTests(unittest.TestCase):
             }
         }
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.load_config", return_value=config):
-                with patch("navi_agent.cli.ILinkGateway") as gateway_cls:
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.main.load_config", return_value=config):
+                with patch("navi_agent.cli.main.ILinkGateway") as gateway_cls:
                     with patch("sys.argv", ["navi-agent", "--gateway", "weixin"]):
                         with redirect_stdout(stdout):
                             exit_code = main()
@@ -575,7 +575,7 @@ class CliTests(unittest.TestCase):
         stdout = io.StringIO()
 
         with patch(
-            "navi_agent.cli.load_config",
+            "navi_agent.cli.main.load_config",
             return_value={"gateway": {"weixin": {"mode": "ilink", "token": "token"}}},
         ):
             with patch(
@@ -602,7 +602,7 @@ class CliTests(unittest.TestCase):
             },
         )()
 
-        with patch("navi_agent.cli.WeixinPairingStore", return_value=fake_store):
+        with patch("navi_agent.cli.main.WeixinPairingStore", return_value=fake_store):
             with patch("sys.argv", ["navi-agent", "--gateway-pairings", "weixin"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -616,7 +616,7 @@ class CliTests(unittest.TestCase):
         stdout = io.StringIO()
         fake_store = type("Store", (), {"approve": lambda self, code: "user-1"})()
 
-        with patch("navi_agent.cli.WeixinPairingStore", return_value=fake_store):
+        with patch("navi_agent.cli.main.WeixinPairingStore", return_value=fake_store):
             with patch("sys.argv", ["navi-agent", "--approve-gateway-pairing", "123456"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -658,8 +658,8 @@ class CliTests(unittest.TestCase):
             },
         )()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
-            with patch("navi_agent.cli.run_healthcheck_workflow", return_value=workflow_result) as run_mock:
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.main.run_healthcheck_workflow", return_value=workflow_result) as run_mock:
                 with patch(
                     "sys.argv",
                     ["navi-agent", "--workflow-kind", "healthcheck", "--workflow-phase", "run", "--workflow-name", "agent-healthcheck"],
@@ -675,7 +675,7 @@ class CliTests(unittest.TestCase):
     def test_main_runs_unified_healthcheck_compare_workflow(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli._run_evolution_workflow", return_value=0) as compare_mock:
+        with patch("navi_agent.cli.main._run_evolution_workflow", return_value=0) as compare_mock:
             with patch(
                 "sys.argv",
                 [
@@ -697,7 +697,7 @@ class CliTests(unittest.TestCase):
     def test_main_runs_unified_ifeval_review_workflow(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli._review_ifeval_draft", return_value=0) as review_mock:
+        with patch("navi_agent.cli.main._review_ifeval_draft", return_value=0) as review_mock:
             with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "review"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -708,7 +708,7 @@ class CliTests(unittest.TestCase):
     def test_main_runs_unified_ifeval_report_workflow(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli._print_ifeval_status", return_value=0) as report_mock:
+        with patch("navi_agent.cli.main._print_ifeval_status", return_value=0) as report_mock:
             with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "report"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -717,18 +717,18 @@ class CliTests(unittest.TestCase):
         report_mock.assert_called_once_with()
 
     def test_main_runs_unified_smoke_workflows(self) -> None:
-        with patch("navi_agent.cli._run_smoke_workflow", return_value=0) as run_mock:
+        with patch("navi_agent.cli.main._run_smoke_workflow", return_value=0) as run_mock:
             with patch("sys.argv", ["navi-agent", "--workflow-kind", "smoke", "--workflow-phase", "run"]):
                 self.assertEqual(main(), 0)
         run_mock.assert_called_once_with()
 
-        with patch("navi_agent.cli._print_smoke_status", return_value=0) as report_mock:
+        with patch("navi_agent.cli.main._print_smoke_status", return_value=0) as report_mock:
             with patch("sys.argv", ["navi-agent", "--workflow-kind", "smoke", "--workflow-phase", "report"]):
                 self.assertEqual(main(), 0)
         report_mock.assert_called_once_with()
 
     def test_main_runs_unified_tool_use_workflows(self) -> None:
-        with patch("navi_agent.cli._run_tool_use_eval", return_value=0) as run_mock:
+        with patch("navi_agent.cli.main._run_tool_use_eval", return_value=0) as run_mock:
             with patch(
                 "sys.argv",
                 [
@@ -746,13 +746,13 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(main(), 0)
         run_mock.assert_called_once_with(case_ids=["case-1"], levels=["L0"])
 
-        with patch("navi_agent.cli._print_tool_use_status", return_value=0) as report_mock:
+        with patch("navi_agent.cli.main._print_tool_use_status", return_value=0) as report_mock:
             with patch("sys.argv", ["navi-agent", "--workflow-kind", "tool_use", "--workflow-phase", "report"]):
                 self.assertEqual(main(), 0)
         report_mock.assert_called_once_with()
 
     def test_main_runs_unified_tool_use_eval_workflows(self) -> None:
-        with patch("navi_agent.cli._run_tool_use_llm_eval", return_value=0) as run_mock:
+        with patch("navi_agent.cli.main._run_tool_use_llm_eval", return_value=0) as run_mock:
             with patch(
                 "sys.argv",
                 [
@@ -770,7 +770,7 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(main(), 0)
         run_mock.assert_called_once_with(case_ids=["case-llm"], levels=["L1"])
 
-        with patch("navi_agent.cli._print_tool_use_eval_status", return_value=0) as report_mock:
+        with patch("navi_agent.cli.main._print_tool_use_eval_status", return_value=0) as report_mock:
             with patch("sys.argv", ["navi-agent", "--workflow-kind", "tool_use_eval", "--workflow-phase", "report"]):
                 self.assertEqual(main(), 0)
         report_mock.assert_called_once_with()
@@ -794,7 +794,7 @@ class CliTests(unittest.TestCase):
             },
         )()
 
-        with patch("navi_agent.cli.EvalSeedStore", return_value=fake_store):
+        with patch("navi_agent.cli.main.EvalSeedStore", return_value=fake_store):
             with patch("sys.argv", ["navi-agent", "--eval-seed-status"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -820,7 +820,7 @@ class CliTests(unittest.TestCase):
             },
         )()
 
-        with patch("navi_agent.cli.EvalSeedStore", return_value=fake_store):
+        with patch("navi_agent.cli.main.EvalSeedStore", return_value=fake_store):
             with patch("sys.argv", ["navi-agent", "--list-eval-seeds"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -845,8 +845,8 @@ class CliTests(unittest.TestCase):
             },
         )()
 
-        with patch("navi_agent.cli.EvalSeedReportWriter", return_value=fake_writer):
-            with patch("navi_agent.cli.EvalSeedReportStore", return_value=fake_store):
+        with patch("navi_agent.cli.main.EvalSeedReportWriter", return_value=fake_writer):
+            with patch("navi_agent.cli.main.EvalSeedReportStore", return_value=fake_store):
                 with patch("sys.argv", ["navi-agent", "--eval-seed-report"]):
                     with redirect_stdout(stdout):
                         exit_code = main()
@@ -893,9 +893,9 @@ class CliTests(unittest.TestCase):
             },
         )()
 
-        with patch("navi_agent.cli.EvalSeedStore", return_value=fake_store):
-            with patch("navi_agent.cli.IfevalRunWriter", return_value=fake_writer):
-                with patch("navi_agent.cli.build_application", return_value=FakeApp()):
+        with patch("navi_agent.cli.main.EvalSeedStore", return_value=fake_store):
+            with patch("navi_agent.cli.main.IfevalRunWriter", return_value=fake_writer):
+                with patch("navi_agent.cli.main.build_application", return_value=FakeApp()):
                     with patch(
                         "sys.argv",
                         ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "run"],
@@ -931,7 +931,7 @@ class CliTests(unittest.TestCase):
             },
         )()
 
-        with patch("navi_agent.cli.IfevalRunStore", return_value=fake_store):
+        with patch("navi_agent.cli.main.IfevalRunStore", return_value=fake_store):
             with patch("sys.argv", ["navi-agent", "--workflow-kind", "ifeval", "--workflow-phase", "report"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -944,7 +944,7 @@ class CliTests(unittest.TestCase):
     def test_main_shows_prompt_overlay_status(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+        with patch("navi_agent.cli.main.PromptOverlayStore") as overlay_cls:
             overlay_cls.return_value.describe.return_value = {
                 "path": "/tmp/prompt-overlay.md",
                 "exists": True,
@@ -968,7 +968,7 @@ class CliTests(unittest.TestCase):
     def test_main_shows_prompt_overlay_content(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+        with patch("navi_agent.cli.main.PromptOverlayStore") as overlay_cls:
             overlay_cls.return_value.get.return_value = "overlay text"
             with patch("sys.argv", ["navi-agent", "--show-prompt-overlay"]):
                 with redirect_stdout(stdout):
@@ -980,7 +980,7 @@ class CliTests(unittest.TestCase):
     def test_main_lists_prompt_overlay_entries(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+        with patch("navi_agent.cli.main.PromptOverlayStore") as overlay_cls:
             overlay_cls.return_value.list_entries_by_workflow.return_value = {
                 "agent-healthcheck": [
                     type(
@@ -1012,7 +1012,7 @@ class CliTests(unittest.TestCase):
     def test_main_lists_prompt_overlay_snapshots(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+        with patch("navi_agent.cli.main.PromptOverlayStore") as overlay_cls:
             overlay_cls.return_value.list_snapshots.return_value = [
                 type("Snapshot", (), {"snapshot_id": "snapshot-1", "path": "/tmp/snapshots/snapshot-1.md", "candidate_id": "c1"})(),
                 type("Snapshot", (), {"snapshot_id": "snapshot-2", "path": "/tmp/snapshots/snapshot-2.md", "candidate_id": None})(),
@@ -1028,7 +1028,7 @@ class CliTests(unittest.TestCase):
     def test_main_rolls_back_prompt_overlay_snapshot(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.PromptOverlayStore") as overlay_cls:
+        with patch("navi_agent.cli.main.PromptOverlayStore") as overlay_cls:
             overlay_cls.return_value.rollback.return_value = "rolled content"
             with patch("sys.argv", ["navi-agent", "--rollback-prompt-overlay", "snapshot-1"]):
                 with redirect_stdout(stdout):
@@ -1262,7 +1262,7 @@ class CliTests(unittest.TestCase):
         fake_app = FakeApp()
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
             with patch("builtins.input", side_effect=["quit"]):
                 with patch("sys.argv", ["navi-agent", "--interactive", "--session-id", "s1", "hello"]):
                     with redirect_stdout(stdout):
@@ -1293,9 +1293,9 @@ class CliTests(unittest.TestCase):
         )
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
             with patch("builtins.input", return_value="y"):
-                with patch("navi_agent.cli.SmokeWorkflowService") as smoke_cls:
+                with patch("navi_agent.cli.main.SmokeWorkflowService") as smoke_cls:
                     smoke_cls.return_value.run.return_value = SmokeRunSummary(
                         count=1,
                         passed_count=1,
@@ -1341,7 +1341,7 @@ class CliTests(unittest.TestCase):
         )
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
             with patch("builtins.input", return_value="n"):
                 with patch("sys.argv", ["navi-agent", "--review-skill"]):
                     with redirect_stdout(stdout):
@@ -1372,9 +1372,9 @@ class CliTests(unittest.TestCase):
         )
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
             with patch("builtins.input", return_value="y"):
-                with patch("navi_agent.cli.SmokeWorkflowService") as smoke_cls:
+                with patch("navi_agent.cli.main.SmokeWorkflowService") as smoke_cls:
                     smoke_cls.return_value.run.return_value = SmokeRunSummary(
                         count=1,
                         passed_count=0,
@@ -1407,8 +1407,8 @@ class CliTests(unittest.TestCase):
             )()
         ]
 
-        with patch("navi_agent.cli.get_skills_dir", return_value=Path("/tmp/skills")):
-            with patch("navi_agent.cli.FileSkillStore") as store_cls:
+        with patch("navi_agent.cli.main.get_skills_dir", return_value=Path("/tmp/skills")):
+            with patch("navi_agent.cli.main.FileSkillStore") as store_cls:
                 store_cls.return_value.list.return_value = records
                 with patch("sys.argv", ["navi-agent", "--list-skills"]):
                     with redirect_stdout(stdout):
@@ -1422,9 +1422,9 @@ class CliTests(unittest.TestCase):
     def test_main_prints_skill_status(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.get_skills_dir", return_value=Path("/tmp/skills")):
-            with patch("navi_agent.cli.get_trace_store_path", return_value=Path("/tmp/traces.jsonl")):
-                with patch("navi_agent.cli.SkillUsageService") as service_cls:
+        with patch("navi_agent.cli.main.get_skills_dir", return_value=Path("/tmp/skills")):
+            with patch("navi_agent.cli.main.get_trace_store_path", return_value=Path("/tmp/traces.jsonl")):
+                with patch("navi_agent.cli.main.SkillUsageService") as service_cls:
                     service_cls.return_value.summarize.return_value = [
                         SkillUsageRecord(
                             name="readme-summary",
@@ -1448,9 +1448,9 @@ class CliTests(unittest.TestCase):
     def test_main_prints_skill_curator_status(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.get_skills_dir", return_value=Path("/tmp/skills")):
-            with patch("navi_agent.cli.get_trace_store_path", return_value=Path("/tmp/traces.jsonl")):
-                with patch("navi_agent.cli.SkillCuratorStatusService") as service_cls:
+        with patch("navi_agent.cli.main.get_skills_dir", return_value=Path("/tmp/skills")):
+            with patch("navi_agent.cli.main.get_trace_store_path", return_value=Path("/tmp/traces.jsonl")):
+                with patch("navi_agent.cli.main.SkillCuratorStatusService") as service_cls:
                     service_cls.return_value.summarize.return_value = SkillCuratorStatus(
                         skill_count=1,
                         agent_created_count=1,
@@ -1481,9 +1481,9 @@ class CliTests(unittest.TestCase):
     def test_main_archives_unused_agent_skills(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.get_skills_dir", return_value=Path("/tmp/skills")):
-            with patch("navi_agent.cli.get_trace_store_path", return_value=Path("/tmp/traces.jsonl")):
-                with patch("navi_agent.cli.SkillCuratorService") as service_cls:
+        with patch("navi_agent.cli.main.get_skills_dir", return_value=Path("/tmp/skills")):
+            with patch("navi_agent.cli.main.get_trace_store_path", return_value=Path("/tmp/traces.jsonl")):
+                with patch("navi_agent.cli.main.SkillCuratorService") as service_cls:
                     service_cls.return_value.archive_unused_agent_created.return_value = SkillCuratorArchiveResult(
                         archived_count=1,
                         archived_names=["readme-summary"],
@@ -1515,7 +1515,7 @@ class CliTests(unittest.TestCase):
         )()
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
             with patch("sys.argv", ["navi-agent", "--background-review-status"]):
                 with redirect_stdout(stdout):
                     exit_code = main()
@@ -1532,9 +1532,9 @@ class CliTests(unittest.TestCase):
     def test_main_prints_runtime_events(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.RuntimeTrajectoryService") as service_cls:
+        with patch("navi_agent.cli.main.RuntimeTrajectoryService") as service_cls:
             service_cls.return_value.render.return_value = "runtime_trajectory:\n[1] user.message"
-            with patch("navi_agent.cli.get_runtime_event_store_path", return_value=Path("/tmp/events.jsonl")):
+            with patch("navi_agent.cli.main.get_runtime_event_store_path", return_value=Path("/tmp/events.jsonl")):
                 with patch("sys.argv", ["navi-agent", "--runtime-events", "--session-id", "s1"]):
                     with redirect_stdout(stdout):
                         exit_code = main()
@@ -1557,9 +1557,9 @@ class CliTests(unittest.TestCase):
     def test_main_prints_runtime_health(self) -> None:
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.RuntimeHealthService") as service_cls:
+        with patch("navi_agent.cli.main.RuntimeHealthService") as service_cls:
             service_cls.return_value.render.return_value = "runtime_health:\nrun_count: 1"
-            with patch("navi_agent.cli.get_runtime_event_store_path", return_value=Path("/tmp/events.jsonl")):
+            with patch("navi_agent.cli.main.get_runtime_event_store_path", return_value=Path("/tmp/events.jsonl")):
                 with patch("sys.argv", ["navi-agent", "--runtime-health", "--session-id", "s1"]):
                     with redirect_stdout(stdout):
                         exit_code = main()
@@ -1573,10 +1573,10 @@ class CliTests(unittest.TestCase):
         stdout = io.StringIO()
         fake_case = object()
 
-        with patch("navi_agent.cli.RuntimeTrajectoryService") as trajectory_cls:
+        with patch("navi_agent.cli.main.RuntimeTrajectoryService") as trajectory_cls:
             trajectory_cls.return_value.load.return_value = "trajectory"
-            with patch("navi_agent.cli.build_tool_use_case_from_trajectory", return_value=fake_case):
-                with patch("navi_agent.cli.render_tool_use_case_jsonl", return_value='{"id":"case-1"}'):
+            with patch("navi_agent.cli.main.build_tool_use_case_from_trajectory", return_value=fake_case):
+                with patch("navi_agent.cli.main.render_tool_use_case_jsonl", return_value='{"id":"case-1"}'):
                     with patch("sys.argv", ["navi-agent", "--runtime-export-tool-use-case", "--session-id", "s1"]):
                         with redirect_stdout(stdout):
                             exit_code = main()
@@ -1608,15 +1608,15 @@ class CliTests(unittest.TestCase):
             },
         )()
 
-        with patch("navi_agent.cli.RuntimeTrajectoryService") as trajectory_cls:
+        with patch("navi_agent.cli.main.RuntimeTrajectoryService") as trajectory_cls:
             trajectory_cls.return_value.load.return_value = type(
                 "Trajectory",
                 (),
                 {"run_id": "r1", "events": []},
             )()
-            with patch("navi_agent.cli.build_tool_use_case_from_trajectory", return_value=fake_case):
-                with patch("navi_agent.cli.render_tool_use_case_jsonl", return_value='{"id":"case-1"}'):
-                    with patch("navi_agent.cli.build_application", return_value=fake_app):
+            with patch("navi_agent.cli.main.build_tool_use_case_from_trajectory", return_value=fake_case):
+                with patch("navi_agent.cli.main.render_tool_use_case_jsonl", return_value='{"id":"case-1"}'):
+                    with patch("navi_agent.cli.main.build_application", return_value=fake_app):
                         with patch("sys.argv", ["navi-agent", "--runtime-import-tool-use-case", "--session-id", "s1"]):
                             with redirect_stdout(stdout):
                                 exit_code = main()
@@ -1666,8 +1666,8 @@ class CliTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             seed_path = Path(tmpdir) / "tool_use_seed.jsonl"
-            with patch("navi_agent.cli.build_application", return_value=fake_app):
-                with patch("navi_agent.cli.get_eval_seed_path", return_value=seed_path):
+            with patch("navi_agent.cli.main.build_application", return_value=fake_app):
+                with patch("navi_agent.cli.main.get_eval_seed_path", return_value=seed_path):
                     with patch("builtins.input", return_value="y"):
                         with patch("sys.argv", ["navi-agent", "--review-eval-case"]):
                             with redirect_stdout(stdout):
@@ -1698,8 +1698,8 @@ class CliTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             seed_path = Path(tmpdir) / "tool_use_seed.jsonl"
-            with patch("navi_agent.cli.build_application", return_value=fake_app):
-                with patch("navi_agent.cli.get_eval_seed_path", return_value=seed_path):
+            with patch("navi_agent.cli.main.build_application", return_value=fake_app):
+                with patch("navi_agent.cli.main.get_eval_seed_path", return_value=seed_path):
                     with patch("builtins.input", return_value="y"):
                         with patch("sys.argv", ["navi-agent", "--review-eval-case"]):
                             with redirect_stdout(stdout):
@@ -1715,7 +1715,7 @@ class CliTests(unittest.TestCase):
         fake_app = FakeApp()
         stdout = io.StringIO()
 
-        with patch("navi_agent.cli.build_application", return_value=fake_app):
+        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
             with patch("sys.argv", ["navi-agent", "--background-review-status"]):
                 with redirect_stdout(stdout):
                     exit_code = main()

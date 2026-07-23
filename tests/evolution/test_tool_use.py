@@ -14,7 +14,7 @@ from navi_agent.evolution import (
     ToolUseRunWriter,
     ToolUseWorkflowService,
 )
-from navi_agent.evolution.tool_use import _build_tool_use_metrics
+from navi_agent.evolution.evals.tool_use import _build_tool_use_metrics
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -302,8 +302,8 @@ class ToolUseEvalTests(unittest.TestCase):
             report_root = Path(tmpdir) / "reports"
             ToolUseEvalCaseStore(case_path).write_cases([case])
 
-            with mock.patch("navi_agent.evolution.tool_use.AgentRuntime", FakeRuntime):
-                with mock.patch("navi_agent.evolution.tool_use.build_transport", return_value=object()):
+            with mock.patch("navi_agent.evolution.evals.tool_use.AgentRuntime", FakeRuntime):
+                with mock.patch("navi_agent.evolution.evals.tool_use.build_transport", return_value=object()):
                     service = ToolUseEvalWorkflowService(
                         case_store=ToolUseEvalCaseStore(case_path),
                         report_root=report_root,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from navi_agent.runtime.subagents import (
+from navi_agent.runtime.tasks.subagents import (
     ALLOWED_SUBAGENT_TOOLSETS,
     MAX_CONCURRENT_SUBAGENTS,
     SubagentRun,

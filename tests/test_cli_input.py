@@ -5,7 +5,7 @@ from prompt_toolkit import Application
 from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
 from prompt_toolkit.keys import Keys
 
-from navi_agent.cli_input import (
+from navi_agent.cli.input import (
     INPUT_MAX_HEIGHT,
     INPUT_MIN_HEIGHT,
     INTERACTIVE_STYLE,
@@ -128,7 +128,7 @@ def test_streamed_response_height_accounts_for_wrapping() -> None:
     session._response_text = "x" * 120
 
     with patch(
-        "navi_agent.cli_input.shutil.get_terminal_size",
+        "navi_agent.cli.input.shutil.get_terminal_size",
         return_value=SimpleNamespace(columns=40),
     ):
         height = session._response_height()

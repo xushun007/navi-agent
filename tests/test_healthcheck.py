@@ -5,7 +5,7 @@ from pathlib import Path
 from navi_agent.evolution import EvalCase
 from navi_agent.runtime import RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
-from navi_agent.healthcheck import (
+from navi_agent.evolution.evals.healthcheck import (
     compare_healthcheck_workflow_results,
     get_healthcheck_task,
     get_healthcheck_workflow,

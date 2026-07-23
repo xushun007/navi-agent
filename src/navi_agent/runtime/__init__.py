@@ -1,4 +1,4 @@
-from .approval import (
+from .tools.approval import (
     ApprovalDecision,
     ApprovalProvider,
     ApprovalRequest,
@@ -7,9 +7,9 @@ from .approval import (
     DenyAllApprovalProvider,
     WorkspaceYoloApprovalProvider,
 )
-from .background_tasks import BackgroundTask, BackgroundTaskManager
-from .context_engine import ContextBuildResult, ContextEngine, ContextSummarizer, LLMContextSummarizer
-from .engine import AgentRuntime
+from .tasks.background import BackgroundTask, BackgroundTaskManager
+from .agent.context import ContextBuildResult, ContextEngine, ContextSummarizer, LLMContextSummarizer
+from .agent.engine import AgentRuntime
 from .models import (
     ConversationState,
     Message,
@@ -24,27 +24,27 @@ from .models import (
     ToolContext,
     ToolResult,
 )
-from .observers import RuntimeObserver
+from .events.observers import RuntimeObserver
 from navi_agent.events import (
     CallableEventSubscriber,
     EventStoreWriter,
     RuntimeEventPublisher,
     RuntimeEventSubscriber,
 )
-from .prompt_builder import PromptBuilder
-from .request_scheduler import SessionTaskScheduler
-from .run_control import ActiveRunRegistry, RunCancellationToken
-from .run_state import RuntimeRunState, RunStateTracker
-from .interactions import DeferredApprovalProvider, JsonPendingInteractionStore, PendingInteraction
-from .session import InMemorySessionStore
-from .sqlite_session import SQLiteSessionStore
-from .store import SessionStore
-from .subagents import SubagentRun, SubagentService, SubagentTask
-from .tool_policy import AllowAllToolPolicy
-from .tool_executor import ToolExecutor
-from .tool_result_renderer import DefaultToolResultRenderer, ToolResultRenderer
-from .transport_factory import build_transport
-from .tools import ToolDefinition, ToolRegistry, ToolsetDefinition
+from .agent.prompt import PromptBuilder
+from .tasks.scheduler import SessionTaskScheduler
+from .agent.control import ActiveRunRegistry, RunCancellationToken
+from .events.state import RuntimeRunState, RunStateTracker
+from .tools.interactions import DeferredApprovalProvider, JsonPendingInteractionStore, PendingInteraction
+from .sessions.memory import InMemorySessionStore
+from .sessions.sqlite import SQLiteSessionStore
+from .sessions.store import SessionStore
+from .tasks.subagents import SubagentRun, SubagentService, SubagentTask
+from .tools.policy import AllowAllToolPolicy
+from .tools.executor import ToolExecutor
+from .tools.rendering import DefaultToolResultRenderer, ToolResultRenderer
+from .transports.factory import build_transport
+from .tools.registry import ToolDefinition, ToolRegistry, ToolsetDefinition
 from .transports import (
     DemoTransport,
     ModelRequest,

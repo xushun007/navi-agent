@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.doctor import collect_report, run_doctor
+from navi_agent.diagnostics.doctor import collect_report, run_doctor
 
 
 class DoctorTests(unittest.TestCase):
@@ -24,7 +24,7 @@ runtime:
                 encoding="utf-8",
             )
 
-            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=False):
+            with patch("navi_agent.diagnostics.doctor.is_langfuse_sdk_available", return_value=False):
                 with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
                     report = collect_report()
 
@@ -47,7 +47,7 @@ model:
                 encoding="utf-8",
             )
 
-            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=False):
+            with patch("navi_agent.diagnostics.doctor.is_langfuse_sdk_available", return_value=False):
                 with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
                     core_report = collect_report()
                     gateway_report = collect_report(gateway="weixin")
@@ -74,7 +74,7 @@ gateway:
                 encoding="utf-8",
             )
 
-            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=False):
+            with patch("navi_agent.diagnostics.doctor.is_langfuse_sdk_available", return_value=False):
                 with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
                     report = collect_report(gateway="weixin")
 
@@ -83,7 +83,7 @@ gateway:
 
     def test_collect_report_is_not_ok_when_api_key_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=False):
+            with patch("navi_agent.diagnostics.doctor.is_langfuse_sdk_available", return_value=False):
                 with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
                     report = collect_report()
 
@@ -108,7 +108,7 @@ telemetry:
                 encoding="utf-8",
             )
 
-            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=False):
+            with patch("navi_agent.diagnostics.doctor.is_langfuse_sdk_available", return_value=False):
                 with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
                     report = collect_report()
 
@@ -136,8 +136,8 @@ telemetry:
                 encoding="utf-8",
             )
 
-            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=True):
-                with patch("navi_agent.doctor.LangfuseTraceExporter.from_settings", return_value=object()):
+            with patch("navi_agent.diagnostics.doctor.is_langfuse_sdk_available", return_value=True):
+                with patch("navi_agent.diagnostics.doctor.LangfuseTraceExporter.from_settings", return_value=object()):
                     with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
                         report = collect_report()
 
@@ -150,7 +150,7 @@ telemetry:
         output: list[str] = []
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("navi_agent.doctor.is_langfuse_sdk_available", return_value=False):
+            with patch("navi_agent.diagnostics.doctor.is_langfuse_sdk_available", return_value=False):
                 with patch.dict(os.environ, {"NAVI_HOME": tmpdir}, clear=True):
                     exit_code = run_doctor(output_fn=output.append)
 

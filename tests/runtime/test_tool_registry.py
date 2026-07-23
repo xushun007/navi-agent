@@ -3,7 +3,7 @@ import unittest
 from navi_agent.tooling import ToolDecision
 from navi_agent.runtime import ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult, ToolsetDefinition
 from navi_agent.tools import BaseTool, FunctionTool
-from navi_agent.runtime.tool_policy import SensitiveToolPolicy, StaticToolPolicy
+from navi_agent.runtime.tools.policy import SensitiveToolPolicy, StaticToolPolicy
 
 
 def ok_result(name: str, content: str, **kwargs) -> ToolResult:

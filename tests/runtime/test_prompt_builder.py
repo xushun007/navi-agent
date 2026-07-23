@@ -5,7 +5,7 @@ from pathlib import Path
 from navi_agent.evolution import FileSkillStore
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
 from navi_agent.runtime.models import ConversationState, Message
-from navi_agent.runtime.prompt_builder import (
+from navi_agent.runtime.agent.prompt import (
     BASE_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
     SKILL_GUIDANCE,

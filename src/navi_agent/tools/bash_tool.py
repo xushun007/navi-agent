@@ -16,7 +16,7 @@ from navi_agent.tooling import ToolContext, ToolResult
 from .workspace_tool import WorkspaceTool
 
 if TYPE_CHECKING:
-    from navi_agent.runtime.background_tasks import BackgroundTaskManager
+    from navi_agent.runtime.tasks.background import BackgroundTaskManager
 
 
 class BashTool(WorkspaceTool):

@@ -15,7 +15,7 @@ from navi_agent.runtime import (
     ToolRegistry,
     ToolResult,
 )
-from navi_agent.runtime.tool_policy import SensitiveToolPolicy
+from navi_agent.runtime.tools.policy import SensitiveToolPolicy
 from navi_agent.tools import AskUserTool
 
 

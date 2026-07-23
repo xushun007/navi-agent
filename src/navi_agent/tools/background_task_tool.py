@@ -7,7 +7,7 @@ from navi_agent.tooling import ToolContext, ToolResult
 from .base import BaseTool
 
 if TYPE_CHECKING:
-    from navi_agent.runtime.background_tasks import BackgroundTask, BackgroundTaskManager
+    from navi_agent.runtime.tasks.background import BackgroundTask, BackgroundTaskManager
 
 
 class BackgroundTaskTool(BaseTool):

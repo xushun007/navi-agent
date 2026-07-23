@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.doctor import DoctorReport
-from navi_agent.smoke import SmokeRunStore, SmokeWorkflowService
+from navi_agent.diagnostics.doctor import DoctorReport
+from navi_agent.evolution.evals.smoke import SmokeRunStore, SmokeWorkflowService
 
 
 class SmokeWorkflowTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class SmokeWorkflowTests(unittest.TestCase):
             report_root = Path(tmpdir) / "smoke-reports"
             service = SmokeWorkflowService(report_root=report_root)
 
-            with patch("navi_agent.smoke.collect_report", return_value=DoctorReport(ok=True, lines=["transport: ok"])):
+            with patch("navi_agent.evolution.evals.smoke.collect_report", return_value=DoctorReport(ok=True, lines=["transport: ok"])):
                 summary = service.run()
                 latest = SmokeRunStore(report_root).get_latest()
 

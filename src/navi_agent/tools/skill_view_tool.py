@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from navi_agent.evolution.skills import FileSkillStore
+    from navi_agent.evolution.skills.store import FileSkillStore
 from navi_agent.tooling import ToolContext, ToolResult
 
 from .base import BaseTool

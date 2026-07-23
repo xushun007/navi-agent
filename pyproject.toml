@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-navi-agent = "navi_agent.cli:main"
+navi-agent = "navi_agent.cli.main:main"
 
 [dependency-groups]
 dev = [

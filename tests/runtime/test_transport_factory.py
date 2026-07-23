@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from navi_agent.config import ModelSettings
-from navi_agent.runtime.transport_factory import build_transport
+from navi_agent.runtime.transports.factory import build_transport
 
 
 class TransportFactoryTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class TransportFactoryTests(unittest.TestCase):
             base_url="https://example.com/v1",
         )
 
-        with patch("navi_agent.runtime.transport_factory.OpenAICompatibleTransport") as transport_cls:
+        with patch("navi_agent.runtime.transports.factory.OpenAICompatibleTransport") as transport_cls:
             build_transport(settings)
 
         transport_cls.assert_called_once_with(

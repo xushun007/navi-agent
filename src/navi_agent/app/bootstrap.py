@@ -1,0 +1,217 @@
+from __future__ import annotations
+
+import logging
+from collections.abc import Iterable
+from pathlib import Path
+
+from navi_agent.app import ApplicationService
+from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
+from navi_agent.evolution import (
+    FileSkillStore,
+    JsonlCandidateStore,
+    JsonlEvalCaseStore,
+    JsonlReviewRunStore,
+    PromptOverlayStore,
+    ReviewAgentService,
+    SkillProvenanceStore,
+    SkillUsageStore,
+)
+from navi_agent.logging import setup_logging
+from navi_agent.memory import FileMemoryStore
+from navi_agent.paths import (
+    get_app_log_path,
+    get_candidate_store_path,
+    get_memories_dir,
+    get_pending_interactions_path,
+    get_prompt_overlay_path,
+    get_prompt_overlay_snapshots_dir,
+    get_runtime_event_store_path,
+    get_review_run_store_path,
+    get_skills_dir,
+    get_state_db_path,
+    get_trace_store_path,
+    get_eval_case_store_path,
+)
+from navi_agent.runtime import (
+    AgentRuntime,
+    BackgroundTaskManager,
+    ContextEngine,
+    LLMContextSummarizer,
+    JsonPendingInteractionStore,
+    PromptBuilder,
+    SQLiteSessionStore,
+    SubagentService,
+    build_transport,
+)
+from navi_agent.runtime.tools.approval import ApprovalProvider, DenyAllApprovalProvider
+from navi_agent.telemetry import (
+    CompositeTraceStore,
+    JsonlRuntimeEventStore,
+    JsonlTraceStore,
+    LangfuseTraceExporter,
+)
+from navi_agent.tools.defaults import build_default_tool_registry
+
+logger = logging.getLogger("navi_agent.app.bootstrap")
+
+
+def build_runtime(
+    model_settings: ModelSettings | None = None,
+    runtime_settings: RuntimeSettings | None = None,
+    approval_provider: ApprovalProvider | None = None,
+    skill_store: FileSkillStore | None = None,
+    memory_store: FileMemoryStore | None = None,
+    disabled_toolsets: list[str] | None = None,
+    workspace_root: Path | None = None,
+    additional_workspace_roots: Iterable[Path] | None = None,
+    interaction_store: JsonPendingInteractionStore | None = None,
+) -> AgentRuntime:
+    config = load_config()
+    model_settings = model_settings or ModelSettings.from_sources(config)
+    runtime_settings = runtime_settings or RuntimeSettings.from_sources(config)
+
+    setup_logging(
+        level="INFO",
+        log_path=get_app_log_path(),
+    )
+
+    transport = build_transport(model_settings)
+    session_store = SQLiteSessionStore(get_state_db_path())
+    memory_store = memory_store or FileMemoryStore(get_memories_dir())
+    skill_store = skill_store or FileSkillStore(get_skills_dir())
+    trace_store = _build_trace_store(config)
+    background_task_manager = BackgroundTaskManager()
+    resolved_workspace_root = (workspace_root or Path.cwd()).resolve()
+    added_roots = tuple(Path(root).resolve() for root in additional_workspace_roots or ())
+
+    event_store = JsonlRuntimeEventStore(get_runtime_event_store_path())
+    subagent_service: SubagentService
+
+    def create_runtime(
+        *,
+        enabled_toolsets: list[str] | None = None,
+        include_delegation: bool,
+        parent_session_id: str | None = None,
+        non_interactive: bool = False,
+    ) -> AgentRuntime:
+        runtime_background_tasks = (
+            background_task_manager if include_delegation else BackgroundTaskManager()
+        )
+        return AgentRuntime(
+            transport=transport,
+            session_store=session_store,
+            prompt_builder=PromptBuilder(
+                memory_store=memory_store,
+                skill_store=skill_store,
+                project_context_root=resolved_workspace_root,
+                additional_workspace_roots=added_roots,
+            ),
+            trace_store=trace_store,
+            event_store=event_store,
+            background_task_manager=runtime_background_tasks,
+            context_engine=ContextEngine(
+                context_limit_tokens=model_settings.context_limit_tokens,
+                summarizer=LLMContextSummarizer(transport),
+            ),
+            tool_registry=build_default_tool_registry(
+                memory_store=memory_store,
+                session_store=session_store,
+                approval_provider=(
+                    DenyAllApprovalProvider() if non_interactive else approval_provider
+                ),
+                skill_store=skill_store,
+                background_task_manager=runtime_background_tasks,
+                subagent_service=subagent_service if include_delegation else None,
+                root=resolved_workspace_root,
+                additional_roots=added_roots,
+                interaction_store=interaction_store if include_delegation else None,
+            ),
+            enabled_toolsets=enabled_toolsets,
+            disabled_toolsets=disabled_toolsets,
+            max_iterations=runtime_settings.max_iterations,
+            agent_role="primary" if include_delegation else "subagent",
+            parent_session_id=parent_session_id,
+            model=model_settings.model,
+            cwd=str(resolved_workspace_root),
+        )
+
+    subagent_service = SubagentService(
+        runtime_factory=lambda enabled_toolsets, parent_session_id, non_interactive: create_runtime(
+            enabled_toolsets=enabled_toolsets,
+            include_delegation=False,
+            parent_session_id=parent_session_id,
+            non_interactive=non_interactive,
+        )
+    )
+    return create_runtime(include_delegation=True)
+
+
+def build_application(
+    model_settings: ModelSettings | None = None,
+    runtime_settings: RuntimeSettings | None = None,
+    default_system_prompt: str | None = None,
+    approval_provider: ApprovalProvider | None = None,
+    disabled_toolsets: list[str] | None = None,
+    workspace_root: Path | None = None,
+    additional_workspace_roots: Iterable[Path] | None = None,
+    interaction_store: JsonPendingInteractionStore | None = None,
+) -> ApplicationService:
+    config = load_config()
+    review_model_settings = model_settings or ModelSettings.from_sources(config)
+    skill_store = FileSkillStore(get_skills_dir())
+    memory_store = FileMemoryStore(get_memories_dir())
+    interaction_store = interaction_store or JsonPendingInteractionStore(
+        get_pending_interactions_path()
+    )
+    runtime = build_runtime(
+        model_settings=model_settings,
+        runtime_settings=runtime_settings,
+        approval_provider=approval_provider,
+        skill_store=skill_store,
+        memory_store=memory_store,
+        disabled_toolsets=disabled_toolsets,
+        workspace_root=workspace_root,
+        additional_workspace_roots=additional_workspace_roots,
+        interaction_store=interaction_store,
+    )
+    prompt_overlay_store = PromptOverlayStore(
+        get_prompt_overlay_path(),
+        get_prompt_overlay_snapshots_dir(),
+    )
+    prompt_overlay = prompt_overlay_store.get()
+    default_prompt = default_system_prompt
+    if prompt_overlay:
+        default_prompt = "\n\n".join(
+            part for part in [default_system_prompt, prompt_overlay] if part
+        ) or None
+    return ApplicationService(
+        runtime=runtime,
+        default_system_prompt=default_prompt,
+        candidate_store=JsonlCandidateStore(get_candidate_store_path()),
+        eval_case_store=JsonlEvalCaseStore(get_eval_case_store_path()),
+        prompt_overlay_store=prompt_overlay_store,
+        skill_store=skill_store,
+        skill_provenance_store=SkillProvenanceStore(get_skills_dir()),
+        skill_usage_store=SkillUsageStore(get_skills_dir()),
+        memory_store=memory_store,
+        review_run_store=JsonlReviewRunStore(get_review_run_store_path()),
+        review_agent_service=ReviewAgentService(
+            transport=build_transport(review_model_settings),
+            memory_store=memory_store,
+            skill_store=skill_store,
+        ),
+        interaction_store=interaction_store,
+    )
+
+
+def _build_trace_store(config: dict) -> JsonlTraceStore | CompositeTraceStore:
+    primary = JsonlTraceStore(get_trace_store_path())
+    settings = LangfuseSettings.from_sources(config)
+    if not settings.enabled:
+        return primary
+    try:
+        exporter = LangfuseTraceExporter.from_settings(settings)
+    except Exception:
+        logger.exception("Failed to initialize Langfuse exporter")
+        return primary
+    return CompositeTraceStore(primary=primary, exporters=[exporter])

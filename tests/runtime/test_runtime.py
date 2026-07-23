@@ -29,8 +29,8 @@ from navi_agent.runtime import (
     ToolResult,
     ToolsetDefinition,
 )
-from navi_agent.runtime.tool_policy import SensitiveToolPolicy
-from navi_agent.runtime.run_control import RunCancelledError
+from navi_agent.runtime.tools.policy import SensitiveToolPolicy
+from navi_agent.runtime.agent.control import RunCancelledError
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
 from navi_agent.tools import BashTool, MemoryTool
 from navi_agent.telemetry import InMemoryRuntimeEventStore, InMemoryTraceStore

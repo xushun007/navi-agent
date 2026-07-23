@@ -12,9 +12,9 @@ from navi_agent.runtime import (
     ToolRegistry,
     ToolsetDefinition,
 )
-from navi_agent.scheduler import CronJobStore
-from navi_agent.runtime.approval import ApprovalProvider
-from navi_agent.runtime.tool_policy import SensitiveToolPolicy
+from navi_agent.runtime.tasks.cron import CronJobStore
+from navi_agent.runtime.tools.approval import ApprovalProvider
+from navi_agent.runtime.tools.policy import SensitiveToolPolicy
 
 from .bash_tool import BashTool
 from .ask_user_tool import AskUserTool

@@ -4,14 +4,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.bootstrap import build_runtime
+from navi_agent.app.bootstrap import build_runtime
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings
 from navi_agent.memory import FileMemoryStore
 from navi_agent.runtime import ToolCall, ToolContext
-from navi_agent.runtime.approval import AutoApproveApprovalProvider
+from navi_agent.runtime.tools.approval import AutoApproveApprovalProvider
 from navi_agent.telemetry import CompositeTraceStore, JsonlTraceStore
 from navi_agent.evolution import FileSkillStore, JsonlCandidateStore, JsonlEvalCaseStore, PromptOverlayStore
-from navi_agent.bootstrap import build_application
+from navi_agent.app.bootstrap import build_application
 
 
 class BootstrapTests(unittest.TestCase):
@@ -24,10 +24,10 @@ class BootstrapTests(unittest.TestCase):
         )
         runtime_settings = RuntimeSettings(max_iterations=12)
 
-        with patch("navi_agent.bootstrap.build_transport") as build_transport_mock:
-            with patch("navi_agent.bootstrap.SQLiteSessionStore") as store_cls:
-                    with patch("navi_agent.bootstrap.setup_logging") as setup_logging_mock:
-                        with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+        with patch("navi_agent.app.bootstrap.build_transport") as build_transport_mock:
+            with patch("navi_agent.app.bootstrap.SQLiteSessionStore") as store_cls:
+                    with patch("navi_agent.app.bootstrap.setup_logging") as setup_logging_mock:
+                        with patch("navi_agent.app.bootstrap.build_default_tool_registry") as build_registry_mock:
                             runtime = build_runtime(model_settings, runtime_settings)
 
         build_transport_mock.assert_called_once_with(model_settings)
@@ -47,10 +47,10 @@ class BootstrapTests(unittest.TestCase):
             },
             clear=True,
         ):
-            with patch("navi_agent.bootstrap.build_transport") as build_transport_mock:
-                with patch("navi_agent.bootstrap.SQLiteSessionStore") as store_cls:
-                    with patch("navi_agent.bootstrap.setup_logging") as setup_logging_mock:
-                        with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+            with patch("navi_agent.app.bootstrap.build_transport") as build_transport_mock:
+                with patch("navi_agent.app.bootstrap.SQLiteSessionStore") as store_cls:
+                    with patch("navi_agent.app.bootstrap.setup_logging") as setup_logging_mock:
+                        with patch("navi_agent.app.bootstrap.build_default_tool_registry") as build_registry_mock:
                             build_runtime()
 
         build_transport_mock.assert_called_once()
@@ -61,8 +61,8 @@ class BootstrapTests(unittest.TestCase):
     def test_build_runtime_uses_default_sensitive_tool_policy(self) -> None:
         runtime_settings = RuntimeSettings(max_iterations=3)
 
-        with patch("navi_agent.bootstrap.SQLiteSessionStore"):
-            with patch("navi_agent.bootstrap.setup_logging"):
+        with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.app.bootstrap.setup_logging"):
                 runtime = build_runtime(
                     model_settings=ModelSettings(model="demo", api_key="x"),
                     runtime_settings=runtime_settings,
@@ -80,9 +80,9 @@ class BootstrapTests(unittest.TestCase):
     def test_build_runtime_passes_approval_provider_to_default_registry(self) -> None:
         provider = AutoApproveApprovalProvider()
 
-        with patch("navi_agent.bootstrap.SQLiteSessionStore"):
-            with patch("navi_agent.bootstrap.setup_logging"):
-                with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+        with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.app.bootstrap.setup_logging"):
+                with patch("navi_agent.app.bootstrap.build_default_tool_registry") as build_registry_mock:
                     runtime = build_runtime(
                         model_settings=ModelSettings(model="demo", api_key="x"),
                         runtime_settings=RuntimeSettings(max_iterations=3),
@@ -97,9 +97,9 @@ class BootstrapTests(unittest.TestCase):
 
     def test_build_runtime_passes_workspace_roots_to_registry_and_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as workspace, tempfile.TemporaryDirectory() as added:
-            with patch("navi_agent.bootstrap.SQLiteSessionStore"):
-                with patch("navi_agent.bootstrap.setup_logging"):
-                    with patch("navi_agent.bootstrap.build_default_tool_registry") as build_registry_mock:
+            with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
+                with patch("navi_agent.app.bootstrap.setup_logging"):
+                    with patch("navi_agent.app.bootstrap.build_default_tool_registry") as build_registry_mock:
                         runtime = build_runtime(
                             model_settings=ModelSettings(model="demo", api_key="x"),
                             runtime_settings=RuntimeSettings(max_iterations=3),
@@ -116,14 +116,14 @@ class BootstrapTests(unittest.TestCase):
         )
 
     def test_build_runtime_uses_composite_trace_store_when_langfuse_enabled(self) -> None:
-        with patch("navi_agent.bootstrap.SQLiteSessionStore"):
-            with patch("navi_agent.bootstrap.setup_logging"):
+        with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.app.bootstrap.setup_logging"):
                 with patch(
-                    "navi_agent.bootstrap.LangfuseSettings.from_sources",
+                    "navi_agent.app.bootstrap.LangfuseSettings.from_sources",
                     return_value=LangfuseSettings(enabled=True, public_key="pk", secret_key="sk"),
                 ):
                     with patch(
-                        "navi_agent.bootstrap.LangfuseTraceExporter.from_settings",
+                        "navi_agent.app.bootstrap.LangfuseTraceExporter.from_settings",
                         return_value=object(),
                     ):
                         runtime = build_runtime(
@@ -134,14 +134,14 @@ class BootstrapTests(unittest.TestCase):
         self.assertIsInstance(runtime._trace_store, CompositeTraceStore)
 
     def test_build_runtime_falls_back_to_jsonl_trace_store_when_exporter_init_fails(self) -> None:
-        with patch("navi_agent.bootstrap.SQLiteSessionStore"):
-            with patch("navi_agent.bootstrap.setup_logging"):
+        with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.app.bootstrap.setup_logging"):
                 with patch(
-                    "navi_agent.bootstrap.LangfuseSettings.from_sources",
+                    "navi_agent.app.bootstrap.LangfuseSettings.from_sources",
                     return_value=LangfuseSettings(enabled=True, public_key="pk", secret_key="sk"),
                 ):
                     with patch(
-                        "navi_agent.bootstrap.LangfuseTraceExporter.from_settings",
+                        "navi_agent.app.bootstrap.LangfuseTraceExporter.from_settings",
                         side_effect=RuntimeError("boom"),
                     ):
                         runtime = build_runtime(
@@ -152,7 +152,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIsInstance(runtime._trace_store, JsonlTraceStore)
 
     def test_build_application_wires_evolution_stores(self) -> None:
-        with patch("navi_agent.bootstrap.build_runtime") as build_runtime_mock:
+        with patch("navi_agent.app.bootstrap.build_runtime") as build_runtime_mock:
             app = build_application(
                 model_settings=ModelSettings(model="demo", api_key="x"),
                 runtime_settings=RuntimeSettings(max_iterations=3),
@@ -164,8 +164,8 @@ class BootstrapTests(unittest.TestCase):
         self.assertIsInstance(app._prompt_overlay_store, PromptOverlayStore)
 
     def test_build_application_merges_prompt_overlay_into_default_prompt(self) -> None:
-        with patch("navi_agent.bootstrap.build_runtime") as build_runtime_mock:
-            with patch("navi_agent.bootstrap.PromptOverlayStore") as overlay_cls:
+        with patch("navi_agent.app.bootstrap.build_runtime") as build_runtime_mock:
+            with patch("navi_agent.app.bootstrap.PromptOverlayStore") as overlay_cls:
                 overlay_cls.return_value.get.return_value = "overlay prompt"
                 app = build_application(
                     model_settings=ModelSettings(model="demo", api_key="x"),

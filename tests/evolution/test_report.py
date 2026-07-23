@@ -6,9 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from navi_agent.evolution import EvolutionReportStore, EvolutionReportWriter, ReviewLoopSummary
-from navi_agent.evolution.models import EvaluationResult, EvolutionCandidate, EvalCase
+from navi_agent.evolution.core.models import EvaluationResult, EvolutionCandidate, EvalCase
 from navi_agent.runtime import RuntimeResult
-from navi_agent.healthcheck import (
+from navi_agent.evolution.evals.healthcheck import (
     HealthcheckStepComparison,
     HealthcheckStepResult,
     HealthcheckWorkflow,

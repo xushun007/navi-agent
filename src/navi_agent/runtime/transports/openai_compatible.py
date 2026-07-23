@@ -13,7 +13,7 @@ from openai import (
 from navi_agent.errors import RETRYABLE_HTTP_STATUSES, is_retryable_exception, retry_delay
 
 from ..models import Message, ModelResponse, ModelUsage, ToolCall
-from ..run_control import RunCancelledError
+from ..agent.control import RunCancelledError
 from .base import ModelRequest
 
 logger = logging.getLogger("navi_agent.runtime.transport")

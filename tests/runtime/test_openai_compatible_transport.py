@@ -2,7 +2,7 @@ import types
 import unittest
 
 from navi_agent.runtime import Message, ModelRequest, OpenAICompatibleTransport, ToolCall
-from navi_agent.runtime.run_control import RunCancelledError
+from navi_agent.runtime.agent.control import RunCancelledError
 
 
 class FakeCompletions:

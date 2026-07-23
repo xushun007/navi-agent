@@ -7,7 +7,7 @@ from navi_agent.runtime import (
     ToolExecutor,
     ToolResult,
 )
-from navi_agent.runtime.tool_policy import SensitiveToolPolicy
+from navi_agent.runtime.tools.policy import SensitiveToolPolicy
 from navi_agent.tools import FunctionTool
 
 

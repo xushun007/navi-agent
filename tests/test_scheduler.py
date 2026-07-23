@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from navi_agent.runtime import RuntimeResult
-from navi_agent.scheduler import CronJobStore, CronSchedulerService, next_cron_run
+from navi_agent.runtime.tasks.cron import CronJobStore, CronSchedulerService, next_cron_run
 
 
 class FakeApp:

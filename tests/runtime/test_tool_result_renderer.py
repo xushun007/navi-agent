@@ -1,6 +1,6 @@
 import unittest
 
-from navi_agent.runtime.tool_result_renderer import DefaultToolResultRenderer
+from navi_agent.runtime.tools.rendering import DefaultToolResultRenderer
 from navi_agent.tooling import ToolArtifact, ToolResult
 
 

@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from navi_agent.runtime import ToolContext
-from navi_agent.scheduler import CronJobStore
+from navi_agent.runtime.tasks.cron import CronJobStore
 from navi_agent.tools.cron_tool import CronTool
 
 

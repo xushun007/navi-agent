@@ -2,7 +2,7 @@ import unittest
 
 from navi_agent.runtime import CliApprovalProvider
 from navi_agent.runtime import WorkspaceYoloApprovalProvider
-from navi_agent.runtime.approval import ApprovalRequest
+from navi_agent.runtime.tools.approval import ApprovalRequest
 
 
 class CliApprovalProviderTests(unittest.TestCase):

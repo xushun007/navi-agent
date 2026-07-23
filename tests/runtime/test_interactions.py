@@ -6,7 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from navi_agent.runtime import DeferredApprovalProvider, JsonPendingInteractionStore
-from navi_agent.runtime.approval import ApprovalRequest
+from navi_agent.runtime.tools.approval import ApprovalRequest
 from navi_agent.tooling import ToolContext
 
 
