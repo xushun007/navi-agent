@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import shutil
 from threading import Lock
 from typing import Any
 
@@ -338,4 +339,9 @@ class InteractivePromptSession:
             text = self._response_text
         if not text:
             return 0
-        return min(12, max(1, text.count("\n") + 1))
+        width = max(20, shutil.get_terminal_size((80, 24)).columns)
+        visible_lines = sum(
+            max(1, (len(line) + width - 1) // width)
+            for line in text.split("\n")
+        )
+        return min(12, visible_lines)
