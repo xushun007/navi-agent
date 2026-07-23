@@ -13,6 +13,7 @@ from .models import ModelCallTrace, RuntimeTrace, ToolExecutionTrace
 from .replay import TraceReplayResult, TraceReplayService
 from .serializer import TraceSerializer
 from .store import TraceStore
+from .trace_builder import TraceBuilder
 from .trajectory import RuntimeTrajectory, RuntimeTrajectoryService
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "TraceExporter",
     "ToolExecutionTrace",
     "TraceStore",
+    "TraceBuilder",
     "is_langfuse_sdk_available",
 ]
