@@ -3,11 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime, timezone
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import re
+import time
 
 
 _SENSITIVE_ASSIGNMENT_RE = re.compile(
@@ -29,14 +32,41 @@ class RedactingFormatter(logging.Formatter):
         return redact_sensitive_data(super().format(record))
 
 
+class JsonLogFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, object] = {
+            "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(
+                timespec="milliseconds"
+            ),
+            "severity": record.levelname,
+            "logger": record.name,
+            "message": redact_sensitive_data(record.getMessage()),
+        }
+        for field in ("run_id", "session_id", "event_name"):
+            value = getattr(record, field, None)
+            if value:
+                payload[field] = value
+        if record.exc_info:
+            exception_type = record.exc_info[0]
+            exception_value = record.exc_info[1]
+            payload["exception"] = {
+                "type": exception_type.__name__ if exception_type else None,
+                "message": redact_sensitive_data(exception_value),
+                "stacktrace": redact_sensitive_data(self.formatException(record.exc_info)),
+            }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
 class CorrelationContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         context = _LOG_CONTEXT.get()
         fields = []
         if "run_id" in context:
             fields.append(f"run_id={context['run_id']}")
+            record.run_id = context["run_id"]
         if "session_id" in context:
             fields.append(f"session_id={context['session_id']}")
+            record.session_id = context["session_id"]
         record.correlation = f" [{' '.join(fields)}]" if fields else ""
         return True
 
@@ -77,14 +107,16 @@ def setup_logging(
         logger.removeHandler(handler)
         handler.close()
 
-    formatter = RedactingFormatter(
-        fmt="%(asctime)s %(levelname)s [%(name)s]%(correlation)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    console_formatter = RedactingFormatter(
+        fmt="%(asctime)s.%(msecs)03dZ %(levelname)s [%(name)s]%(correlation)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
     )
+    console_formatter.converter = time.gmtime
+    file_formatter = JsonLogFormatter()
     context_filter = CorrelationContextFilter()
 
     stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
+    stream_handler.setFormatter(console_formatter)
     stream_handler.addFilter(context_filter)
     logger.addHandler(stream_handler)
 
@@ -98,7 +130,7 @@ def setup_logging(
             backupCount=backup_count,
             encoding="utf-8",
         )
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(file_formatter)
         file_handler.addFilter(context_filter)
         logger.addHandler(file_handler)
 

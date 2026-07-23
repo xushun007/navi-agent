@@ -1,5 +1,6 @@
 import logging
 from logging.handlers import RotatingFileHandler
+import json
 import stat
 import tempfile
 import unittest
@@ -107,10 +108,27 @@ class LoggingTests(unittest.TestCase):
                 logger.info("inside")
             logger.info("outside")
 
-            inside, outside = log_path.read_text(encoding="utf-8").splitlines()
-            self.assertIn("[run_id=run-1 session_id=session-1]", inside)
-            self.assertNotIn("run_id=run-1", outside)
-            self.assertNotIn("session_id=session-1", outside)
+            inside, outside = [
+                json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(inside["run_id"], "run-1")
+            self.assertEqual(inside["session_id"], "session-1")
+            self.assertNotIn("run_id", outside)
+            self.assertNotIn("session_id", outside)
+
+    def test_file_logs_use_structured_utc_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "navi-agent.log"
+            logger = setup_logging(level="INFO", log_path=log_path)
+
+            logger.warning("gateway retry", extra={"event_name": "gateway.retry"})
+
+            payload = json.loads(log_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["severity"], "WARNING")
+            self.assertEqual(payload["logger"], "navi_agent")
+            self.assertEqual(payload["message"], "gateway retry")
+            self.assertEqual(payload["event_name"], "gateway.retry")
+            self.assertTrue(payload["timestamp"].endswith("+00:00"))
 
 
 if __name__ == "__main__":

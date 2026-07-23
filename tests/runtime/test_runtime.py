@@ -1,3 +1,4 @@
+import json
 import tempfile
 import time
 import unittest
@@ -142,9 +143,12 @@ class AgentRuntimeTests(unittest.TestCase):
                 user_message="hello",
             )
 
-            content = log_path.read_text(encoding="utf-8")
-            self.assertIn(f"run_id={observer.events[0].run_id}", content)
-            self.assertIn("session_id=session-correlation", content)
+            records = [
+                json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(records)
+            self.assertEqual(records[0]["run_id"], observer.events[0].run_id)
+            self.assertEqual(records[0]["session_id"], "session-correlation")
 
     def test_runtime_interrupts_streaming_model_when_cancelled(self) -> None:
         started = Event()
