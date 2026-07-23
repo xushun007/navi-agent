@@ -85,7 +85,7 @@ def test_persistent_interactive_state_tracks_runtime_events() -> None:
 
     assert session.is_busy
     assert session.status_text == "正在读取 README.md"
-    commit_history.assert_called_once_with("› 正在读取 README.md")
+    commit_history.assert_not_called()
 
     session.handle(
         UiEvent(
@@ -122,8 +122,8 @@ def test_persistent_interactive_session_commits_execution_timeline_once() -> Non
             sequence=2,
             kind="approval",
             state="waiting",
-            title="需要授权 · Bash",
-            detail="$ find . -type f",
+            title="Approval required · Bash",
+            detail="$ find . -type f\nReply /approve or /deny",
         ),
         UiEvent(
             event_id="result-1",
@@ -140,12 +140,49 @@ def test_persistent_interactive_session_commits_execution_timeline_once() -> Non
         for event in events:
             session.handle(event)
         session.handle(events[-1])
+        session.complete_response("工具 bash 需要授权。回复 /approve 或 /deny。")
 
     assert [call.args[0] for call in commit_history.call_args_list] == [
-        "◇ 执行计划 — Bash",
-        "! 需要授权 · Bash — $ find . -type f",
-        "✓ Bash 已完成 · 42 ms — 1825",
+        "! Approval required · Bash\n  $ find . -type f\n  Reply /approve or /deny",
+        "✓ Bash 已完成 · 42 ms\n  └ 1825",
     ]
+    assert [call.kwargs["style"] for call in commit_history.call_args_list] == [
+        "class:event.warning",
+        "class:event.success",
+    ]
+
+
+def test_discards_model_text_that_only_introduces_tool_calls() -> None:
+    session = InteractivePromptSession()
+    session.handle(
+        UiEvent(
+            event_id="delta-1",
+            run_id="run-1",
+            sequence=1,
+            kind="assistant",
+            state="delta",
+            title="",
+            item_id="model:1",
+            detail="让我先看看。",
+        )
+    )
+    session.handle(
+        UiEvent(
+            event_id="response-1",
+            run_id="run-1",
+            sequence=2,
+            kind="assistant",
+            state="completed",
+            title="",
+            item_id="model:1",
+            transient=True,
+        )
+    )
+
+    with patch.object(session, "commit_history") as commit_history:
+        session.complete_response("最终答案")
+
+    commit_history.assert_called_once_with("最终答案")
 
 
 def test_commit_history_does_not_reschedule_run_in_terminal_future() -> None:

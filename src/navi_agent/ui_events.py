@@ -23,6 +23,7 @@ class UiEvent:
     detail: str | None = None
     severity: str = "info"
     replaceable: bool = False
+    transient: bool = False
 
 
 class UiEventSink(Protocol):
@@ -66,8 +67,6 @@ class ConsoleUiEventSink:
                 self._active_item_id = event.item_id or event.run_id
                 if self._interactive:
                     self._replace_line(render_ui_event(event))
-                else:
-                    self._write_line(render_ui_event(event))
                 return
 
             if event.state == "progress":
@@ -158,16 +157,7 @@ class UiEventMapper:
                 replaceable=True,
             )
         if event.name == "model.plan":
-            return UiEvent(
-                event_id=event.event_id,
-                run_id=event.run_id,
-                sequence=event.sequence,
-                kind="reasoning",
-                state="completed",
-                title="执行计划",
-                item_id=event.item_id,
-                detail=_plan_detail(event.metadata),
-            )
+            return None
         if event.name == "model.delta":
             delta = event.metadata.get("delta")
             if not isinstance(delta, str) or not delta:
@@ -183,6 +173,7 @@ class UiEventMapper:
                 detail=delta,
             )
         if event.name == "model.response":
+            tool_calls = event.metadata.get("tool_calls")
             return UiEvent(
                 event_id=event.event_id,
                 run_id=event.run_id,
@@ -191,6 +182,7 @@ class UiEventMapper:
                 state="completed",
                 title="",
                 item_id=event.item_id,
+                transient=isinstance(tool_calls, list) and bool(tool_calls),
             )
         if event.name == "tool.call":
             return self._tool_started(event)
@@ -275,14 +267,14 @@ class UiEventMapper:
                 sequence=event.sequence,
                 kind="approval",
                 state="waiting",
-                title=f"需要授权 · {_tool_label(tool_name)}",
+                title=f"Approval required · {_tool_label(tool_name)}",
                 item_id=event.item_id,
-                detail=_tool_call_detail(tool_name, event.metadata),
+                detail=_approval_detail(tool_name, event.metadata),
                 severity="warning",
             )
         failed = event.metadata.get("status") == "error"
         title = (
-            f"{_tool_label(tool_name)}失败"
+            _tool_failure_title(tool_name, event.metadata)
             if failed
             else _tool_title(tool_name, event.metadata, completed=True)
         )
@@ -295,11 +287,7 @@ class UiEventMapper:
             state="failed" if failed else "completed",
             title=title,
             item_id=event.item_id,
-            detail=(
-                _safe_error_detail(event.metadata)
-                if failed
-                else _tool_result_detail(tool_name, event.metadata)
-            ),
+            detail=_completed_tool_detail(tool_name, event.metadata, failed=failed),
             severity="error" if failed else "info",
             replaceable=True,
         )
@@ -383,7 +371,7 @@ def _tool_title(tool_name: str, metadata: dict[str, object], *, completed: bool)
     if tool_name == "search_files":
         return f"{verb}搜索文件"
     if tool_name == "bash":
-        return "Bash 已完成" if completed else "正在执行 Bash"
+        return "Ran" if completed else "Running"
     if tool_name == "delegate_task":
         return "子任务已完成" if completed else "正在处理子任务"
     return f"{_tool_label(tool_name)}{'已完成' if completed else '中'}"
@@ -395,8 +383,7 @@ def _tool_call_detail(tool_name: str, metadata: dict[str, object]) -> str | None
         return None
 
     if tool_name == "bash":
-        command = arguments.get("command")
-        return _safe_prefixed("$ ", command, limit=240)
+        return _safe_prefixed("$ ", arguments.get("command"), limit=180)
     if tool_name in {"read_file", "write_file", "patch"}:
         return _safe_prefixed("path: ", arguments.get("path"), limit=180)
     if tool_name == "search_files":
@@ -420,8 +407,8 @@ def _tool_result_detail(tool_name: str, metadata: dict[str, object]) -> str | No
     structured = structured if isinstance(structured, dict) else {}
 
     if tool_name == "bash":
-        stdout = _safe_text(structured.get("stdout"), limit=240)
-        stderr = _safe_text(structured.get("stderr"), limit=180)
+        stdout = _safe_output(structured.get("stdout"))
+        stderr = _safe_output(structured.get("stderr"))
         if stdout:
             return stdout
         if stderr:
@@ -449,20 +436,28 @@ def _tool_result_detail(tool_name: str, metadata: dict[str, object]) -> str | No
     return _safe_text(metadata.get("content"), limit=240)
 
 
-def _plan_detail(metadata: dict[str, object]) -> str | None:
-    tool_calls = metadata.get("tool_calls")
-    if not isinstance(tool_calls, list):
-        return None
-    labels: list[str] = []
-    for item in tool_calls:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name")
-        if isinstance(name, str) and name:
-            labels.append(_tool_label(name))
-    if not labels:
-        return None
-    return " → ".join(labels)
+def _completed_tool_detail(
+    tool_name: str,
+    metadata: dict[str, object],
+    *,
+    failed: bool,
+) -> str | None:
+    result = _safe_error_detail(metadata) if failed else _tool_result_detail(tool_name, metadata)
+    if tool_name != "bash":
+        return result
+    command = _tool_call_detail(tool_name, metadata)
+    return "\n".join(part for part in (command, result) if part) or None
+
+
+def _approval_detail(tool_name: str, metadata: dict[str, object]) -> str | None:
+    context = _tool_call_detail(tool_name, metadata)
+    return "\n".join(part for part in (context, "Reply /approve or /deny") if part)
+
+
+def _tool_failure_title(tool_name: str, metadata: dict[str, object]) -> str:
+    if tool_name != "bash":
+        return f"{_tool_label(tool_name)}失败"
+    return "Command failed"
 
 
 def _duration_suffix(value: object) -> str:
@@ -482,6 +477,18 @@ def _safe_text(value: object, *, limit: int) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     return _compact(_redact(value), limit=limit)
+
+
+def _safe_output(value: object, *, max_lines: int = 3, line_limit: int = 160) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    lines = [line for line in _redact(value).splitlines() if line.strip()]
+    if not lines:
+        return None
+    omitted = len(lines) - max_lines
+    if omitted > 0:
+        lines = lines[: max_lines - 1] + [f"… +{omitted + 1} lines"]
+    return "\n".join(_compact(line, limit=line_limit) for line in lines)
 
 
 def _safe_prompt(value: object) -> str | None:
@@ -541,5 +548,20 @@ def render_ui_event(event: UiEvent) -> str:
         marker = "!"
     text = f"{marker} {event.title}"
     if event.detail:
-        text = f"{text} — {event.detail}"
+        if event.kind == "tool" and event.state in {"completed", "failed"}:
+            detail_lines = event.detail.splitlines()
+            command = detail_lines[0] if detail_lines[0].startswith("$ ") else None
+            output_lines = detail_lines[1:] if command else detail_lines
+            rendered_lines = [f"  {command}"] if command else []
+            rendered_lines.extend(
+                f"  {'└' if index == 0 else ' '} {line}"
+                for index, line in enumerate(output_lines)
+            )
+            detail = "\n".join(rendered_lines)
+            text = f"{text}\n{detail}"
+        elif event.kind == "approval":
+            detail = "\n".join(f"  {line}" for line in event.detail.splitlines())
+            text = f"{text}\n{detail}"
+        else:
+            text = f"{text} — {event.detail}"
     return text
