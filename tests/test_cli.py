@@ -15,9 +15,16 @@ from navi_agent.evolution import (
     SkillUsageRecord,
 )
 from navi_agent.evolution import EvalSeedStore
-from navi_agent.cli import _read_interactive_message, _run_interactive, build_parser, main
+from navi_agent.cli import (
+    _read_interactive_message,
+    _run_interactive,
+    _run_persistent_interactive,
+    build_parser,
+    main,
+)
 from navi_agent.runtime import (
     CliApprovalProvider,
+    DeferredApprovalProvider,
     Message,
     RuntimeEvent,
     RuntimeResult,
@@ -50,6 +57,12 @@ class FakeApp:
 
     def add_eval_case(self, eval_case) -> None:
         self.saved_eval_cases.append(eval_case)
+
+    def cancel_session(self, session_id, *, reason="user_requested") -> bool:
+        return False
+
+    def resolve_interaction(self, session_id, *, approved):
+        return None
 
     def list_candidates(self, limit=10, status=None):
         return list(reversed(self.saved_candidates[-limit:]))
@@ -359,6 +372,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("Interactive session:", stdout.getvalue())
         self.assertEqual(fake_app.calls, [])
+
+    def test_main_interactive_uses_deferred_approval_provider(self) -> None:
+        fake_app = FakeApp()
+
+        with patch("navi_agent.cli.build_application", return_value=fake_app) as build_application:
+            with patch("builtins.input", side_effect=EOFError):
+                with patch("sys.argv", ["navi-agent"]):
+                    main()
+
+        _, kwargs = build_application.call_args
+        self.assertIsInstance(kwargs["approval_provider"], DeferredApprovalProvider)
+        self.assertIsNotNone(kwargs["interaction_store"])
 
     def test_import_ifeval_seed_writes_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1073,6 +1098,152 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().count("hello world"), 1)
+
+    def test_persistent_interactive_steers_active_run(self) -> None:
+        from threading import Event
+
+        first_started = Event()
+        release_first = Event()
+        second_completed = Event()
+
+        class ControlledApp(FakeApp):
+            def __init__(self) -> None:
+                super().__init__()
+                self.cancel_calls = []
+
+            def handle(self, request, *, event_subscribers=None):
+                self.calls.append(request)
+                if len(self.calls) == 1:
+                    first_started.set()
+                    release_first.wait(timeout=2)
+                    return RuntimeResult(
+                        session_id=request.session_id,
+                        status="cancelled",
+                        final_response="cancelled",
+                    )
+                second_completed.set()
+                return RuntimeResult(
+                    session_id=request.session_id,
+                    status="success",
+                    final_response="steered",
+                )
+
+            def cancel_session(self, session_id, *, reason="user_requested") -> bool:
+                self.cancel_calls.append((session_id, reason))
+                release_first.set()
+                return True
+
+        class Prompt:
+            def __init__(self) -> None:
+                self.notices = []
+                self.responses = []
+                self.busy = []
+
+            def run(self, submit, *, first_message=None):
+                submit(first_message)
+                assert first_started.wait(timeout=2)
+                submit("/steer use the new plan")
+                assert second_completed.wait(timeout=2)
+
+            def set_busy(self, busy):
+                self.busy.append(busy)
+
+            def handle(self, _event):
+                pass
+
+            def complete_response(self, response):
+                self.responses.append(response)
+
+            def show_notice(self, text):
+                self.notices.append(text)
+
+            def exit(self):
+                pass
+
+        app = ControlledApp()
+        prompt = Prompt()
+
+        exit_code = _run_persistent_interactive(
+            app=app,
+            prompt_session=prompt,
+            user_id="u1",
+            session_id="s1",
+            system_prompt=None,
+            first_message="original task",
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            [request.message for request in app.calls],
+            ["original task", "use the new plan"],
+        )
+        self.assertEqual(app.cancel_calls, [("s1", "user_steer")])
+        self.assertIn("Steering current task…", prompt.notices)
+
+    def test_persistent_interactive_stops_active_run(self) -> None:
+        from threading import Event
+
+        started = Event()
+        stopped = Event()
+
+        class ControlledApp(FakeApp):
+            def __init__(self) -> None:
+                super().__init__()
+                self.cancel_calls = []
+
+            def handle(self, request, *, event_subscribers=None):
+                started.set()
+                stopped.wait(timeout=2)
+                return RuntimeResult(
+                    session_id=request.session_id,
+                    status="cancelled",
+                    final_response="cancelled",
+                )
+
+            def cancel_session(self, session_id, *, reason="user_requested") -> bool:
+                self.cancel_calls.append((session_id, reason))
+                stopped.set()
+                return True
+
+        class Prompt:
+            def __init__(self) -> None:
+                self.notices = []
+
+            def run(self, submit, *, first_message=None):
+                submit(first_message)
+                assert started.wait(timeout=2)
+                submit("/stop")
+                assert stopped.wait(timeout=2)
+
+            def set_busy(self, _busy):
+                pass
+
+            def handle(self, _event):
+                pass
+
+            def complete_response(self, _response):
+                pass
+
+            def show_notice(self, text):
+                self.notices.append(text)
+
+            def exit(self):
+                pass
+
+        app = ControlledApp()
+        prompt = Prompt()
+
+        _run_persistent_interactive(
+            app=app,
+            prompt_session=prompt,
+            user_id="u1",
+            session_id="s1",
+            system_prompt=None,
+            first_message="long task",
+        )
+
+        self.assertEqual(app.cancel_calls, [("s1", "user_stop")])
+        self.assertIn("Stopping current task…", prompt.notices)
 
     def test_read_interactive_message_uses_prompt_session(self) -> None:
         session = FakePromptSession("hello")
