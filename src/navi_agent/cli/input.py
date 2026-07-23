@@ -15,6 +15,11 @@ INPUT_MAX_HEIGHT = 6
 
 
 INTERACTIVE_STYLE = {
+    "event.error": "#d7875f bold",
+    "event.output": "ansibrightblack",
+    "event.running": "ansicyan bold",
+    "event.success": "ansigreen bold",
+    "event.warning": "ansiyellow bold",
     "frame.border": "ansibrightblack",
     "input": "",
     "placeholder": "ansibrightblack italic",
@@ -79,8 +84,10 @@ class InteractivePromptSession:
         self._lock = Lock()
         self._application = None
         self._status_text = ""
+        self._status_style = "class:status"
         self._response_text = ""
         self._busy = False
+        self._approval_pending = False
         self._seen_event_ids: set[str] = set()
 
     def prompt(self, _message: Any = None, *, placeholder: str = "") -> str:
@@ -256,6 +263,7 @@ class InteractivePromptSession:
             self._busy = busy
             if busy and not self._status_text:
                 self._status_text = "Working…"
+                self._status_style = "class:status"
             if not busy:
                 self._status_text = ""
         self.invalidate()
@@ -271,34 +279,42 @@ class InteractivePromptSession:
                 self._response_text += event.detail or ""
                 self._status_text = ""
             elif event.kind == "assistant" and event.state == "completed":
+                if event.transient:
+                    self._response_text = ""
                 self._status_text = ""
             elif event.state in {"started", "progress"}:
                 self._status_text = event.title
+                self._status_style = _event_style(event) or "class:status"
                 if event.detail:
                     self._status_text = f"{self._status_text} — {event.detail}"
-                if event.state == "started" and event.kind == "tool":
-                    history_line = render_ui_event(event)
-            elif event.kind in {"tool", "reasoning", "approval"}:
+            elif event.kind in {"tool", "approval"}:
                 self._status_text = (
                     event.title if event.state in {"waiting", "failed"} else ""
                 )
+                self._status_style = _event_style(event) or "class:status"
                 history_line = render_ui_event(event)
+                if event.kind == "approval":
+                    self._approval_pending = True
             elif event.kind == "error" or event.state == "failed":
                 self._status_text = event.title
+                self._status_style = _event_style(event) or "class:status"
                 history_line = render_ui_event(event)
             elif event.state in {"waiting", "cancelled"}:
                 self._status_text = event.title
+                self._status_style = _event_style(event) or "class:status"
                 history_line = render_ui_event(event)
         if history_line:
-            self.commit_history(history_line)
+            self.commit_history(history_line, style=_event_style(event))
         self.invalidate()
 
     def complete_response(self, final_response: str) -> None:
         with self._lock:
-            response = self._response_text or final_response
+            response = "" if self._approval_pending else self._response_text or final_response
             self._response_text = ""
             self._status_text = ""
+            self._status_style = "class:status"
             self._busy = False
+            self._approval_pending = False
         if response:
             self.commit_history(response)
         self.invalidate()
@@ -321,7 +337,7 @@ class InteractivePromptSession:
         if application is not None:
             application.invalidate()
 
-    def commit_history(self, text: str) -> None:
+    def commit_history(self, text: str, *, style: str | None = None) -> None:
         application = self._application
         if application is None:
             print(text)
@@ -330,8 +346,17 @@ class InteractivePromptSession:
         def schedule() -> None:
             from prompt_toolkit import print_formatted_text
             from prompt_toolkit.application import run_in_terminal
+            from prompt_toolkit.formatted_text import FormattedText
+            from prompt_toolkit.styles import Style
 
-            run_in_terminal(lambda: print_formatted_text(text))
+            fragments = _styled_history_fragments(text, style)
+            history_style = Style.from_dict(INTERACTIVE_STYLE)
+            run_in_terminal(
+                lambda: print_formatted_text(
+                    FormattedText(fragments),
+                    style=history_style,
+                )
+            )
 
         loop = getattr(application, "loop", None)
         if loop is not None and loop.is_running():
@@ -345,8 +370,10 @@ class InteractivePromptSession:
         return [("class:response", text)] if text else []
 
     def _render_status(self):
-        status = self.status_text
-        return [("class:status", f"  {status}")] if status else []
+        with self._lock:
+            status = self._status_text
+            style = self._status_style
+        return [(style, f"  {status}")] if status else []
 
     def _response_height(self) -> int:
         with self._lock:
@@ -359,3 +386,30 @@ class InteractivePromptSession:
             for line in text.split("\n")
         )
         return min(12, visible_lines)
+
+
+def _event_style(event: UiEvent) -> str | None:
+    if event.kind == "approval" or event.state == "waiting":
+        return "class:event.warning"
+    if event.state == "failed" or event.kind == "error":
+        return "class:event.error"
+    if event.state == "completed":
+        return "class:event.success"
+    if event.state in {"started", "progress"}:
+        return "class:event.running"
+    return None
+
+
+def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, str]]:
+    lines = text.splitlines()
+    if not lines:
+        return [(style or "", text)]
+    fragments = [(style or "", lines[0])]
+    for line in lines[1:]:
+        fragments.extend(
+            [
+                ("", "\n"),
+                ("class:event.output", line),
+            ]
+        )
+    return fragments

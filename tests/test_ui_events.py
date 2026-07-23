@@ -84,8 +84,25 @@ def test_model_response_only_marks_stream_completion() -> None:
     assert ui_event.state == "completed"
     assert ui_event.item_id == "model:1"
     assert ui_event.detail is None
+    assert not ui_event.transient
     assert "answer" not in repr(ui_event)
     assert "private" not in repr(ui_event)
+
+
+def test_marks_tool_call_model_text_as_transient() -> None:
+    ui_event = UiEventMapper().map(
+        _event(
+            "model.response",
+            {
+                "content": "让我先看看。",
+                "tool_calls": [{"name": "bash", "arguments": {"command": "pwd"}}],
+            },
+            item_id="model:1",
+        )
+    )
+
+    assert ui_event is not None
+    assert ui_event.transient
 
 
 def test_maps_only_public_model_text_delta() -> None:
@@ -181,6 +198,7 @@ def test_maps_bash_command_and_result_as_a_safe_execution_timeline() -> None:
                 "tool_name": "bash",
                 "status": "success",
                 "duration_ms": 83,
+                "arguments": {"command": "find . -type f | wc -l"},
                 "structured_content": {"stdout": "1825\n", "exit_code": 0},
             },
             item_id="tc1",
@@ -188,11 +206,11 @@ def test_maps_bash_command_and_result_as_a_safe_execution_timeline() -> None:
     )
 
     assert started is not None
-    assert started.title == "正在执行 Bash"
+    assert started.title == "Running"
     assert started.detail == "$ find . -type f | wc -l"
     assert completed is not None
-    assert completed.title == "Bash 已完成 · 83 ms"
-    assert completed.detail == "1825"
+    assert completed.title == "Ran · 83 ms"
+    assert completed.detail == "$ find . -type f | wc -l\n1825"
 
 
 def test_maps_deferred_approval_with_safe_tool_context() -> None:
@@ -212,12 +230,12 @@ def test_maps_deferred_approval_with_safe_tool_context() -> None:
     assert ui_event is not None
     assert ui_event.kind == "approval"
     assert ui_event.state == "waiting"
-    assert ui_event.title == "需要授权 · Bash"
-    assert ui_event.detail == "$ TOKEN=<redacted> uv run pytest"
-    assert render_ui_event(ui_event).startswith("! 需要授权")
+    assert ui_event.title == "Approval required · Bash"
+    assert ui_event.detail == "$ TOKEN=<redacted> uv run pytest\nReply /approve or /deny"
+    assert render_ui_event(ui_event).startswith("! Approval required")
 
 
-def test_maps_safe_execution_plan_without_model_reasoning() -> None:
+def test_hides_redundant_execution_plan() -> None:
     ui_event = UiEventMapper().map(
         _event(
             "model.plan",
@@ -232,11 +250,7 @@ def test_maps_safe_execution_plan_without_model_reasoning() -> None:
         )
     )
 
-    assert ui_event is not None
-    assert ui_event.kind == "reasoning"
-    assert ui_event.title == "执行计划"
-    assert ui_event.detail == "文件搜索 → Bash"
-    assert "private" not in repr(ui_event)
+    assert ui_event is None
 
 
 def test_emitter_only_sends_derived_ui_events() -> None:
@@ -259,7 +273,7 @@ def test_emitter_only_sends_derived_ui_events() -> None:
     assert [event.title for event in received] == ["正在分析请求", "正在搜索文件"]
 
 
-def test_console_sink_keeps_started_and_completed_events_in_non_tty_history() -> None:
+def test_console_sink_commits_only_completed_event_in_non_tty_history() -> None:
     from io import StringIO
 
     output = StringIO()
@@ -289,10 +303,7 @@ def test_console_sink_keeps_started_and_completed_events_in_non_tty_history() ->
         )
     )
 
-    assert output.getvalue() == (
-        "› 正在执行 Bash — $ pwd\n"
-        "✓ Bash 已完成 · 12 ms — /workspace\n"
-    )
+    assert output.getvalue() == "✓ Bash 已完成 · 12 ms\n  └ /workspace\n"
 
 
 def test_console_sink_renders_safe_ui_events_once() -> None:
@@ -314,7 +325,31 @@ def test_console_sink_renders_safe_ui_events_once() -> None:
     sink.handle(event)
     sink.handle(event)
 
-    assert output.getvalue() == "✗ 命令执行失败 — exit code 1\n"
+    assert output.getvalue() == "✗ 命令执行失败\n  └ exit code 1\n"
+
+
+def test_limits_multiline_command_output_preview() -> None:
+    ui_event = UiEventMapper().map(
+        _event(
+            "tool.result",
+            {
+                "tool_name": "bash",
+                "status": "success",
+                "arguments": {"command": "printf output"},
+                "structured_content": {"stdout": "one\ntwo\nthree\nfour\nfive"},
+            },
+            item_id="tc1",
+        )
+    )
+
+    assert ui_event is not None
+    assert render_ui_event(ui_event) == (
+        "✓ Ran\n"
+        "  $ printf output\n"
+        "  └ one\n"
+        "    two\n"
+        "    … +3 lines"
+    )
 
 
 def test_console_sink_replaces_live_status_and_commits_completion() -> None:
