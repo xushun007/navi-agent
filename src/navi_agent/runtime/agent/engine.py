@@ -8,6 +8,7 @@ from time import perf_counter
 from uuid import uuid4
 
 from navi_agent.errors import classify_exception
+from navi_agent.logging import log_context, update_log_context
 from navi_agent.tooling import ToolContext, ToolResult
 
 from ..tasks.background import BackgroundTask, BackgroundTaskManager
@@ -198,10 +199,34 @@ class AgentRuntime:
         cancellation_token: RunCancellationToken | None = None,
         resume_interaction: PendingInteraction | None = None,
     ) -> RuntimeResult:
+        with log_context(session_id=session_id):
+            return self._run_conversation(
+                session_id=session_id,
+                user_id=user_id,
+                user_message=user_message,
+                system_prompt=system_prompt,
+                source=source,
+                event_subscribers=event_subscribers,
+                cancellation_token=cancellation_token,
+                resume_interaction=resume_interaction,
+            )
+
+    def _run_conversation(
+        self,
+        session_id: str,
+        user_id: str,
+        user_message: str,
+        system_prompt: str | None = None,
+        source: str = "console",
+        event_subscribers: Sequence[RuntimeEventSubscriber] | None = None,
+        cancellation_token: RunCancellationToken | None = None,
+        resume_interaction: PendingInteraction | None = None,
+    ) -> RuntimeResult:
         cancellation_token = cancellation_token or RunCancellationToken()
         run_started_at = _utc_now_iso()
         run_started_perf = perf_counter()
         run_id = uuid4().hex
+        update_log_context(run_id=run_id)
         event_sequence = 0
         event_publish_lock = Lock()
         request_publisher = RuntimeEventPublisher(event_subscribers or ())

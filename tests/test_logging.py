@@ -5,7 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from navi_agent.logging import redact_sensitive_data, set_console_log_level, setup_logging
+from navi_agent.logging import (
+    log_context,
+    redact_sensitive_data,
+    set_console_log_level,
+    setup_logging,
+    update_log_context,
+)
 
 
 class LoggingTests(unittest.TestCase):
@@ -90,6 +96,21 @@ class LoggingTests(unittest.TestCase):
         self.assertNotIn("sk-private", redacted)
         self.assertNotIn("bearer-private", redacted)
         self.assertIn("<redacted>", redacted)
+
+    def test_log_context_adds_and_clears_runtime_correlation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "navi-agent.log"
+            logger = setup_logging(level="INFO", log_path=log_path)
+
+            with log_context(session_id="session-1"):
+                update_log_context(run_id="run-1")
+                logger.info("inside")
+            logger.info("outside")
+
+            inside, outside = log_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn("[run_id=run-1 session_id=session-1]", inside)
+            self.assertNotIn("run_id=run-1", outside)
+            self.assertNotIn("session_id=session-1", outside)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ from navi_agent.runtime import (
 from navi_agent.runtime.tools.policy import SensitiveToolPolicy
 from navi_agent.runtime.agent.control import RunCancelledError
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
+from navi_agent.logging import setup_logging
 from navi_agent.tools import BashTool, MemoryTool
 from navi_agent.telemetry import InMemoryRuntimeEventStore, InMemoryTraceStore
 
@@ -125,6 +126,26 @@ def ok_result(name: str, content: str, **kwargs) -> ToolResult:
 
 
 class AgentRuntimeTests(unittest.TestCase):
+    def test_runtime_logs_include_run_and_session_correlation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "navi-agent.log"
+            setup_logging(level="INFO", log_path=log_path)
+            observer = RecordingObserver()
+            runtime = AgentRuntime(
+                transport=FakeTransport([ModelResponse(content="done")]),
+                event_subscribers=[observer],
+            )
+
+            runtime.run_conversation(
+                session_id="session-correlation",
+                user_id="u1",
+                user_message="hello",
+            )
+
+            content = log_path.read_text(encoding="utf-8")
+            self.assertIn(f"run_id={observer.events[0].run_id}", content)
+            self.assertIn("session_id=session-correlation", content)
+
     def test_runtime_interrupts_streaming_model_when_cancelled(self) -> None:
         started = Event()
 

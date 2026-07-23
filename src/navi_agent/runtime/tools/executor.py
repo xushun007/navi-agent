@@ -116,7 +116,11 @@ class ToolExecutor:
                                 )
                             )
                         except Exception as exc:
-                            logger.exception("Tool execution failed: %s", tool_call.name)
+                            logger.exception(
+                                "Tool execution failed: tool=%s tool_call_id=%s",
+                                tool_call.name,
+                                tool_call.id,
+                            )
                             results.append(
                                 _stamp_result(
                                     _tool_failure_result(
@@ -181,7 +185,11 @@ class ToolExecutor:
                     )
                 )
             except Exception as exc:
-                logger.exception("Tool execution failed: %s", tool_call.name)
+                logger.exception(
+                    "Tool execution failed: tool=%s tool_call_id=%s",
+                    tool_call.name,
+                    tool_call.id,
+                )
                 results.append(
                     _stamp_result(
                         _tool_failure_result(
@@ -251,7 +259,11 @@ class ToolExecutor:
                 started_perf=started_perf,
             )
         except Exception as exc:
-            logger.exception("Approved tool execution failed: %s", tool_call.name)
+            logger.exception(
+                "Approved tool execution failed: tool=%s tool_call_id=%s",
+                tool_call.name,
+                tool_call.id,
+            )
             return _stamp_result(
                 _tool_failure_result(
                     name=tool_call.name,
