@@ -162,7 +162,7 @@ class InteractivePromptSession:
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.layout import Layout
-        from prompt_toolkit.layout.containers import HSplit, Window
+        from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Window
         from prompt_toolkit.layout.controls import FormattedTextControl
         from prompt_toolkit.layout.dimension import Dimension
         from prompt_toolkit.styles import Style
@@ -254,7 +254,10 @@ class InteractivePromptSession:
                 response,
                 status,
                 approval,
-                Frame(text_area, style="class:frame"),
+                ConditionalContainer(
+                    content=Frame(text_area, style="class:frame"),
+                    filter=~approval_active,
+                ),
                 toolbar,
             ]
         )

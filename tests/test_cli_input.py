@@ -1,9 +1,13 @@
-from unittest.mock import patch
+from threading import Event, Thread
+import time
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from prompt_toolkit import Application
 from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.output import DummyOutput
 
 from navi_agent.cli.input import (
     INPUT_MAX_HEIGHT,
@@ -232,6 +236,53 @@ def test_persistent_application_registers_vertical_approval_keys() -> None:
     assert application.key_bindings.get_bindings_for_keys((Keys.Up,))
     assert application.key_bindings.get_bindings_for_keys((Keys.Down,))
     assert application.key_bindings.get_bindings_for_keys((Keys.Enter,))
+
+
+def test_down_and_enter_confirm_denial_in_real_prompt_application() -> None:
+    session = InteractivePromptSession()
+    session.handle(
+        UiEvent(
+            event_id="approval-1",
+            run_id="run-1",
+            sequence=1,
+            kind="approval",
+            state="waiting",
+            title="Approval required · Bash",
+        )
+    )
+    decisions = []
+    completed = Event()
+    real_application = Application
+
+    with create_pipe_input() as pipe_input:
+        def build_application(*args, **kwargs):
+            kwargs["input"] = pipe_input
+            kwargs["output"] = DummyOutput()
+            return real_application(*args, **kwargs)
+
+        def on_approval(approved):
+            decisions.append(approved)
+            completed.set()
+            session.exit()
+
+        with patch("prompt_toolkit.Application", side_effect=build_application):
+            worker = Thread(
+                target=lambda: session.run(
+                    lambda _message: None,
+                    on_approval=on_approval,
+                ),
+                daemon=True,
+            )
+            worker.start()
+            deadline = time.monotonic() + 2
+            while session._application is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            pipe_input.send_text("\x1b[B\r")
+            assert completed.wait(timeout=2)
+            worker.join(timeout=2)
+
+    assert decisions == [False]
+    assert worker.is_alive() is False
 
 
 def test_discards_model_text_that_only_introduces_tool_calls() -> None:
