@@ -7,6 +7,7 @@ from prompt_toolkit import Application
 from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.output import DummyOutput
 
 from navi_agent.cli.input import (
@@ -195,10 +196,9 @@ def test_approval_event_renders_inline_vertical_choices() -> None:
     assert "❯ Allow" in text
     assert "  Deny" in text
     assert "/approve" not in text
-    assert session._approval_height() == 4
 
 
-def test_approval_height_keeps_deny_visible_when_command_wraps() -> None:
+def test_prompt_toolkit_measures_wrapped_approval_choices() -> None:
     session = InteractivePromptSession()
     session.handle(
         UiEvent(
@@ -212,11 +212,13 @@ def test_approval_height_keeps_deny_visible_when_command_wraps() -> None:
         )
     )
 
-    with patch(
-        "navi_agent.cli.input.shutil.get_terminal_size",
-        return_value=SimpleNamespace(columns=40),
-    ):
-        height = session._approval_height()
+    control = FormattedTextControl(session._render_approval)
+    height = control.preferred_height(
+        width=40,
+        max_available_height=100,
+        wrap_lines=True,
+        get_line_prefix=None,
+    )
 
     assert height == 7
 

@@ -231,10 +231,13 @@ class InteractivePromptSession:
             height=lambda: 1 if self.status_text else 0,
             style="class:status",
         )
-        approval = Window(
-            content=FormattedTextControl(self._render_approval),
-            height=self._approval_height,
-            wrap_lines=True,
+        approval = ConditionalContainer(
+            content=Window(
+                content=FormattedTextControl(self._render_approval),
+                wrap_lines=True,
+                dont_extend_height=True,
+            ),
+            filter=approval_active,
         )
         toolbar = Window(
             content=FormattedTextControl(
@@ -466,20 +469,6 @@ class InteractivePromptSession:
         )
         return lines
 
-    def _approval_height(self) -> int:
-        with self._lock:
-            if not self._approval_pending:
-                return 0
-            title = self._approval_title
-            detail = self._approval_detail
-        width = max(20, shutil.get_terminal_size((80, 24)).columns)
-        title_rows = _wrapped_line_count(f"! {title}", width)
-        detail_rows = sum(
-            _wrapped_line_count(f"  {line}", width)
-            for line in detail.splitlines()
-        )
-        return title_rows + detail_rows + 2
-
     def _response_height(self) -> int:
         with self._lock:
             text = self._response_text
@@ -503,10 +492,6 @@ def _event_style(event: UiEvent) -> str | None:
     if event.state in {"started", "progress"}:
         return "class:event.running"
     return None
-
-
-def _wrapped_line_count(text: str, width: int) -> int:
-    return max(1, (len(text) + width - 1) // width)
 
 
 def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, str]]:
