@@ -188,6 +188,52 @@ def test_approval_event_renders_inline_vertical_choices() -> None:
     assert session._approval_height() == 4
 
 
+def test_approval_selection_uses_vertical_choice_and_enter_consumes_it() -> None:
+    session = InteractivePromptSession()
+    session.handle(
+        UiEvent(
+            event_id="approval-1",
+            run_id="run-1",
+            sequence=1,
+            kind="approval",
+            state="waiting",
+            title="Approval required · Bash",
+        )
+    )
+
+    assert session.consume_approval_selection() is True
+
+    session.handle(
+        UiEvent(
+            event_id="approval-2",
+            run_id="run-2",
+            sequence=1,
+            kind="approval",
+            state="waiting",
+            title="Approval required · Bash",
+        )
+    )
+    session.select_approval(False)
+
+    assert "❯ Deny" in "".join(text for _style, text in session._render_approval())
+    assert session.consume_approval_selection() is False
+    assert session.approval_pending is False
+    assert session.consume_approval_selection() is None
+
+
+def test_persistent_application_registers_vertical_approval_keys() -> None:
+    with patch.object(Application, "run", autospec=True, return_value=None) as run:
+        InteractivePromptSession().run(
+            lambda _message: None,
+            on_approval=lambda _approved: None,
+        )
+
+    application = run.call_args.args[0]
+    assert application.key_bindings.get_bindings_for_keys((Keys.Up,))
+    assert application.key_bindings.get_bindings_for_keys((Keys.Down,))
+    assert application.key_bindings.get_bindings_for_keys((Keys.Enter,))
+
+
 def test_discards_model_text_that_only_introduces_tool_calls() -> None:
     session = InteractivePromptSession()
     session.handle(

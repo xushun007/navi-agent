@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from navi_agent.evolution import (
@@ -1139,7 +1140,7 @@ class CliTests(unittest.TestCase):
                 self.responses = []
                 self.busy = []
 
-            def run(self, submit, *, first_message=None):
+            def run(self, submit, *, on_approval=None, first_message=None):
                 submit(first_message)
                 assert first_started.wait(timeout=2)
                 submit("/steer use the new plan")
@@ -1209,7 +1210,7 @@ class CliTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.notices = []
 
-            def run(self, submit, *, first_message=None):
+            def run(self, submit, *, on_approval=None, first_message=None):
                 submit(first_message)
                 assert started.wait(timeout=2)
                 submit("/stop")
@@ -1244,6 +1245,66 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(app.cancel_calls, [("s1", "user_stop")])
         self.assertIn("Stopping current task…", prompt.notices)
+
+    def test_persistent_interactive_resolves_selected_approval(self) -> None:
+        from threading import Event
+
+        completed = Event()
+
+        class ApprovalApp(FakeApp):
+            def __init__(self) -> None:
+                super().__init__()
+                self.resolve_calls = []
+
+            def resolve_interaction(self, session_id, *, approved):
+                self.resolve_calls.append((session_id, approved))
+                return SimpleNamespace(kind="approval", tool_name="bash")
+
+            def handle(self, request, *, event_subscribers=None):
+                self.calls.append(request)
+                completed.set()
+                return RuntimeResult(
+                    session_id=request.session_id,
+                    status="success",
+                    final_response="denied",
+                )
+
+        class Prompt:
+            def __init__(self) -> None:
+                self.notices = []
+
+            def run(self, submit, *, on_approval=None, first_message=None):
+                assert on_approval is not None
+                on_approval(False)
+                assert completed.wait(timeout=2)
+
+            def set_busy(self, _busy):
+                pass
+
+            def complete_response(self, _response):
+                pass
+
+            def show_notice(self, text):
+                self.notices.append(text)
+
+            def exit(self):
+                pass
+
+        app = ApprovalApp()
+        prompt = Prompt()
+
+        _run_persistent_interactive(
+            app=app,
+            prompt_session=prompt,
+            user_id="u1",
+            session_id="s1",
+            system_prompt=None,
+            first_message=None,
+        )
+
+        self.assertEqual(app.resolve_calls, [("s1", False)])
+        self.assertIn("denied the tool bash", app.calls[0].message)
+        self.assertIn("■ 已拒绝 · bash", prompt.notices)
 
     def test_read_interactive_message_uses_prompt_session(self) -> None:
         session = FakePromptSession("hello")

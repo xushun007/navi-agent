@@ -156,8 +156,9 @@ class InteractivePromptSession:
         )
         return application.run()
 
-    def run(self, on_submit, *, first_message: str | None = None) -> None:
+    def run(self, on_submit, *, on_approval=None, first_message: str | None = None) -> None:
         from prompt_toolkit import Application
+        from prompt_toolkit.filters import Condition
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.layout import Layout
@@ -190,7 +191,22 @@ class InteractivePromptSession:
 
         @bindings.add("enter")
         def submit(_event):
+            approved = self.consume_approval_selection()
+            if approved is not None:
+                if on_approval is not None:
+                    on_approval(approved)
+                return
             submit_message()
+
+        approval_active = Condition(lambda: self.approval_pending)
+
+        @bindings.add("up", filter=approval_active)
+        def select_allow(_event):
+            self.select_approval(True)
+
+        @bindings.add("down", filter=approval_active)
+        def select_deny(_event):
+            self.select_approval(False)
 
         @bindings.add("f24")
         def newline(event):
@@ -285,6 +301,33 @@ class InteractivePromptSession:
             if not busy:
                 self._status_text = ""
         self.invalidate()
+
+    def select_approval(self, approved: bool) -> None:
+        with self._lock:
+            if not self._approval_pending:
+                return
+            self._approval_selected = approved
+        self.invalidate()
+
+    def consume_approval_selection(self) -> bool | None:
+        with self._lock:
+            if not self._approval_pending:
+                return None
+            approved = self._approval_selected
+            self._clear_approval_locked()
+        self.invalidate()
+        return approved
+
+    def clear_approval(self) -> None:
+        with self._lock:
+            self._clear_approval_locked()
+        self.invalidate()
+
+    def _clear_approval_locked(self) -> None:
+        self._approval_pending = False
+        self._approval_selected = True
+        self._approval_title = ""
+        self._approval_detail = ""
 
     def handle(self, event: UiEvent) -> None:
         history_line: str | None = None
