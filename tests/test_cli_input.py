@@ -135,7 +135,7 @@ def test_persistent_interactive_session_commits_execution_timeline_once() -> Non
             kind="approval",
             state="waiting",
             title="Approval required · Bash",
-            detail="$ find . -type f\nReply /approve or /deny",
+            detail="$ find . -type f",
         ),
         UiEvent(
             event_id="result-1",
@@ -155,13 +155,37 @@ def test_persistent_interactive_session_commits_execution_timeline_once() -> Non
         session.complete_response("工具 bash 需要授权。回复 /approve 或 /deny。")
 
     assert [call.args[0] for call in commit_history.call_args_list] == [
-        "! Approval required · Bash\n  $ find . -type f\n  Reply /approve or /deny",
         "✓ Bash 已完成 · 42 ms\n  └ 1825",
     ]
     assert [call.kwargs["style"] for call in commit_history.call_args_list] == [
-        "class:event.warning",
         "class:event.success",
     ]
+
+
+def test_approval_event_renders_inline_vertical_choices() -> None:
+    session = InteractivePromptSession()
+
+    session.handle(
+        UiEvent(
+            event_id="approval-1",
+            run_id="run-1",
+            sequence=1,
+            kind="approval",
+            state="waiting",
+            title="Approval required · Bash",
+            detail="$ uv run pytest",
+        )
+    )
+    session.complete_response("approval required")
+
+    rendered = session._render_approval()
+    text = "".join(fragment for _style, fragment in rendered)
+    assert "! Approval required · Bash" in text
+    assert "$ uv run pytest" in text
+    assert "❯ Allow" in text
+    assert "  Deny" in text
+    assert "/approve" not in text
+    assert session._approval_height() == 4
 
 
 def test_discards_model_text_that_only_introduces_tool_calls() -> None:

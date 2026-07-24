@@ -450,8 +450,7 @@ def _completed_tool_detail(
 
 
 def _approval_detail(tool_name: str, metadata: dict[str, object]) -> str | None:
-    context = _tool_call_detail(tool_name, metadata)
-    return "\n".join(part for part in (context, "Reply /approve or /deny") if part)
+    return _tool_call_detail(tool_name, metadata)
 
 
 def _tool_failure_title(tool_name: str, metadata: dict[str, object]) -> str:
