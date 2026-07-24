@@ -198,6 +198,29 @@ def test_approval_event_renders_inline_vertical_choices() -> None:
     assert session._approval_height() == 4
 
 
+def test_approval_height_keeps_deny_visible_when_command_wraps() -> None:
+    session = InteractivePromptSession()
+    session.handle(
+        UiEvent(
+            event_id="approval-1",
+            run_id="run-1",
+            sequence=1,
+            kind="approval",
+            state="waiting",
+            title="Approval required · Bash",
+            detail=f"$ {'find .' * 15}\nReply /approve or /deny",
+        )
+    )
+
+    with patch(
+        "navi_agent.cli.input.shutil.get_terminal_size",
+        return_value=SimpleNamespace(columns=40),
+    ):
+        height = session._approval_height()
+
+    assert height == 7
+
+
 def test_approval_selection_uses_vertical_choice_and_enter_consumes_it() -> None:
     session = InteractivePromptSession()
     session.handle(

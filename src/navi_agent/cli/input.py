@@ -470,8 +470,15 @@ class InteractivePromptSession:
         with self._lock:
             if not self._approval_pending:
                 return 0
-            detail_lines = max(1, self._approval_detail.count("\n") + 1)
-        return 3 + detail_lines
+            title = self._approval_title
+            detail = self._approval_detail
+        width = max(20, shutil.get_terminal_size((80, 24)).columns)
+        title_rows = _wrapped_line_count(f"! {title}", width)
+        detail_rows = sum(
+            _wrapped_line_count(f"  {line}", width)
+            for line in detail.splitlines()
+        )
+        return title_rows + detail_rows + 2
 
     def _response_height(self) -> int:
         with self._lock:
@@ -496,6 +503,10 @@ def _event_style(event: UiEvent) -> str | None:
     if event.state in {"started", "progress"}:
         return "class:event.running"
     return None
+
+
+def _wrapped_line_count(text: str, width: int) -> int:
+    return max(1, (len(text) + width - 1) // width)
 
 
 def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, str]]:
