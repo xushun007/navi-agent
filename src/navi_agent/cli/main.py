@@ -1786,6 +1786,8 @@ def _run_persistent_interactive(
             cancelled = app.cancel_session(session_id, reason="user_stop")
             if not cancelled:
                 interaction = app.resolve_interaction(session_id, approved=False)
+                if interaction is not None:
+                    prompt_session.clear_approval()
                 prompt_session.show_notice(
                     "Cancelled pending request."
                     if interaction is not None
@@ -1793,27 +1795,6 @@ def _run_persistent_interactive(
                 )
             else:
                 prompt_session.show_notice("Stopping current task…")
-            return
-        if command in {"/approve", "/deny"}:
-            approved = command == "/approve"
-            interaction = app.resolve_interaction(session_id, approved=approved)
-            if interaction is None or interaction.kind != "approval":
-                prompt_session.show_notice("No approval request is waiting.")
-                return
-            action = "approved" if approved else "denied"
-            prompt_session.show_notice(
-                f"{'✓ 已授权' if approved else '■ 已拒绝'} · "
-                f"{interaction.tool_name or 'tool'}"
-            )
-            instruction = (
-                f"The user {action} the tool {interaction.tool_name}. "
-                + (
-                    "Retry it with exactly the same arguments."
-                    if approved
-                    else "Do not execute it and continue responding."
-                )
-            )
-            start_run(instruction)
             return
         if command == "/steer":
             if not separator or not argument.strip():
@@ -1831,7 +1812,31 @@ def _run_persistent_interactive(
             return
         start_run(message)
 
-    prompt_session.run(submit, first_message=first_message)
+    def resolve_approval(approved: bool) -> None:
+        interaction = app.resolve_interaction(session_id, approved=approved)
+        if interaction is None or interaction.kind != "approval":
+            prompt_session.show_notice("No approval request is waiting.")
+            return
+        action = "approved" if approved else "denied"
+        prompt_session.show_notice(
+            f"{'✓ 已授权' if approved else '■ 已拒绝'} · "
+            f"{interaction.tool_name or 'tool'}"
+        )
+        instruction = (
+            f"The user {action} the tool {interaction.tool_name}. "
+            + (
+                "Retry it with exactly the same arguments."
+                if approved
+                else "Do not execute it and continue responding."
+            )
+        )
+        start_run(instruction)
+
+    prompt_session.run(
+        submit,
+        on_approval=resolve_approval,
+        first_message=first_message,
+    )
     return 0
 
 
