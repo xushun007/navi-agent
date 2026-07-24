@@ -499,10 +499,12 @@ def _event_style(event: UiEvent) -> str | None:
 
 
 def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, str]]:
+    if not style:
+        return [("", text)]
     lines = text.splitlines()
     if not lines:
-        return [(style or "", text)]
-    fragments = [("", "\n"), (style, lines[0])] if style else [("", lines[0])]
+        return [(style, text)]
+    fragments = [("", "\n"), (style, lines[0])]
     for line in lines[1:]:
         fragments.extend(
             [

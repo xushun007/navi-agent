@@ -45,6 +45,12 @@ def test_styled_event_history_has_vertical_spacing() -> None:
     )
 
 
+def test_unstyled_multiline_response_keeps_normal_text_style() -> None:
+    response = "项目自身有 224 个 Python 文件。\n\n分布概况：\n\n| 目录 | 数量 |"
+
+    assert _styled_history_fragments(response, None) == [("", response)]
+
+
 def test_install_shift_enter_alias_is_idempotent() -> None:
     sequences = ("\x1b[13;2u", "\x1b[27;2;13~", "\x1b[27;2;13u")
     shift_enter_key = Keys.F24
