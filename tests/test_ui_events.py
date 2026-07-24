@@ -231,7 +231,7 @@ def test_maps_deferred_approval_with_safe_tool_context() -> None:
     assert ui_event.kind == "approval"
     assert ui_event.state == "waiting"
     assert ui_event.title == "Approval required · Bash"
-    assert ui_event.detail == "$ TOKEN=<redacted> uv run pytest\nReply /approve or /deny"
+    assert ui_event.detail == "$ TOKEN=<redacted> uv run pytest"
     assert render_ui_event(ui_event).startswith("! Approval required")
 
 

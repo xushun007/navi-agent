@@ -20,6 +20,8 @@ INTERACTIVE_STYLE = {
     "event.running": "ansicyan bold",
     "event.success": "ansigreen bold",
     "event.warning": "ansiyellow bold",
+    "approval.option": "",
+    "approval.selected": "ansiyellow bold",
     "frame.border": "ansibrightblack",
     "input": "",
     "placeholder": "ansibrightblack italic",
@@ -88,6 +90,9 @@ class InteractivePromptSession:
         self._response_text = ""
         self._busy = False
         self._approval_pending = False
+        self._approval_selected = True
+        self._approval_title = ""
+        self._approval_detail = ""
         self._seen_event_ids: set[str] = set()
 
     def prompt(self, _message: Any = None, *, placeholder: str = "") -> str:
@@ -210,10 +215,17 @@ class InteractivePromptSession:
             height=lambda: 1 if self.status_text else 0,
             style="class:status",
         )
+        approval = Window(
+            content=FormattedTextControl(self._render_approval),
+            height=self._approval_height,
+            wrap_lines=True,
+        )
         toolbar = Window(
             content=FormattedTextControl(
                 lambda: HTML(
-                    "<toolbar> Agent running · /stop · /steer &lt;message&gt; </toolbar>"
+                    "<toolbar> ↑/↓ select · Enter confirm </toolbar>"
+                    if self.approval_pending
+                    else "<toolbar> Agent running · /stop · /steer &lt;message&gt; </toolbar>"
                     if self.is_busy
                     else "<toolbar> Enter send · Shift+Enter newline · Ctrl-C quit </toolbar>"
                 )
@@ -225,6 +237,7 @@ class InteractivePromptSession:
             [
                 response,
                 status,
+                approval,
                 Frame(text_area, style="class:frame"),
                 toolbar,
             ]
@@ -258,6 +271,11 @@ class InteractivePromptSession:
         with self._lock:
             return self._status_text
 
+    @property
+    def approval_pending(self) -> bool:
+        with self._lock:
+            return self._approval_pending
+
     def set_busy(self, busy: bool) -> None:
         with self._lock:
             self._busy = busy
@@ -288,13 +306,15 @@ class InteractivePromptSession:
                 if event.detail:
                     self._status_text = f"{self._status_text} — {event.detail}"
             elif event.kind in {"tool", "approval"}:
-                self._status_text = (
-                    event.title if event.state in {"waiting", "failed"} else ""
-                )
+                self._status_text = event.title if event.state == "failed" else ""
                 self._status_style = _event_style(event) or "class:status"
-                history_line = render_ui_event(event)
                 if event.kind == "approval":
                     self._approval_pending = True
+                    self._approval_selected = True
+                    self._approval_title = event.title
+                    self._approval_detail = event.detail or ""
+                else:
+                    history_line = render_ui_event(event)
             elif event.kind == "error" or event.state == "failed":
                 self._status_text = event.title
                 self._status_style = _event_style(event) or "class:status"
@@ -314,7 +334,6 @@ class InteractivePromptSession:
             self._status_text = ""
             self._status_style = "class:status"
             self._busy = False
-            self._approval_pending = False
         if response:
             self.commit_history(response)
         self.invalidate()
@@ -374,6 +393,39 @@ class InteractivePromptSession:
             status = self._status_text
             style = self._status_style
         return [(style, f"  {status}")] if status else []
+
+    def _render_approval(self):
+        with self._lock:
+            if not self._approval_pending:
+                return []
+            title = self._approval_title
+            detail = self._approval_detail
+            approved = self._approval_selected
+        lines = [
+            ("class:event.warning", f"! {title}\n"),
+        ]
+        if detail:
+            lines.append(("class:event.output", f"  {detail}\n"))
+        lines.extend(
+            [
+                (
+                    "class:approval.selected" if approved else "class:approval.option",
+                    f"  {'❯' if approved else ' '} Allow\n",
+                ),
+                (
+                    "class:approval.selected" if not approved else "class:approval.option",
+                    f"  {'❯' if not approved else ' '} Deny",
+                ),
+            ]
+        )
+        return lines
+
+    def _approval_height(self) -> int:
+        with self._lock:
+            if not self._approval_pending:
+                return 0
+            detail_lines = max(1, self._approval_detail.count("\n") + 1)
+        return 3 + detail_lines
 
     def _response_height(self) -> int:
         with self._lock:
