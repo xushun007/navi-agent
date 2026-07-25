@@ -135,6 +135,16 @@ def test_maps_runtime_cancellation_without_treating_it_as_failure() -> None:
     assert completed is None
 
 
+def test_does_not_render_superseded_run_as_a_failure() -> None:
+    mapper = UiEventMapper()
+
+    superseded = mapper.map(_event("runtime.superseded", {"reason": "user_steer"}))
+    completed = mapper.map(_event("runtime.completed", {"status": "superseded"}))
+
+    assert superseded is None
+    assert completed is None
+
+
 def test_maps_runtime_waiting_without_treating_it_as_failure() -> None:
     mapper = UiEventMapper()
 

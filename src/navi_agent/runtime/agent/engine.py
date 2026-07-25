@@ -473,21 +473,23 @@ class AgentRuntime:
 
         def finish_cancelled(iteration: int) -> RuntimeResult:
             reason = cancellation_token.reason or "user_requested"
-            self._session_store.append(
-                session,
-                Message(role="assistant", content=_CANCELLED_RESPONSE),
-            )
+            superseded = reason == "user_steer"
+            if not superseded:
+                self._session_store.append(
+                    session,
+                    Message(role="assistant", content=_CANCELLED_RESPONSE),
+                )
             result = RuntimeResult(
                 session_id=session.session_id,
-                status="cancelled",
-                final_response=_CANCELLED_RESPONSE,
+                status="superseded" if superseded else "cancelled",
+                final_response="" if superseded else _CANCELLED_RESPONSE,
                 run_id=run_id,
                 messages=self._session_store.snapshot(session),
                 tool_results=tool_results,
             )
             error_info: dict[str, object] = {
                 "error_category": "cancelled",
-                "error_type": "RunCancelled",
+                "error_type": "RunSuperseded" if superseded else "RunCancelled",
                 "error_message": reason,
                 "retryable": False,
                 "http_status": None,
@@ -496,7 +498,7 @@ class AgentRuntime:
             publish_event(
                 kind="observation",
                 source="runtime",
-                name="runtime.cancelled",
+                name="runtime.superseded" if superseded else "runtime.cancelled",
                 iteration=iteration or None,
                 payload={"status": result.status, "reason": reason},
             )

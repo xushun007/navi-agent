@@ -68,6 +68,34 @@ class SessionTaskSchedulerTests(unittest.TestCase):
         self.assertIsInstance(failed.exception(), ZeroDivisionError)
         scheduler.close()
 
+    def test_replace_pending_keeps_only_latest_session_task(self) -> None:
+        scheduler = SessionTaskScheduler(max_workers=1)
+        first_started = Event()
+        release_first = Event()
+        order: list[str] = []
+
+        def first() -> None:
+            first_started.set()
+            release_first.wait(1)
+            order.append("first")
+
+        scheduler.submit("session-1", first)
+        self.assertTrue(first_started.wait(1))
+        stale = scheduler.submit("session-1", lambda: order.append("stale"))
+        latest = scheduler.submit(
+            "session-1",
+            lambda: order.append("latest"),
+            replace_pending=True,
+        )
+
+        release_first.set()
+        self.assertTrue(scheduler.wait_for_idle(1))
+        scheduler.close()
+
+        self.assertTrue(stale.cancelled())
+        self.assertFalse(latest.cancelled())
+        self.assertEqual(order, ["first", "latest"])
+
     def test_rejects_new_tasks_after_close(self) -> None:
         scheduler = SessionTaskScheduler()
         scheduler.close()

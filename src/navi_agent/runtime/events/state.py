@@ -63,6 +63,8 @@ def _project_status(event: RuntimeEvent) -> str | None:
         return "awaiting_input"
     if event.name == "runtime.cancelled":
         return "cancelled"
+    if event.name == "runtime.superseded":
+        return "superseded"
     if event.name == "runtime.interaction_expired":
         return "expired"
     if event.name != "runtime.completed":
@@ -70,5 +72,6 @@ def _project_status(event: RuntimeEvent) -> str | None:
     return {
         "success": "completed",
         "cancelled": "cancelled",
+        "superseded": "superseded",
         "awaiting_input": "awaiting_input",
     }.get(str(event.metadata.get("status")), "failed")

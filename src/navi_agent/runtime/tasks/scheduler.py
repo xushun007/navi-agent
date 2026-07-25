@@ -33,7 +33,13 @@ class SessionTaskScheduler:
         self._active_sessions: set[str] = set()
         self._accepting = True
 
-    def submit(self, session_id: str, callback: Callable[[], T]) -> Future[T]:
+    def submit(
+        self,
+        session_id: str,
+        callback: Callable[[], T],
+        *,
+        replace_pending: bool = False,
+    ) -> Future[T]:
         if not session_id:
             raise ValueError("session_id must not be empty")
         future: Future[T] = Future()
@@ -43,6 +49,9 @@ class SessionTaskScheduler:
             if not self._accepting:
                 raise RuntimeError("scheduler is closed")
             queue = self._queues.setdefault(session_id, deque())
+            if replace_pending:
+                while queue:
+                    queue.pop().future.cancel()
             queue.append(cast(_PendingTask[object], task))
             if session_id not in self._active_sessions:
                 self._active_sessions.add(session_id)

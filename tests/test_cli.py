@@ -1119,8 +1119,8 @@ class CliTests(unittest.TestCase):
                     release_first.wait(timeout=2)
                     return RuntimeResult(
                         session_id=request.session_id,
-                        status="cancelled",
-                        final_response="cancelled",
+                        status="superseded",
+                        final_response="",
                     )
                 second_completed.set()
                 return RuntimeResult(
@@ -1143,7 +1143,7 @@ class CliTests(unittest.TestCase):
             def run(self, submit, *, on_approval=None, first_message=None):
                 submit(first_message)
                 assert first_started.wait(timeout=2)
-                submit("/steer use the new plan")
+                submit("use the new plan")
                 assert second_completed.wait(timeout=2)
 
             def set_busy(self, busy):
@@ -1180,6 +1180,7 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(app.cancel_calls, [("s1", "user_steer")])
         self.assertIn("Steering current task…", prompt.notices)
+        self.assertEqual(prompt.responses, ["steered"])
 
     def test_persistent_interactive_stops_active_run(self) -> None:
         from threading import Event

@@ -49,6 +49,7 @@ class RunStateTrackerTests(unittest.TestCase):
         cases = [
             ("runtime.resumed", {}, "resumed"),
             ("runtime.cancelled", {"reason": "user_stop"}, "cancelled"),
+            ("runtime.superseded", {"reason": "user_steer"}, "superseded"),
             ("runtime.completed", {"status": "failed"}, "failed"),
             ("runtime.interaction_expired", {"interaction_id": "i1"}, "expired"),
         ]

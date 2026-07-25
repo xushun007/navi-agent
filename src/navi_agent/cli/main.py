@@ -1751,7 +1751,8 @@ def _run_persistent_interactive(
                     ),
                     event_subscribers=[UiEventEmitter(prompt_session)],
                 )
-                prompt_session.complete_response(result.final_response)
+                if result.status != "superseded":
+                    prompt_session.complete_response(result.final_response)
             except Exception as exc:
                 prompt_session.complete_response(f"Task failed: {exc}")
 

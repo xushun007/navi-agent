@@ -30,6 +30,7 @@ class FakeApp:
         self.emit_model_delta = emit_model_delta
         self.background_task_listener = None
         self.cancel_calls = []
+        self.active_session_ids = set()
         self.resolve_calls = []
         self.pending_interaction = None
 
@@ -40,6 +41,9 @@ class FakeApp:
     def cancel_session(self, session_id, *, reason="user_requested") -> bool:
         self.cancel_calls.append((session_id, reason))
         return True
+
+    def is_session_active(self, session_id) -> bool:
+        return session_id in self.active_session_ids
 
     def resolve_interaction(self, session_id, *, approved):
         self.resolve_calls.append((session_id, approved))
@@ -582,6 +586,7 @@ class WeixinILinkTests(unittest.TestCase):
             text="/steer 改为只运行单元测试",
             context_token="ctx-steer",
         )
+        app.active_session_ids.add(message.session_id)
 
         gateway.submit_message(message)
         self.assertTrue(gateway.wait_for_idle(1))
@@ -590,6 +595,28 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertEqual(app.cancel_calls, [(message.session_id, "user_steer")])
         self.assertEqual(app.calls[0].message, "改为只运行单元测试")
         self.assertEqual(client.sent[-1]["text"], "agent reply")
+
+    def test_gateway_plain_message_steers_active_run_by_default(self) -> None:
+        app = FakeApp()
+        client = FakeClient()
+        gateway = ILinkGateway(app=app, client=client, account_id="account-1")
+        message = ILinkMessage(
+            message_id="m-steer-default",
+            from_user_id="user-1",
+            to_user_id="account-1",
+            chat_id="user-1",
+            chat_type="dm",
+            text="改为只运行单元测试",
+            context_token="ctx-steer",
+        )
+        app.active_session_ids.add(message.session_id)
+
+        gateway.submit_message(message)
+        self.assertTrue(gateway.wait_for_idle(1))
+        gateway.close()
+
+        self.assertEqual(app.cancel_calls, [(message.session_id, "user_steer")])
+        self.assertEqual(app.calls[0].message, "改为只运行单元测试")
 
     def test_gateway_approve_resolves_and_requeues_pending_tool(self) -> None:
         app = FakeApp()
