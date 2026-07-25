@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from ..models import ContextCompactionCheckpoint, ConversationState, Message, SessionMetadata
+from ..models import (
+    ContextCompactionCheckpoint,
+    ConversationState,
+    Message,
+    ModelResponse,
+    SessionMetadata,
+)
 
 
 class InMemorySessionStore:
@@ -26,6 +32,13 @@ class InMemorySessionStore:
     def snapshot(self, session: ConversationState) -> list[Message]:
         return list(session.messages)
 
+    def start_run(
+        self,
+        session: ConversationState,
+        metadata: SessionMetadata,
+    ) -> None:
+        return None
+
     def load_compaction_checkpoint(
         self,
         session: ConversationState,
@@ -38,3 +51,19 @@ class InMemorySessionStore:
         checkpoint: ContextCompactionCheckpoint,
     ) -> None:
         self._compaction_checkpoints[session.session_id] = checkpoint
+
+    def record_model_response(
+        self,
+        session: ConversationState,
+        response: ModelResponse,
+    ) -> None:
+        return None
+
+    def finalize(
+        self,
+        session: ConversationState,
+        *,
+        status: str,
+        end_reason: str | None = None,
+    ) -> None:
+        return None

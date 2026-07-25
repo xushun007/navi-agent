@@ -8,6 +8,8 @@ from pathlib import Path
 from navi_agent.runtime import (
     ContextCompactionCheckpoint,
     Message,
+    ModelResponse,
+    ModelUsage,
     SessionMetadata,
     SQLiteSessionStore,
     ToolCall,
@@ -229,6 +231,91 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertEqual(row["cwd"], "/workspace")
             self.assertEqual(row["message_count"], 1)
             self.assertEqual(store.get_lineage("child"), ["parent", "child"])
+
+    def test_store_accumulates_model_usage_and_finalizes_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            store = SQLiteSessionStore(db_path)
+            session = store.load(session_id="s1", user_id="u1")
+
+            store.record_model_response(
+                session,
+                ModelResponse(
+                    provider="openai-compatible",
+                    model="deepseek-v4-pro",
+                    usage=ModelUsage(
+                        input_tokens=100,
+                        output_tokens=20,
+                        cache_read_tokens=30,
+                        cache_write_tokens=4,
+                        reasoning_tokens=5,
+                        cost_usd=0.01,
+                    ),
+                ),
+            )
+            store.record_model_response(
+                session,
+                ModelResponse(
+                    provider="openai-compatible",
+                    model="deepseek-v4-pro",
+                    usage=ModelUsage(
+                        input_tokens=50,
+                        output_tokens=10,
+                        cost_usd=0.005,
+                    ),
+                ),
+            )
+            store.finalize(session, status="success")
+
+            with sqlite3.connect(db_path) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute(
+                    "SELECT * FROM sessions WHERE id = 's1'"
+                ).fetchone()
+
+            self.assertEqual(row["provider"], "openai-compatible")
+            self.assertEqual(row["model"], "deepseek-v4-pro")
+            self.assertEqual(row["input_tokens"], 150)
+            self.assertEqual(row["output_tokens"], 30)
+            self.assertEqual(row["cache_read_tokens"], 30)
+            self.assertEqual(row["cache_write_tokens"], 4)
+            self.assertEqual(row["reasoning_tokens"], 5)
+            self.assertAlmostEqual(row["estimated_cost_usd"], 0.015)
+            self.assertIsNotNone(row["ended_at"])
+            self.assertEqual(row["end_reason"], "success")
+
+    def test_append_round_trips_message_execution_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteSessionStore(Path(tmpdir) / "state.db")
+            session = store.load(session_id="s1", user_id="u1")
+            store.append(
+                session,
+                Message(
+                    role="assistant",
+                    content="done",
+                    provider="openai-compatible",
+                    model="test-model",
+                    token_count=12,
+                    finish_reason="stop",
+                ),
+            )
+            store.append(
+                session,
+                Message(
+                    role="tool",
+                    content="result",
+                    tool_call_id="tc1",
+                    tool_name="read_file",
+                ),
+            )
+
+            restored = store.snapshot(session)
+
+            self.assertEqual(restored[0].provider, "openai-compatible")
+            self.assertEqual(restored[0].model, "test-model")
+            self.assertEqual(restored[0].token_count, 12)
+            self.assertEqual(restored[0].finish_reason, "stop")
+            self.assertEqual(restored[1].tool_name, "read_file")
 
     def test_store_searches_english_and_chinese_messages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
