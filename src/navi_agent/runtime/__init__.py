@@ -16,7 +16,12 @@ from .agent.context import (
     LLMContextSummarizer,
 )
 from .agent.engine import AgentRuntime
-from .replay import OfflineReplayResult, OfflineRuntimeReplay, ReplayDivergence
+from .replay import (
+    OfflineReplayResult,
+    OfflineReplayService,
+    OfflineRuntimeReplay,
+    ReplayDivergence,
+)
 from .models import (
     ContextCompactionCheckpoint,
     ConversationState,
@@ -99,6 +104,7 @@ __all__ = [
     "StreamingModelTransport",
     "OpenAICompatibleTransport",
     "OfflineReplayResult",
+    "OfflineReplayService",
     "OfflineRuntimeReplay",
     "PromptBuilder",
     "PendingInteraction",
