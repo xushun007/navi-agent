@@ -3,7 +3,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from navi_agent.memory import FileMemoryStore, InMemoryMemoryStore, MemoryRecord
+from navi_agent.memory import (
+    FileMemoryStore,
+    InMemoryMemoryStore,
+    MemoryRecord,
+    MemoryWriteProvenance,
+)
 
 
 class InMemoryMemoryStoreTests(unittest.TestCase):
@@ -56,6 +61,32 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
 
         self.assertEqual(first.id, second.id)
         self.assertEqual(len(store.list_for_user("u1")), 1)
+        self.assertEqual(
+            [record.action for record in store.audit_for_user("u1")],
+            ["add", "conflict_resolved"],
+        )
+
+    def test_audits_memory_mutations_with_review_provenance(self) -> None:
+        store = InMemoryMemoryStore()
+        provenance = MemoryWriteProvenance(
+            source="background_review",
+            source_session_id="source-session",
+            source_trace_id="trace-1",
+            review_run_id="review-1",
+        )
+
+        record = store.add_for_user("u1", "Old note", provenance=provenance)
+        store.update_for_user("u1", record.id, "New note", provenance=provenance)
+        store.remove_for_user("u1", record.id, provenance=provenance)
+
+        audit = store.audit_for_user("u1")
+        self.assertEqual([item.action for item in audit], ["add", "update", "remove"])
+        self.assertEqual({item.review_run_id for item in audit}, {"review-1"})
+        self.assertEqual({item.source_trace_id for item in audit}, {"trace-1"})
+        self.assertEqual(audit[1].before_content, "Old note")
+        self.assertEqual(audit[1].after_content, "New note")
+        self.assertEqual(audit[2].before_content, "New note")
+        self.assertTrue(all(item.timestamp for item in audit))
 
     def test_search_keeps_preferences_and_selects_relevant_facts(self) -> None:
         store = InMemoryMemoryStore()
@@ -161,6 +192,32 @@ class FileMemoryStoreTests(unittest.TestCase):
 
         self.assertEqual(first.id, second.id)
         self.assertEqual(len(records), 1)
+
+    def test_persists_append_only_mutation_audit(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            store = FileMemoryStore(root)
+            provenance = MemoryWriteProvenance(
+                source="background_review",
+                source_session_id="source-session",
+                source_trace_id="trace-1",
+                review_run_id="review-1",
+            )
+
+            record = store.add_for_user("u1", "Old note", provenance=provenance)
+            store.add_for_user("u1", " Old   note ", provenance=provenance)
+            store.update_for_user("u1", record.id, "New note", provenance=provenance)
+            store.remove_for_user("u1", record.id, provenance=provenance)
+            audit = FileMemoryStore(root).audit_for_user("u1")
+
+        self.assertEqual(
+            [item.action for item in audit],
+            ["add", "conflict_resolved", "update", "remove"],
+        )
+        self.assertEqual({item.review_run_id for item in audit}, {"review-1"})
+        self.assertEqual({item.source_session_id for item in audit}, {"source-session"})
+        self.assertEqual(audit[2].before_content, "Old note")
+        self.assertEqual(audit[2].after_content, "New note")
 
     def test_memory_write_does_not_leave_temp_files(self) -> None:
         with TemporaryDirectory() as tmpdir:

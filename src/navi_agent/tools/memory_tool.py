@@ -2,15 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from navi_agent.memory import MemoryStore
+from navi_agent.memory import MemoryStore, MemoryWriteProvenance
 from navi_agent.tooling import ToolContext, ToolResult
 
 from .base import BaseTool
 
 
 class MemoryTool(BaseTool):
-    def __init__(self, memory_store: MemoryStore) -> None:
+    def __init__(
+        self,
+        memory_store: MemoryStore,
+        *,
+        provenance: MemoryWriteProvenance | None = None,
+    ) -> None:
         self._memory_store = memory_store
+        self._provenance = provenance
 
     @property
     def name(self) -> str:
@@ -37,6 +43,11 @@ class MemoryTool(BaseTool):
         if context is None:
             raise ValueError("Memory tool requires tool context")
         action = str(kwargs["action"])
+        provenance = self._provenance or MemoryWriteProvenance(
+            source="assistant_tool",
+            source_session_id=context.session_id,
+            source_trace_id=context.run_id or "",
+        )
         if action == "add":
             kind = str(kwargs.get("kind", "fact")).strip().lower()
             if kind not in {"fact", "preference", "task"}:
@@ -56,8 +67,7 @@ class MemoryTool(BaseTool):
                     content,
                     kind=kind,
                     target=target,
-                    source=str(kwargs.get("source") or "assistant_tool"),
-                    source_session_id=context.session_id,
+                    provenance=provenance,
                 )
             except ValueError as error:
                 return ToolResult.error(name=self.name, content=f"memory_error: {error}")
@@ -66,6 +76,8 @@ class MemoryTool(BaseTool):
                 content="memory_stored",
                 structured_content={
                     "user_id": record.user_id,
+                    "id": record.id,
+                    "action": "add",
                     "kind": record.kind,
                     "target": record.target,
                     "source": record.source,
@@ -107,7 +119,12 @@ class MemoryTool(BaseTool):
             if not content:
                 return ToolResult.error(name=self.name, content="memory_error: content is required for update")
             try:
-                record = self._memory_store.update_for_user(context.user_id, record_id, content)
+                record = self._memory_store.update_for_user(
+                    context.user_id,
+                    record_id,
+                    content,
+                    provenance=provenance,
+                )
             except ValueError as error:
                 return ToolResult.error(name=self.name, content=f"memory_error: {error}")
             if record is None:
@@ -120,6 +137,7 @@ class MemoryTool(BaseTool):
                 content="memory_updated",
                 structured_content={
                     "id": record.id,
+                    "action": "update",
                     "kind": record.kind,
                     "target": record.target,
                     "content": record.content,
@@ -129,7 +147,11 @@ class MemoryTool(BaseTool):
             record_id = str(kwargs.get("id", "")).strip()
             if not record_id:
                 return ToolResult.error(name=self.name, content="memory_error: id is required for remove")
-            if not self._memory_store.remove_for_user(context.user_id, record_id):
+            if not self._memory_store.remove_for_user(
+                context.user_id,
+                record_id,
+                provenance=provenance,
+            ):
                 return ToolResult.error(
                     name=self.name,
                     content=f"memory_error: item not found: {record_id}",
@@ -137,7 +159,7 @@ class MemoryTool(BaseTool):
             return ToolResult.ok(
                 name=self.name,
                 content="memory_removed",
-                structured_content={"id": record_id},
+                structured_content={"id": record_id, "action": "remove"},
             )
         return ToolResult.error(
             name=self.name,
