@@ -287,13 +287,16 @@ class AgentRuntimeTests(unittest.TestCase):
         worker.join(1)
 
         self.assertFalse(worker.is_alive())
-        self.assertEqual(results[0].status, "cancelled")
-        self.assertEqual(results[0].final_response, "当前任务已停止。")
+        self.assertEqual(results[0].status, "superseded")
+        self.assertEqual(results[0].final_response, "")
         self.assertFalse(any(message.content == "stale response" for message in results[0].messages))
-        self.assertEqual(trace_store.traces[0].status, "cancelled")
+        self.assertFalse(
+            any(message.content == "当前任务已停止。" for message in results[0].messages)
+        )
+        self.assertEqual(trace_store.traces[0].status, "superseded")
         self.assertEqual(
             [event.name for event in observer.events[-2:]],
-            ["runtime.cancelled", "runtime.completed"],
+            ["runtime.superseded", "runtime.completed"],
         )
 
     def test_runtime_stops_after_tool_requests_user_input(self) -> None:

@@ -161,6 +161,9 @@ class ApplicationService:
     def cancel_session(self, session_id: str, *, reason: str = "user_requested") -> bool:
         return self._active_runs.cancel(session_id, reason)
 
+    def is_session_active(self, session_id: str) -> bool:
+        return self._active_runs.is_active(session_id)
+
     def get_run_state(self, session_id: str) -> RuntimeRunState | None:
         return self._run_states.get(session_id)
 
@@ -447,7 +450,7 @@ class ApplicationService:
         auto_propose_eval_case: bool,
         auto_propose_skill: bool,
     ) -> None:
-        if result.status in {"cancelled", "awaiting_input"}:
+        if result.status in {"cancelled", "superseded", "awaiting_input"}:
             return
         if self._candidate_store is None:
             return

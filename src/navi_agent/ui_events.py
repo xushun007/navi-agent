@@ -228,7 +228,11 @@ class UiEventMapper:
                 severity="info",
             )
         if event.name == "runtime.completed" and event.metadata.get("status") != "success":
-            if event.metadata.get("status") in {"cancelled", "awaiting_input"}:
+            if event.metadata.get("status") in {
+                "cancelled",
+                "superseded",
+                "awaiting_input",
+            }:
                 return None
             return UiEvent(
                 event_id=event.event_id,

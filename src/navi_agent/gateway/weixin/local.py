@@ -195,12 +195,16 @@ class ILinkGateway:
             action = "已批准" if approved else "已拒绝"
             instruction = f"用户{action}工具 {interaction.tool_name} 的授权请求。"
             message = replace(message, text=instruction)
-        if command == "/steer" and separator and argument.strip():
-            self.app.cancel_session(message.session_id, reason="user_steer")
+        explicit_steer = command == "/steer" and separator and argument.strip()
+        if explicit_steer:
             message = replace(message, text=argument.strip())
+        active = self.app.is_session_active(message.session_id)
+        if active:
+            self.app.cancel_session(message.session_id, reason="user_steer")
         self._request_scheduler.submit(
             message.session_id,
             lambda: self._handle_accepted_message_safely(message),
+            replace_pending=active,
         )
 
     def handle_message(self, message: ILinkMessage) -> None:
