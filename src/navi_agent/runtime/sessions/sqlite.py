@@ -13,6 +13,7 @@ from ..models import (
     ContextCompactionCheckpoint,
     ConversationState,
     Message,
+    ModelResponse,
     SessionMetadata,
     SessionSearchHit,
     ToolCall,
@@ -102,9 +103,14 @@ class SQLiteSessionStore:
                     reasoning_content,
                     tool_call_id,
                     tool_calls,
+                    tool_name,
+                    provider,
+                    model,
+                    token_count,
+                    finish_reason,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session.session_id,
@@ -113,6 +119,11 @@ class SQLiteSessionStore:
                     message.reasoning_content,
                     message.tool_call_id,
                     self._serialize_tool_calls(message.tool_calls),
+                    message.tool_name,
+                    message.provider,
+                    message.model,
+                    message.token_count,
+                    message.finish_reason,
                     time.time(),
                 ),
             )
@@ -133,7 +144,17 @@ class SQLiteSessionStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT role, content, reasoning_content, tool_call_id, tool_calls
+                SELECT
+                    role,
+                    content,
+                    reasoning_content,
+                    tool_call_id,
+                    tool_calls,
+                    tool_name,
+                    provider,
+                    model,
+                    token_count,
+                    finish_reason
                 FROM messages
                 WHERE session_id = ?
                 ORDER BY id ASC
@@ -148,9 +169,45 @@ class SQLiteSessionStore:
                 reasoning_content=row["reasoning_content"],
                 tool_call_id=row["tool_call_id"],
                 tool_calls=self._deserialize_tool_calls(row["tool_calls"]),
+                tool_name=row["tool_name"],
+                provider=row["provider"],
+                model=row["model"],
+                token_count=row["token_count"],
+                finish_reason=row["finish_reason"],
             )
             for row in rows
         ]
+
+    def start_run(
+        self,
+        session: ConversationState,
+        metadata: SessionMetadata,
+    ) -> None:
+        self._execute_write(
+            lambda connection: connection.execute(
+                """
+                UPDATE sessions
+                SET source = ?,
+                    agent_role = ?,
+                    parent_session_id = ?,
+                    model = COALESCE(?, model),
+                    cwd = COALESCE(?, cwd),
+                    updated_at = ?,
+                    ended_at = NULL,
+                    end_reason = NULL
+                WHERE id = ?
+                """,
+                (
+                    metadata.source,
+                    metadata.agent_role,
+                    metadata.parent_session_id,
+                    metadata.model,
+                    metadata.cwd,
+                    time.time(),
+                    session.session_id,
+                ),
+            )
+        )
 
     def load_compaction_checkpoint(
         self,
@@ -244,6 +301,73 @@ class SQLiteSessionStore:
             )
 
         self._execute_write(save)
+
+    def record_model_response(
+        self,
+        session: ConversationState,
+        response: ModelResponse,
+    ) -> None:
+        usage = response.usage
+        cost = usage.cost_usd
+        self._execute_write(
+            lambda connection: connection.execute(
+                """
+                UPDATE sessions
+                SET provider = COALESCE(?, provider),
+                    model = COALESCE(?, model),
+                    input_tokens = input_tokens + ?,
+                    output_tokens = output_tokens + ?,
+                    cache_read_tokens = cache_read_tokens + ?,
+                    cache_write_tokens = cache_write_tokens + ?,
+                    reasoning_tokens = reasoning_tokens + ?,
+                    estimated_cost_usd = CASE
+                        WHEN ? IS NULL THEN estimated_cost_usd
+                        ELSE COALESCE(estimated_cost_usd, 0) + ?
+                    END,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    response.provider,
+                    response.model,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    usage.cache_read_tokens,
+                    usage.cache_write_tokens,
+                    usage.reasoning_tokens,
+                    cost,
+                    cost,
+                    time.time(),
+                    session.session_id,
+                ),
+            )
+        )
+
+    def finalize(
+        self,
+        session: ConversationState,
+        *,
+        status: str,
+        end_reason: str | None = None,
+    ) -> None:
+        completed_at = time.time()
+        self._execute_write(
+            lambda connection: connection.execute(
+                """
+                UPDATE sessions
+                SET updated_at = ?,
+                    ended_at = ?,
+                    end_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    completed_at,
+                    completed_at,
+                    end_reason or status,
+                    session.session_id,
+                ),
+            )
+        )
 
     def get_lineage(self, session_id: str) -> list[str]:
         with self._connect() as connection:

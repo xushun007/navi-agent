@@ -273,17 +273,19 @@ class AgentRuntime:
                 "started_at": run_started_at,
             },
         )
+        session_metadata = SessionMetadata(
+            source=source,
+            agent_role=self._agent_role,
+            parent_session_id=self._parent_session_id,
+            model=self._model,
+            cwd=self._cwd,
+        )
         session = self._session_store.load(
             session_id=session_id,
             user_id=user_id,
-            metadata=SessionMetadata(
-                source=source,
-                agent_role=self._agent_role,
-                parent_session_id=self._parent_session_id,
-                model=self._model,
-                cwd=self._cwd,
-            ),
+            metadata=session_metadata,
         )
+        self._session_store.start_run(session, session_metadata)
 
         def inject_background_notifications(iteration: int) -> None:
             if self._background_task_manager is None:
@@ -394,6 +396,11 @@ class AgentRuntime:
                     error_info=error_info,
                 ),
             )
+            self._session_store.finalize(
+                session,
+                status=result.status,
+                end_reason=reason,
+            )
             return result
 
         def finish_waiting(iteration: int, pending_result) -> RuntimeResult:
@@ -428,6 +435,7 @@ class AgentRuntime:
                 iteration=iteration,
                 payload=completion_payload(result, attempt_count=iteration),
             )
+            self._session_store.finalize(session, status=result.status)
             return result
 
         def record_tool_result(
@@ -477,6 +485,7 @@ class AgentRuntime:
                         role="tool",
                         content=self._render_tool_message(tool_result),
                         tool_call_id=tool_result.tool_call_id,
+                        tool_name=tool_result.name,
                     ),
                 )
 
@@ -682,6 +691,11 @@ class AgentRuntime:
                         error_info=error_info,
                     ),
                 )
+                self._session_store.finalize(
+                    session,
+                    status=result.status,
+                    end_reason=str(error_info["error_type"]),
+                )
                 return result
             model_payload = {
                 "content": response.content,
@@ -708,6 +722,7 @@ class AgentRuntime:
                     for tool_call in response.tool_calls
                 ],
             }
+            self._session_store.record_model_response(session, response)
             if cancellation_token.is_cancelled:
                 publish_event(
                     kind="observation",
@@ -741,6 +756,10 @@ class AgentRuntime:
                 content=response.content,
                 reasoning_content=response.reasoning_content,
                 tool_calls=response.tool_calls,
+                provider=response.provider,
+                model=response.model,
+                token_count=response.usage.output_tokens,
+                finish_reason=response.finish_reason,
             )
             self._session_store.append(session, assistant_message)
 
@@ -763,6 +782,7 @@ class AgentRuntime:
                     iteration=iteration_number,
                     payload=completion_payload(result, attempt_count=iteration_number),
                 )
+                self._session_store.finalize(session, status=result.status)
                 return result
 
             def emit_tool_output(payload: dict[str, object]) -> None:
@@ -862,6 +882,11 @@ class AgentRuntime:
                 attempt_count=self._max_iterations,
                 error_info=error_info,
             ),
+        )
+        self._session_store.finalize(
+            session,
+            status=result.status,
+            end_reason=str(error_info["error_type"]),
         )
         return result
 

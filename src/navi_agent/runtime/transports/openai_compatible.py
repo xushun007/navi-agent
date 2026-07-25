@@ -91,6 +91,7 @@ class OpenAICompatibleTransport:
                 tool_call_parts: dict[int, dict[str, str]] = {}
                 model = self._model
                 usage = ModelUsage()
+                finish_reason = None
 
                 for chunk in stream:
                     self._raise_if_cancelled(request)
@@ -101,6 +102,9 @@ class OpenAICompatibleTransport:
                         usage = self._parse_usage(chunk_usage)
                     choices = getattr(chunk, "choices", None) or []
                     for choice in choices:
+                        choice_finish_reason = getattr(choice, "finish_reason", None)
+                        if choice_finish_reason is not None:
+                            finish_reason = str(choice_finish_reason)
                         delta = getattr(choice, "delta", None)
                         if delta is None:
                             continue
@@ -143,6 +147,7 @@ class OpenAICompatibleTransport:
                     ],
                     provider="openai-compatible",
                     model=model,
+                    finish_reason=finish_reason,
                     usage=usage,
                 )
             except RunCancelledError:
@@ -194,6 +199,11 @@ class OpenAICompatibleTransport:
             tool_calls=tool_calls,
             provider="openai-compatible",
             model=str(getattr(response, "model", None) or self._model),
+            finish_reason=(
+                str(choice.finish_reason)
+                if getattr(choice, "finish_reason", None) is not None
+                else None
+            ),
             usage=self._parse_usage(getattr(response, "usage", None)),
         )
 

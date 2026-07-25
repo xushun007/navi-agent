@@ -21,6 +21,11 @@ class Message:
     reasoning_content: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    tool_name: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    token_count: int | None = None
+    finish_reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -40,6 +45,7 @@ class ModelResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
     provider: str | None = None
     model: str | None = None
+    finish_reason: str | None = None
     usage: ModelUsage = field(default_factory=ModelUsage)
 
 

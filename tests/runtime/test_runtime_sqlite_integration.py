@@ -1,8 +1,14 @@
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
-from navi_agent.runtime import AgentRuntime, ModelResponse, SQLiteSessionStore
+from navi_agent.runtime import (
+    AgentRuntime,
+    ModelResponse,
+    ModelUsage,
+    SQLiteSessionStore,
+)
 
 
 class FakeTransport:
@@ -18,7 +24,21 @@ class RuntimeSQLiteIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = SQLiteSessionStore(Path(tmpdir) / "state.db")
             runtime = AgentRuntime(
-                transport=FakeTransport([ModelResponse(content="done")]),
+                transport=FakeTransport(
+                    [
+                        ModelResponse(
+                            content="done",
+                            provider="openai-compatible",
+                            model="test-model",
+                            finish_reason="stop",
+                            usage=ModelUsage(
+                                input_tokens=40,
+                                output_tokens=8,
+                                cost_usd=0.002,
+                            ),
+                        )
+                    ]
+                ),
                 session_store=store,
             )
 
@@ -37,6 +57,24 @@ class RuntimeSQLiteIntegrationTests(unittest.TestCase):
                 ["system", "user", "assistant"],
             )
             self.assertEqual(restored.messages[-1].content, "done")
+            self.assertEqual(restored.messages[-1].provider, "openai-compatible")
+            self.assertEqual(restored.messages[-1].model, "test-model")
+            self.assertEqual(restored.messages[-1].token_count, 8)
+            self.assertEqual(restored.messages[-1].finish_reason, "stop")
+
+            with sqlite3.connect(Path(tmpdir) / "state.db") as connection:
+                connection.row_factory = sqlite3.Row
+                session_row = connection.execute(
+                    "SELECT * FROM sessions WHERE id = 's1'"
+                ).fetchone()
+
+            self.assertEqual(session_row["provider"], "openai-compatible")
+            self.assertEqual(session_row["model"], "test-model")
+            self.assertEqual(session_row["input_tokens"], 40)
+            self.assertEqual(session_row["output_tokens"], 8)
+            self.assertAlmostEqual(session_row["estimated_cost_usd"], 0.002)
+            self.assertEqual(session_row["end_reason"], "success")
+            self.assertIsNotNone(session_row["ended_at"])
 
 
 if __name__ == "__main__":
