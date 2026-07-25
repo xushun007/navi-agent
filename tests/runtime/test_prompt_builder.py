@@ -37,6 +37,37 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn("[Allowed Directories]", messages[0].content)
         self.assertIn(str(Path(added).resolve()), messages[0].content)
 
+    def test_current_workspace_is_authoritative_over_stale_memory(self) -> None:
+        with TemporaryDirectory() as current_workspace:
+            stale_workspace = "/tmp/navi-demo1"
+            memory = InMemoryMemoryStore(
+                records=[
+                    MemoryRecord(
+                        id="m1",
+                        user_id="u1",
+                        kind="fact",
+                        content=f"Workspace root is {stale_workspace}",
+                    )
+                ]
+            )
+            builder = PromptBuilder(
+                memory_store=memory,
+                project_context_root=Path(current_workspace),
+            )
+            session = ConversationState(session_id="s1", user_id="u1")
+
+            prompt = builder.build_initial_messages(
+                session,
+                "What is the workspace root?",
+            )[0].content
+
+        current_root = str(Path(current_workspace).resolve())
+        self.assertIn("[Workspace]", prompt)
+        self.assertIn(f"Primary workspace: {current_root}", prompt)
+        self.assertIn("authoritative for the current session", prompt)
+        self.assertIn(stale_workspace, prompt)
+        self.assertLess(prompt.index(current_root), prompt.index(stale_workspace))
+
     def test_new_session_with_memory(self) -> None:
         self.memory.add_for_user("u1", "Likes Python")
         session = ConversationState(session_id="s1", user_id="u1")
