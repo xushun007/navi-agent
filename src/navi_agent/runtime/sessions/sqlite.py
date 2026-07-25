@@ -9,6 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
 
+from navi_agent.tooling import ToolArtifact, ToolResult
+
 from ..models import (
     ContextCompactionCheckpoint,
     ConversationState,
@@ -284,6 +286,128 @@ class SQLiteSessionStore:
             trajectory_complete=bool(row["trajectory_complete"]),
             failure_reason=row["failure_reason"],
             completion_reason=row["completion_reason"],
+        )
+
+    def start_tool_call(
+        self,
+        session: ConversationState,
+        run_id: str,
+        tool_call: ToolCall,
+    ) -> None:
+        now = time.time()
+        self._execute_write(
+            lambda connection: connection.execute(
+                """
+                INSERT INTO tool_executions (
+                    run_id,
+                    tool_call_id,
+                    session_id,
+                    tool_name,
+                    arguments_json,
+                    status,
+                    started_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'planned', ?, ?)
+                ON CONFLICT(run_id, tool_call_id) DO NOTHING
+                """,
+                (
+                    run_id,
+                    tool_call.id,
+                    session.session_id,
+                    tool_call.name,
+                    json.dumps(tool_call.arguments, default=str),
+                    now,
+                    now,
+                ),
+            )
+        )
+
+    def get_tool_result(self, run_id: str, tool_call_id: str) -> ToolResult | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT result_json
+                FROM tool_executions
+                WHERE run_id = ?
+                  AND tool_call_id = ?
+                  AND status = 'completed'
+                """,
+                (run_id, tool_call_id),
+            ).fetchone()
+        if row is None or row["result_json"] is None:
+            return None
+        payload = json.loads(str(row["result_json"]))
+        return ToolResult(
+            tool_call_id=tool_call_id,
+            name=str(payload["name"]),
+            content=str(payload["content"]),
+            status=str(payload["status"]),
+            structured_content=dict(payload.get("structured_content") or {}),
+            metadata=dict(payload.get("metadata") or {}),
+            artifacts=[
+                ToolArtifact(
+                    kind=str(item["kind"]),
+                    uri=str(item["uri"]),
+                    title=item.get("title"),
+                    mime_type=item.get("mime_type"),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+                for item in payload.get("artifacts") or []
+            ],
+        )
+
+    def complete_tool_call(
+        self,
+        session: ConversationState,
+        run_id: str,
+        result: ToolResult,
+    ) -> None:
+        now = time.time()
+        execution_status = (
+            "awaiting_input"
+            if result.structured_content.get("interaction_pending") is True
+            else "completed"
+        )
+        payload = {
+            "name": result.name,
+            "content": result.content,
+            "status": result.status,
+            "structured_content": result.structured_content,
+            "metadata": result.metadata,
+            "artifacts": [
+                {
+                    "kind": artifact.kind,
+                    "uri": artifact.uri,
+                    "title": artifact.title,
+                    "mime_type": artifact.mime_type,
+                    "metadata": artifact.metadata,
+                }
+                for artifact in result.artifacts
+            ],
+        }
+        self._execute_write(
+            lambda connection: connection.execute(
+                """
+                UPDATE tool_executions
+                SET status = ?,
+                    result_json = ?,
+                    updated_at = ?,
+                    completed_at = ?
+                WHERE run_id = ?
+                  AND tool_call_id = ?
+                  AND session_id = ?
+                """,
+                (
+                    execution_status,
+                    json.dumps(payload, default=str),
+                    now,
+                    now if execution_status == "completed" else None,
+                    run_id,
+                    result.tool_call_id,
+                    session.session_id,
+                ),
+            )
         )
 
     def load_compaction_checkpoint(

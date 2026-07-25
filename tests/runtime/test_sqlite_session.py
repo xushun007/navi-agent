@@ -12,7 +12,9 @@ from navi_agent.runtime import (
     ModelUsage,
     SessionMetadata,
     SQLiteSessionStore,
+    ToolArtifact,
     ToolCall,
+    ToolResult,
 )
 from navi_agent.runtime.models import ConversationState
 
@@ -90,6 +92,10 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                         "PRAGMA table_info(context_compaction_checkpoints)"
                     )
                 }
+                tool_execution_columns = {
+                    row[1]
+                    for row in connection.execute("PRAGMA table_info(tool_executions)")
+                }
             self.assertTrue(
                 {
                     "source",
@@ -125,6 +131,44 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                     "model",
                 }.issubset(checkpoint_columns)
             )
+            self.assertTrue(
+                {
+                    "run_id",
+                    "tool_call_id",
+                    "session_id",
+                    "tool_name",
+                    "arguments_json",
+                    "status",
+                    "result_json",
+                }.issubset(tool_execution_columns)
+            )
+
+    def test_tool_execution_checkpoint_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            store = SQLiteSessionStore(db_path)
+            session = store.load(session_id="s1", user_id="u1")
+            store.start_run(session, "run-1", SessionMetadata())
+            call = ToolCall(id="tc1", name="write_file", arguments={"path": "a.txt"})
+            result = ToolResult.ok(
+                name="write_file",
+                content="written",
+                structured_content={"path": "a.txt"},
+                metadata={"duration_ms": 4},
+                artifacts=[ToolArtifact(kind="file", uri="a.txt")],
+            ).bind("tc1")
+
+            store.start_tool_call(session, "run-1", call)
+            store.complete_tool_call(session, "run-1", result)
+
+            restored = SQLiteSessionStore(db_path).get_tool_result("run-1", "tc1")
+            self.assertIsNotNone(restored)
+            assert restored is not None
+            self.assertEqual(restored.name, "write_file")
+            self.assertEqual(restored.content, "written")
+            self.assertEqual(restored.structured_content, {"path": "a.txt"})
+            self.assertEqual(restored.metadata, {"duration_ms": 4})
+            self.assertEqual(restored.artifacts[0].uri, "a.txt")
 
     def test_compaction_checkpoint_round_trip_keeps_raw_messages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

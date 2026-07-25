@@ -86,6 +86,21 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS tool_executions (
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        tool_call_id TEXT NOT NULL,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        tool_name TEXT NOT NULL,
+        arguments_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        result_json TEXT,
+        started_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        completed_at REAL,
+        PRIMARY KEY (run_id, tool_call_id)
+    )
+    """,
+    """
     CREATE INDEX IF NOT EXISTS idx_messages_session
     ON messages(session_id, id)
     """,
@@ -95,6 +110,7 @@ SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)",
     "CREATE INDEX IF NOT EXISTS idx_runs_session_started ON runs(session_id, started_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_runs_status_updated ON runs(status, updated_at)",
+    "CREATE INDEX IF NOT EXISTS idx_tool_executions_session ON tool_executions(session_id, started_at)",
     "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content)",
     "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts_trigram USING fts5(content, tokenize='trigram')",
     """
