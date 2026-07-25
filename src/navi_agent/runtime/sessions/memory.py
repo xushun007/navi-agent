@@ -47,6 +47,15 @@ class InMemorySessionStore:
         import time
 
         now = time.time()
+        for existing_run in self._runs.values():
+            if (
+                existing_run.session_id == session.session_id
+                and existing_run.status in {"started", "running"}
+            ):
+                existing_run.status = "interrupted"
+                existing_run.updated_at = now
+                existing_run.completed_at = now
+                existing_run.completion_reason = "superseded_by_new_run"
         self._runs[run_id] = RuntimeRunRecord(
             run_id=run_id,
             session_id=session.session_id,

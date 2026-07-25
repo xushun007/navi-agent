@@ -191,13 +191,23 @@ class SQLiteSessionStore:
     ) -> None:
         def start(connection: sqlite3.Connection) -> None:
             now = time.time()
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = 'interrupted',
+                    updated_at = ?,
+                    completed_at = ?,
+                    completion_reason = 'superseded_by_new_run'
+                WHERE session_id = ?
+                  AND status IN ('started', 'running')
+                """,
+                (now, now, session.session_id),
+            )
             start_boundary = connection.execute(
                 """
                 SELECT COALESCE(MAX(id), 0) + 1 AS next_message_id
                 FROM messages
-                WHERE session_id = ?
-                """,
-                (session.session_id,),
+                """
             ).fetchone()
             connection.execute(
                 """
@@ -1050,7 +1060,6 @@ class SQLiteSessionStore:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
         self._execute_write(self._create_schema)
-        self._execute_write(self._mark_interrupted_runs)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._db_path, timeout=self._BUSY_TIMEOUT_MS / 1000)
@@ -1064,21 +1073,6 @@ class SQLiteSessionStore:
     def _create_schema(connection: sqlite3.Connection) -> None:
         for statement in SCHEMA_STATEMENTS:
             connection.execute(statement)
-
-    @staticmethod
-    def _mark_interrupted_runs(connection: sqlite3.Connection) -> None:
-        now = time.time()
-        connection.execute(
-            """
-            UPDATE runs
-            SET status = 'interrupted',
-                updated_at = ?,
-                completed_at = ?,
-                completion_reason = 'process_restarted'
-            WHERE status IN ('started', 'running')
-            """,
-            (now, now),
-        )
 
     def _execute_write(self, operation: Callable[[sqlite3.Connection], T]) -> T:
         last_error: sqlite3.OperationalError | None = None

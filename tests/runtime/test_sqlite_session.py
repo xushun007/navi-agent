@@ -342,7 +342,7 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertIsNotNone(run.completed_at)
             self.assertEqual(run.completion_reason, "success")
 
-    def test_store_marks_unfinished_run_interrupted_on_restart(self) -> None:
+    def test_store_marks_previous_session_run_interrupted_when_next_run_starts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "state.db"
             store = SQLiteSessionStore(db_path)
@@ -350,13 +350,32 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             store.start_run(session, "run-1", SessionMetadata())
 
             restarted_store = SQLiteSessionStore(db_path)
+            restarted_store.start_run(session, "run-2", SessionMetadata())
 
             run = restarted_store.get_run("run-1")
             self.assertIsNotNone(run)
             assert run is not None
             self.assertEqual(run.status, "interrupted")
-            self.assertEqual(run.completion_reason, "process_restarted")
+            self.assertEqual(run.completion_reason, "superseded_by_new_run")
             self.assertIsNotNone(run.completed_at)
+
+    def test_run_message_boundary_uses_global_message_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteSessionStore(Path(tmpdir) / "state.db")
+            first = store.load(session_id="s1", user_id="u1")
+            second = store.load(session_id="s2", user_id="u1")
+            store.append(first, Message(role="user", content="first"))
+            store.append(second, Message(role="user", content="other session"))
+
+            store.start_run(first, "run-1", SessionMetadata())
+            store.append(first, Message(role="user", content="next"))
+            store.finalize(first, "run-1", status="success")
+
+            run = store.get_run("run-1")
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.start_message_id, 3)
+            self.assertEqual(run.end_message_id, 3)
 
     def test_append_round_trips_message_execution_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
