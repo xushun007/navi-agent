@@ -1,6 +1,6 @@
 import unittest
 
-from navi_agent.memory import InMemoryMemoryStore
+from navi_agent.memory import InMemoryMemoryStore, MemoryWriteProvenance
 from navi_agent.runtime import ToolContext
 from navi_agent.tools import MemoryTool
 
@@ -28,6 +28,8 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(add_result.structured_content["target"], "user")
         self.assertEqual(add_result.structured_content["source"], "assistant_tool")
         self.assertEqual(add_result.structured_content["source_session_id"], "s1")
+        self.assertEqual(add_result.structured_content["action"], "add")
+        self.assertTrue(add_result.structured_content["id"])
         self.assertIn("Likes short answers", list_result.content)
         self.assertIn("[preference]", list_result.content)
         self.assertEqual(list_result.structured_content["records"][0]["content"], "Likes short answers")
@@ -61,6 +63,30 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(update_result.structured_content["content"], "New note")
         self.assertEqual(remove_result.content, "memory_removed")
         self.assertEqual(store.list_for_user("u1"), [])
+
+    def test_uses_bound_review_provenance_for_all_mutations(self) -> None:
+        store = InMemoryMemoryStore()
+        tool = MemoryTool(
+            memory_store=store,
+            provenance=MemoryWriteProvenance(
+                source="background_review",
+                source_session_id="source-session",
+                source_trace_id="trace-1",
+                review_run_id="review-1",
+            ),
+        )
+        context = ToolContext(session_id="review-session", user_id="u1", iteration=1)
+
+        added = tool.invoke(context=context, action="add", content="Old note")
+        record_id = added.structured_content["id"]
+        tool.invoke(context=context, action="update", id=record_id, content="New note")
+        tool.invoke(context=context, action="remove", id=record_id)
+
+        audit = store.audit_for_user("u1")
+        self.assertEqual([item.action for item in audit], ["add", "update", "remove"])
+        self.assertEqual({item.source_session_id for item in audit}, {"source-session"})
+        self.assertEqual({item.source_trace_id for item in audit}, {"trace-1"})
+        self.assertEqual({item.review_run_id for item in audit}, {"review-1"})
 
     def test_rejects_prompt_injection_memory(self) -> None:
         store = InMemoryMemoryStore()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .models import MemoryRecord
+from .models import MemoryAuditRecord, MemoryRecord, MemoryWriteProvenance
 
 
 class MemoryStore(Protocol):
@@ -16,7 +16,23 @@ class MemoryStore(Protocol):
         target: str = "",
         source: str = "unknown",
         source_session_id: str = "",
+        *,
+        provenance: MemoryWriteProvenance | None = None,
     ) -> MemoryRecord: ...
     def get_for_user(self, user_id: str, record_id: str) -> MemoryRecord | None: ...
-    def update_for_user(self, user_id: str, record_id: str, content: str) -> MemoryRecord | None: ...
-    def remove_for_user(self, user_id: str, record_id: str) -> bool: ...
+    def update_for_user(
+        self,
+        user_id: str,
+        record_id: str,
+        content: str,
+        *,
+        provenance: MemoryWriteProvenance | None = None,
+    ) -> MemoryRecord | None: ...
+    def remove_for_user(
+        self,
+        user_id: str,
+        record_id: str,
+        *,
+        provenance: MemoryWriteProvenance | None = None,
+    ) -> bool: ...
+    def audit_for_user(self, user_id: str) -> list[MemoryAuditRecord]: ...
