@@ -100,6 +100,34 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
 
         self.assertEqual({record.id for record in records}, {preference.id, python_fact.id})
 
+    def test_recall_ranks_exact_overlap_and_recency_with_separate_groups(self) -> None:
+        store = InMemoryMemoryStore()
+        older_profile = store.add_for_user(
+            "u1",
+            "Prefers concise answers",
+            kind="preference",
+        )
+        newer_profile = store.add_for_user(
+            "u1",
+            "Prefers Python examples",
+            kind="preference",
+        )
+        store.add_for_user("u1", "Python project uses unittest")
+        recent_fact = store.add_for_user("u1", "Python project uses pytest")
+        exact_fact = store.add_for_user("u1", "Python project")
+
+        recall = store.recall_for_user(
+            "u1",
+            "Python project",
+            profile_limit=1,
+            relevant_limit=2,
+        )
+
+        self.assertEqual(recall.profile, [newer_profile])
+        self.assertEqual(recall.relevant[0], exact_fact)
+        self.assertEqual(recall.relevant[1], recent_fact)
+        self.assertNotIn(older_profile, recall.profile)
+
 
 class FileMemoryStoreTests(unittest.TestCase):
     def test_persists_records_to_memory_files(self) -> None:

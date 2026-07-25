@@ -35,3 +35,9 @@ class MemoryAuditRecord:
     review_run_id: str = ""
     before_content: str = ""
     after_content: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryRecall:
+    profile: list[MemoryRecord]
+    relevant: list[MemoryRecord]
