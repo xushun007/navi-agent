@@ -7,12 +7,15 @@ from pathlib import Path
 from navi_agent.app import ApplicationService
 from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
 from navi_agent.evolution import (
+    DefaultSkillDraftEvaluator,
     FileSkillStore,
     JsonlCandidateStore,
     JsonlEvalCaseStore,
     JsonlReviewRunStore,
     PromptOverlayStore,
     ReviewAgentService,
+    SkillGovernanceService,
+    SkillPromotionGate,
     SkillProvenanceStore,
     SkillUsageStore,
 )
@@ -159,6 +162,13 @@ def build_application(
     config = load_config()
     review_model_settings = model_settings or ModelSettings.from_sources(config)
     skill_store = FileSkillStore(get_skills_dir())
+    skill_evaluator = DefaultSkillDraftEvaluator()
+    skill_governance = SkillGovernanceService(
+        skill_store,
+        gate=SkillPromotionGate(
+            required_suites=("draft_validation", "content_regression"),
+        ),
+    )
     memory_store = FileMemoryStore(get_memories_dir())
     interaction_store = interaction_store or JsonPendingInteractionStore(
         get_pending_interactions_path()
@@ -191,6 +201,8 @@ def build_application(
         eval_case_store=JsonlEvalCaseStore(get_eval_case_store_path()),
         prompt_overlay_store=prompt_overlay_store,
         skill_store=skill_store,
+        skill_governance=skill_governance,
+        skill_evaluator=skill_evaluator,
         skill_provenance_store=SkillProvenanceStore(get_skills_dir()),
         skill_usage_store=SkillUsageStore(get_skills_dir()),
         memory_store=memory_store,
@@ -199,6 +211,8 @@ def build_application(
             transport=build_transport(review_model_settings),
             memory_store=memory_store,
             skill_store=skill_store,
+            skill_governance=skill_governance,
+            skill_evaluator=skill_evaluator,
         ),
         interaction_store=interaction_store,
     )

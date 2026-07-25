@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from navi_agent.evolution.skills.governance import (
+    SkillDraftProvenance,
+    SkillGovernanceService,
+)
 from navi_agent.evolution.skills.store import FileSkillStore
 from navi_agent.tooling import ToolContext, ToolResult
 
@@ -12,8 +16,16 @@ _MAX_ATTACHMENT_CHARS = 200_000
 
 
 class SkillManageTool(BaseTool):
-    def __init__(self, skill_store: FileSkillStore) -> None:
+    def __init__(
+        self,
+        skill_store: FileSkillStore,
+        *,
+        governance: SkillGovernanceService | None = None,
+        provenance: SkillDraftProvenance | None = None,
+    ) -> None:
         self._skill_store = skill_store
+        self._governance = governance
+        self._provenance = provenance
 
     @property
     def name(self) -> str:
@@ -44,6 +56,7 @@ class SkillManageTool(BaseTool):
                 "append_content": {"type": "string"},
                 "attachment_path": {"type": "string"},
                 "attachment_content": {"type": "string"},
+                "draft_id": {"type": "string"},
             },
             "required": ["action"],
             "additionalProperties": False,
@@ -145,6 +158,22 @@ class SkillManageTool(BaseTool):
                     name=self.name,
                     content=f"skill_manage_error: {validation_error}",
                 )
+            if self._governance is not None:
+                draft = self._governance.create_draft(
+                    skill_name=skill_name,
+                    content=skill_content,
+                    provenance=self._require_provenance(),
+                )
+                return ToolResult.ok(
+                    name=self.name,
+                    content=f"skill_draft_created: {draft.draft_id}",
+                    structured_content={
+                        "action": "draft_create",
+                        "draft_id": draft.draft_id,
+                        "skill_name": draft.skill_name,
+                        "status": draft.status,
+                    },
+                )
             record = self._skill_store.create(name=skill_name, content=skill_content)
             return ToolResult.ok(
                 name=self.name,
@@ -175,6 +204,30 @@ class SkillManageTool(BaseTool):
                 return ToolResult.error(
                     name=self.name,
                     content=f"skill_manage_error: {validation_error}",
+                )
+            if self._governance is not None:
+                try:
+                    draft = self._governance.append_draft(
+                        skill_name=skill_name,
+                        section=section,
+                        content=append_content,
+                        provenance=self._require_provenance(),
+                    )
+                except ValueError as error:
+                    return ToolResult.error(
+                        name=self.name,
+                        content=f"skill_manage_error: {error}",
+                    )
+                return ToolResult.ok(
+                    name=self.name,
+                    content=f"skill_draft_created: {draft.draft_id}",
+                    structured_content={
+                        "action": "draft_append",
+                        "draft_id": draft.draft_id,
+                        "skill_name": draft.skill_name,
+                        "section": section,
+                        "status": draft.status,
+                    },
                 )
             record = self._skill_store.append_to_section(
                 name=skill_name,
@@ -210,6 +263,36 @@ class SkillManageTool(BaseTool):
                     name=self.name,
                     content=f"skill_manage_error: {validation_error}",
                 )
+            if self._governance is not None:
+                draft_id = str(kwargs.get("draft_id") or "").strip()
+                if not draft_id:
+                    return ToolResult.error(
+                        name=self.name,
+                        content="skill_manage_error: draft_id is required for write_attachment",
+                    )
+                try:
+                    attachment = self._governance.write_draft_attachment(
+                        draft_id=draft_id,
+                        relative_path=attachment_path,
+                        content=attachment_content,
+                    )
+                except ValueError as error:
+                    return ToolResult.error(
+                        name=self.name,
+                        content=f"skill_manage_error: {error}",
+                    )
+                return ToolResult.ok(
+                    name=self.name,
+                    content=f"skill_draft_attachment_written: {attachment.path}",
+                    structured_content={
+                        "action": "draft_attachment",
+                        "draft_id": draft_id,
+                        "skill_name": skill_name,
+                        "attachment_path": attachment.path,
+                        "attachment_kind": attachment.kind,
+                        "size_bytes": attachment.size_bytes,
+                    },
+                )
             try:
                 attachment = self._skill_store.write_attachment(
                     name=skill_name,
@@ -242,6 +325,11 @@ class SkillManageTool(BaseTool):
             name=self.name,
             content=f"skill_manage_error: unsupported action: {action}",
         )
+
+    def _require_provenance(self) -> SkillDraftProvenance:
+        if self._provenance is None:
+            raise ValueError("governed skill tool requires review provenance")
+        return self._provenance
 
 
 def _validate_new_skill(skill_name: str, content: str) -> str:

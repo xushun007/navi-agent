@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from navi_agent.memory import MemoryStore
-from navi_agent.runtime import AgentRuntime, InMemorySessionStore, ModelTransport
+from uuid import uuid4
+
+from navi_agent.memory import MemoryStore, MemoryWriteProvenance
+from navi_agent.runtime import (
+    AgentRuntime,
+    ContextEngine,
+    InMemorySessionStore,
+    ModelTransport,
+)
 from navi_agent.runtime.tools.policy import AllowAllToolPolicy
 from navi_agent.runtime.tools.registry import ToolRegistry, ToolsetDefinition
 from navi_agent.telemetry import InMemoryTraceStore
@@ -9,6 +16,13 @@ from navi_agent.tools.memory_tool import MemoryTool
 from navi_agent.tools.skill_manage_tool import SkillManageTool
 
 from .evidence import SkillReviewEvidence, render_skill_review_evidence
+from ..skills.governance import (
+    DefaultSkillDraftEvaluator,
+    SkillDraftEvaluator,
+    SkillDraftProvenance,
+    SkillGovernanceService,
+    SkillPromotionGate,
+)
 from ..skills.store import FileSkillStore
 
 
@@ -19,27 +33,21 @@ class ReviewAgentService:
         transport: ModelTransport,
         memory_store: MemoryStore,
         skill_store: FileSkillStore,
+        skill_governance: SkillGovernanceService | None = None,
+        skill_evaluator: SkillDraftEvaluator | None = None,
         max_iterations: int = 8,
     ) -> None:
-        self._runtime = AgentRuntime(
-            transport=transport,
-            session_store=InMemorySessionStore(),
-            trace_store=InMemoryTraceStore(),
-            tool_registry=ToolRegistry(
-                registered_tools=[
-                    ("memory", MemoryTool(memory_store=memory_store)),
-                    ("skills", SkillManageTool(skill_store=skill_store)),
-                ],
-                toolsets=[
-                    ToolsetDefinition(name="memory", tools=["memory"]),
-                    ToolsetDefinition(name="skills", tools=["skill_manage"]),
-                    ToolsetDefinition(name="review", includes=["memory", "skills"]),
-                ],
-                policy=AllowAllToolPolicy(),
+        self._transport = transport
+        self._memory_store = memory_store
+        self._skill_store = skill_store
+        self._skill_governance = skill_governance or SkillGovernanceService(
+            skill_store,
+            gate=SkillPromotionGate(
+                required_suites=("draft_validation", "content_regression"),
             ),
-            max_iterations=max_iterations,
-            enabled_toolsets=["review"],
         )
+        self._skill_evaluator = skill_evaluator or DefaultSkillDraftEvaluator()
+        self._max_iterations = max_iterations
 
     def review_and_write(
         self,
@@ -47,8 +55,11 @@ class ReviewAgentService:
         *,
         review_memory: bool,
         review_skill: bool,
+        review_run_id: str | None = None,
     ):
-        return self._runtime.run_conversation(
+        review_run_id = review_run_id or uuid4().hex[:12]
+        runtime = self._build_runtime(evidence, review_run_id=review_run_id)
+        result = runtime.run_conversation(
             session_id=f"review:{evidence.session_id}:{evidence.trace_id}",
             user_id=evidence.user_id,
             user_message=_build_review_prompt(
@@ -57,6 +68,76 @@ class ReviewAgentService:
                 review_skill=review_skill,
             ),
             system_prompt=_REVIEW_AGENT_SYSTEM_PROMPT,
+        )
+        decided_drafts = {}
+        for tool_result in result.tool_results:
+            draft_id = str(tool_result.structured_content.get("draft_id") or "")
+            if not draft_id:
+                continue
+            if draft_id not in decided_drafts:
+                decided_drafts[draft_id] = self._skill_governance.evaluate_and_promote(
+                    draft_id,
+                    evaluator=self._skill_evaluator,
+                )
+            decision = decided_drafts[draft_id]
+            tool_result.structured_content["promotion_status"] = decision.status
+            tool_result.structured_content["decision_reason"] = decision.decision_reason
+        return result
+
+    def _build_runtime(
+        self,
+        evidence: SkillReviewEvidence,
+        *,
+        review_run_id: str,
+    ) -> AgentRuntime:
+        memory_provenance = MemoryWriteProvenance(
+            source="background_review",
+            source_session_id=evidence.session_id,
+            source_trace_id=evidence.trace_id,
+            review_run_id=review_run_id,
+        )
+        skill_provenance = SkillDraftProvenance(
+            review_run_id=review_run_id,
+            source_session_id=evidence.session_id,
+            source_trace_id=evidence.trace_id,
+            evidence_ids=tuple(
+                message.tool_call_id or f"message-{index}"
+                for index, message in enumerate(evidence.messages_snapshot)
+            ),
+        )
+        return AgentRuntime(
+            transport=self._transport,
+            session_store=InMemorySessionStore(),
+            trace_store=InMemoryTraceStore(),
+            tool_registry=ToolRegistry(
+                registered_tools=[
+                    (
+                        "memory",
+                        MemoryTool(
+                            memory_store=self._memory_store,
+                            provenance=memory_provenance,
+                        ),
+                    ),
+                    (
+                        "skills",
+                        SkillManageTool(
+                            skill_store=self._skill_store,
+                            governance=self._skill_governance,
+                            provenance=skill_provenance,
+                        ),
+                    ),
+                ],
+                toolsets=[
+                    ToolsetDefinition(name="memory", tools=["memory"]),
+                    ToolsetDefinition(name="skills", tools=["skill_manage"]),
+                    ToolsetDefinition(name="review", includes=["memory", "skills"]),
+                ],
+                policy=AllowAllToolPolicy(),
+            ),
+            context_engine=ContextEngine(summarizer=None),
+            max_iterations=self._max_iterations,
+            enabled_toolsets=["review"],
+            agent_role="review",
         )
 
 
@@ -82,8 +163,8 @@ Process:
 2. First inspect existing skills with skill_manage action=list when skill review is requested.
 3. Store user-level facts/preferences/tasks with memory.
 4. Store class-level workflows, tool-use patterns, pitfalls, verification steps, and corrected procedures with skill_manage.
-5. Use skill_manage action=append for existing skills. Do not rewrite full existing skills.
-6. Use skill_manage action=write_attachment for long logs, templates, scripts, or references; keep SKILL.md concise.
+5. Use skill_manage action=append for existing skills. It creates an isolated draft.
+6. Use skill_manage action=write_attachment with the returned draft_id for draft artifacts.
 7. If nothing durable was learned, do not write anything; answer "Nothing to save."
 
 Rules:

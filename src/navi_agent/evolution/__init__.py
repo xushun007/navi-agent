@@ -28,6 +28,7 @@ from .reviews.service import ReviewLoopService, ReviewLoopSummary
 from .reviews.trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, ReviewTriggerPolicy
 from .skills.curator import SkillCuratorArchiveResult, SkillCuratorRecord, SkillCuratorService, SkillCuratorStatus, SkillCuratorStatusService
 from .skills.governance import (
+    DefaultSkillDraftEvaluator,
     SkillDraft,
     SkillDraftEvaluator,
     SkillDraftProvenance,
@@ -36,7 +37,6 @@ from .skills.governance import (
     SkillPromotionGate,
 )
 from .skills.provenance import SkillProvenanceRecord, SkillProvenanceStore
-from .skills.review import SkillReviewDecision, SkillReviewService
 from .skills.store import EvolutionEngine, FileSkillStore, SkillAttachment, SkillRecord, SkillReference
 from .skills.usage import SkillUsageRecord, SkillUsageService, SkillUsageSidecarRecord, SkillUsageStore
 
@@ -97,6 +97,7 @@ __all__ = [
     "SkillCuratorStatus",
     "SkillCuratorStatusService",
     "SkillDraft",
+    "DefaultSkillDraftEvaluator",
     "SkillDraftEvaluator",
     "SkillDraftProvenance",
     "SkillEvaluationResult",
@@ -104,9 +105,7 @@ __all__ = [
     "SkillPromotionGate",
     "SkillProvenanceRecord",
     "SkillProvenanceStore",
-    "SkillReviewDecision",
     "SkillReviewEvidence",
-    "SkillReviewService",
     "render_skill_review_evidence",
     "EvalCase",
     "EvalCaseStore",

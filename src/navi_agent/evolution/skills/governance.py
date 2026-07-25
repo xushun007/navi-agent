@@ -57,6 +57,37 @@ class SkillPromotionGate:
     minimum_score_delta: float = 0.0
 
 
+class DefaultSkillDraftEvaluator:
+    def evaluate(
+        self,
+        draft: SkillDraft,
+        proposed: SkillRecord,
+        active: SkillRecord | None,
+    ) -> list[SkillEvaluationResult]:
+        has_structure = all(
+            marker in proposed.content
+            for marker in ("---", "## When To Use", "## Procedure")
+        )
+        targeted = SkillEvaluationResult(
+            suite="draft_validation",
+            passed=has_structure and bool(draft.provenance.source_trace_id),
+            baseline_score=0.0,
+            draft_score=1.0 if has_structure else 0.0,
+            reason="draft must be structured and linked to source evidence",
+        )
+        active_lines = set(active.content.splitlines()) if active is not None else set()
+        proposed_lines = set(proposed.content.splitlines())
+        preserved = active is None or active_lines.issubset(proposed_lines)
+        regression = SkillEvaluationResult(
+            suite="content_regression",
+            passed=preserved,
+            baseline_score=1.0,
+            draft_score=1.0 if preserved else 0.0,
+            reason="existing skill content must be preserved",
+        )
+        return [targeted, regression]
+
+
 class SkillGovernanceService:
     def __init__(
         self,
@@ -191,7 +222,19 @@ class SkillGovernanceService:
         previous_version_id = str(state.get("previous_version_id") or "")
         active_version_id = str(state.get("active_version_id") or "")
         if not previous_version_id:
-            raise ValueError(f"no previous active version for skill: {skill_name}")
+            promoted = self.get_draft(active_version_id)
+            if promoted is None or promoted.operation != "create":
+                raise ValueError(f"no previous active version for skill: {skill_name}")
+            self._skill_store.remove(skill_name)
+            promoted.status = "rolled_back"
+            self._save_draft(promoted)
+            self._save_state(
+                skill_name,
+                active_version_id="",
+                previous_version_id="",
+            )
+            self._record_event(promoted, "rolled_back")
+            return promoted
         source = self._version_root(skill_name, previous_version_id) / skill_name
         if not source.exists():
             raise ValueError(f"skill version not found: {previous_version_id}")
