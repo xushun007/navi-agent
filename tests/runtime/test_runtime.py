@@ -146,6 +146,20 @@ def ok_result(name: str, content: str, **kwargs) -> ToolResult:
 
 
 class AgentRuntimeTests(unittest.TestCase):
+    def test_runtime_reads_existing_session_messages_for_owner(self) -> None:
+        session_store = InMemorySessionStore()
+        session = session_store.load("s1", "u1")
+        session_store.append(session, Message(role="user", content="previous question"))
+        runtime = AgentRuntime(
+            transport=FakeTransport([]),
+            session_store=session_store,
+        )
+
+        messages = runtime.get_session_messages("s1", "u1")
+
+        self.assertEqual([message.content for message in messages], ["previous question"])
+        self.assertEqual(runtime.get_session_messages("s1", "u2"), [])
+
     def test_runtime_finalizes_failed_run_once(self) -> None:
         session_store = CountingSessionStore()
         runtime = AgentRuntime(

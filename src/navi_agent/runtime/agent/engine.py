@@ -247,9 +247,8 @@ class AgentRuntime:
     ) -> list[Message]:
         if not self._session_store.has_session(session_id, user_id):
             return []
-        return self._session_store.snapshot(
-            ConversationState(session_id=session_id, user_id=user_id)
-        )
+        session = self._session_store.load(session_id, user_id)
+        return self._session_store.snapshot(session)
 
     def list_background_tasks(
         self,
