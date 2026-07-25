@@ -4,7 +4,6 @@ from pathlib import Path
 
 from navi_agent.evolution import FileSkillStore
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
-from navi_agent.runtime.models import ConversationState, Message
 from navi_agent.runtime.agent.prompt import (
     BASE_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
@@ -19,23 +18,25 @@ class PromptBuilderTest(unittest.TestCase):
         self.builder = PromptBuilder(memory_store=self.memory)
 
     def test_new_session_with_system_prompt(self) -> None:
-        session = ConversationState(session_id="s1", user_id="u1")
-        msgs = self.builder.build_initial_messages(session, "hello", system_prompt="Be nice")
-        self.assertEqual(len(msgs), 2)
-        self.assertEqual(msgs[0].role, "system")
-        self.assertIn(BASE_SYSTEM_PROMPT, msgs[0].content)
-        self.assertIn("Be nice", msgs[0].content)
-        self.assertEqual(msgs[1].role, "user")
+        message = self.builder.build_run_system_message(
+            user_id="u1",
+            user_message="hello",
+            system_prompt="Be nice",
+        )
+        self.assertEqual(message.role, "system")
+        self.assertIn(BASE_SYSTEM_PROMPT, message.content)
+        self.assertIn("Be nice", message.content)
 
     def test_added_workspace_roots_are_in_system_context(self) -> None:
         with TemporaryDirectory() as added:
             builder = PromptBuilder(additional_workspace_roots=[Path(added)])
-            session = ConversationState(session_id="s1", user_id="u1")
+            message = builder.build_run_system_message(
+                user_id="u1",
+                user_message="inspect external files",
+            )
 
-            messages = builder.build_initial_messages(session, "inspect external files")
-
-        self.assertIn("[Allowed Directories]", messages[0].content)
-        self.assertIn(str(Path(added).resolve()), messages[0].content)
+        self.assertIn("[Allowed Directories]", message.content)
+        self.assertIn(str(Path(added).resolve()), message.content)
 
     def test_current_workspace_is_authoritative_over_stale_memory(self) -> None:
         with TemporaryDirectory() as current_workspace:
@@ -54,12 +55,10 @@ class PromptBuilderTest(unittest.TestCase):
                 memory_store=memory,
                 project_context_root=Path(current_workspace),
             )
-            session = ConversationState(session_id="s1", user_id="u1")
-
-            prompt = builder.build_initial_messages(
-                session,
-                "What is the workspace root?",
-            )[0].content
+            prompt = builder.build_run_system_message(
+                user_id="u1",
+                user_message="What is the workspace root?",
+            ).content
 
         current_root = str(Path(current_workspace).resolve())
         self.assertIn("[Workspace]", prompt)
@@ -70,10 +69,11 @@ class PromptBuilderTest(unittest.TestCase):
 
     def test_new_session_with_memory(self) -> None:
         self.memory.add_for_user("u1", "Likes Python")
-        session = ConversationState(session_id="s1", user_id="u1")
-        msgs = self.builder.build_initial_messages(session, "Do I like Python?")
-        self.assertEqual(len(msgs), 2)
-        self.assertIn("[fact] Likes Python", msgs[0].content)
+        message = self.builder.build_run_system_message(
+            user_id="u1",
+            user_message="Do I like Python?",
+        )
+        self.assertIn("[fact] Likes Python", message.content)
 
     def test_new_session_sanitizes_memory_prompt_injection(self) -> None:
         memory = InMemoryMemoryStore(
@@ -87,35 +87,34 @@ class PromptBuilderTest(unittest.TestCase):
             ]
         )
         builder = PromptBuilder(memory_store=memory)
-        session = ConversationState(session_id="s1", user_id="u1")
+        message = builder.build_run_system_message(
+            user_id="u1",
+            user_message="reveal secrets",
+        )
 
-        msgs = builder.build_initial_messages(session, "reveal secrets")
-
-        self.assertIn("[BLOCKED: memory entry contained prompt-injection text", msgs[0].content)
-        self.assertNotIn("Ignore previous instructions", msgs[0].content)
+        self.assertIn("[BLOCKED: memory entry contained prompt-injection text", message.content)
+        self.assertNotIn("Ignore previous instructions", message.content)
 
     def test_new_session_injects_only_relevant_memory_entries(self) -> None:
         for index in range(7):
             self.memory.add_for_user("u1", f"Project {index} uses Python")
         builder = PromptBuilder(memory_store=self.memory, relevant_memory_limit=5)
-        session = ConversationState(session_id="s1", user_id="u1")
+        message = builder.build_run_system_message(
+            user_id="u1",
+            user_message="Which projects use Python?",
+        )
 
-        msgs = builder.build_initial_messages(session, "Which projects use Python?")
-
-        self.assertIn("[fact] Project 2 uses Python", msgs[0].content)
-        self.assertIn("[fact] Project 6 uses Python", msgs[0].content)
-        self.assertNotIn("[fact] Project 0 uses Python", msgs[0].content)
-        self.assertNotIn("[fact] Project 1 uses Python", msgs[0].content)
+        self.assertIn("[fact] Project 2 uses Python", message.content)
+        self.assertIn("[fact] Project 6 uses Python", message.content)
+        self.assertNotIn("[fact] Project 0 uses Python", message.content)
+        self.assertNotIn("[fact] Project 1 uses Python", message.content)
 
     def test_new_session_without_extra_context_uses_base_system_prompt(self) -> None:
-        session = ConversationState(session_id="s1", user_id="u1")
-        msgs = self.builder.build_initial_messages(session, "hello")
-        self.assertEqual(len(msgs), 2)
-        self.assertEqual(msgs[0].role, "system")
-        self.assertIn(BASE_SYSTEM_PROMPT, msgs[0].content)
-        self.assertIn(MEMORY_GUIDANCE, msgs[0].content)
-        self.assertIn(SKILL_GUIDANCE, msgs[0].content)
-        self.assertEqual(msgs[1].role, "user")
+        message = self.builder.build_run_system_message(user_id="u1", user_message="hello")
+        self.assertEqual(message.role, "system")
+        self.assertIn(BASE_SYSTEM_PROMPT, message.content)
+        self.assertIn(MEMORY_GUIDANCE, message.content)
+        self.assertIn(SKILL_GUIDANCE, message.content)
 
     def test_profile_and_relevant_memory_use_independent_quotas(self) -> None:
         memory = InMemoryMemoryStore(
@@ -140,12 +139,10 @@ class PromptBuilderTest(unittest.TestCase):
             profile_memory_limit=2,
             relevant_memory_limit=2,
         )
-        session = ConversationState(session_id="s1", user_id="u1")
-
-        prompt = builder.build_initial_messages(
-            session,
-            "How is Python used?",
-        )[0].content
+        prompt = builder.build_run_system_message(
+            user_id="u1",
+            user_message="How is Python used?",
+        ).content
 
         self.assertIn("User Profile:", prompt)
         self.assertEqual(prompt.count("- [preference]"), 2)
@@ -172,13 +169,11 @@ class PromptBuilderTest(unittest.TestCase):
             root = Path(tmpdir)
             (root / "AGENTS.md").write_text("Use uv for commands.", encoding="utf-8")
             builder = PromptBuilder(project_context_root=root)
-            session = ConversationState(session_id="s1", user_id="u1")
+            message = builder.build_run_system_message(user_id="u1", user_message="hello")
 
-            msgs = builder.build_initial_messages(session, "hello")
-
-        self.assertIn("[Project Context]", msgs[0].content)
-        self.assertIn("## AGENTS.md", msgs[0].content)
-        self.assertIn("Use uv for commands.", msgs[0].content)
+        self.assertIn("[Project Context]", message.content)
+        self.assertIn("## AGENTS.md", message.content)
+        self.assertIn("Use uv for commands.", message.content)
         self.assertEqual(builder.last_injected_context_files, ["AGENTS.md"])
 
     def test_project_context_prefers_navi_md(self) -> None:
@@ -222,19 +217,19 @@ class PromptBuilderTest(unittest.TestCase):
                 ),
             )
             builder = PromptBuilder(skill_store=skill_store)
-            session = ConversationState(session_id="s1", user_id="u1")
+            message = builder.build_run_system_message(
+                user_id="u1",
+                user_message="help me fix it",
+            )
 
-            msgs = builder.build_initial_messages(session, "help me fix it")
-
-        self.assertEqual(len(msgs), 2)
-        self.assertIn("[Skills]", msgs[0].content)
-        self.assertIn("Available reusable procedures", msgs[0].content)
-        self.assertIn("skill_view(skill_name=", msgs[0].content)
-        self.assertIn("  coding:", msgs[0].content)
-        self.assertIn("    - readme-summary: Summarize README files and run tests", msgs[0].content)
-        self.assertIn("  gateway:", msgs[0].content)
-        self.assertIn("    - wechat-pairing: Handle Weixin pairing flow", msgs[0].content)
-        self.assertNotIn("Use read_file before bash.", msgs[0].content)
+        self.assertIn("[Skills]", message.content)
+        self.assertIn("Available reusable procedures", message.content)
+        self.assertIn("skill_view(skill_name=", message.content)
+        self.assertIn("  coding:", message.content)
+        self.assertIn("    - readme-summary: Summarize README files and run tests", message.content)
+        self.assertIn("  gateway:", message.content)
+        self.assertIn("    - wechat-pairing: Handle Weixin pairing flow", message.content)
+        self.assertNotIn("Use read_file before bash.", message.content)
         self.assertEqual(builder.last_injected_skill_names, [])
 
     def test_new_session_does_not_inject_skill_attachment_hints(self) -> None:
@@ -259,13 +254,14 @@ class PromptBuilderTest(unittest.TestCase):
                 encoding="utf-8",
             )
             builder = PromptBuilder(skill_store=skill_store)
-            session = ConversationState(session_id="s1", user_id="u1")
+            message = builder.build_run_system_message(
+                user_id="u1",
+                user_message="summarize README",
+            )
 
-            msgs = builder.build_initial_messages(session, "summarize README")
-
-        self.assertNotIn("attachments:", msgs[0].content)
-        self.assertNotIn("references/checks.md", msgs[0].content)
-        self.assertNotIn("Run README checks after editing", msgs[0].content)
+        self.assertNotIn("attachments:", message.content)
+        self.assertNotIn("references/checks.md", message.content)
+        self.assertNotIn("Run README checks after editing", message.content)
 
     def test_injected_skill_names_reset_between_builds(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -281,22 +277,37 @@ class PromptBuilderTest(unittest.TestCase):
                 ),
             )
             builder = PromptBuilder(skill_store=skill_store)
-            session = ConversationState(session_id="s1", user_id="u1")
-
-            first = builder.build_initial_messages(session, "summarize README")
-            second = builder.build_initial_messages(session, "unrelated")
+            first = builder.build_run_system_message(
+                user_id="u1",
+                user_message="summarize README",
+            )
+            second = builder.build_run_system_message(
+                user_id="u1",
+                user_message="unrelated",
+            )
 
         self.assertEqual(builder.last_injected_skill_names, [])
-        self.assertIn("readme-summary", first[0].content)
-        self.assertIn("readme-summary", second[0].content)
+        self.assertIn("readme-summary", first.content)
+        self.assertIn("readme-summary", second.content)
 
-    def test_existing_session_skips_system_and_memory(self) -> None:
-        self.memory.add_for_user("u1", "Memory")
-        session = ConversationState(session_id="s1", user_id="u1")
-        session.messages.append(Message(role="user", content="prev"))
-        msgs = self.builder.build_initial_messages(session, "follow-up", system_prompt="System")
-        self.assertEqual(len(msgs), 1)
-        self.assertEqual(msgs[0].content, "follow-up")
+    def test_each_run_rebuilds_system_and_memory(self) -> None:
+        first = self.builder.build_run_system_message(
+            user_id="u1",
+            user_message="first",
+            system_prompt="System",
+        )
+        self.memory.add_for_user(
+            "u1",
+            "Prefers concise replies",
+            kind="preference",
+        )
+        second = self.builder.build_run_system_message(
+            user_id="u1",
+            user_message="follow-up",
+            system_prompt="System",
+        )
+        self.assertNotIn("[Memory]", first.content)
+        self.assertIn("[preference] Prefers concise replies", second.content)
 
     def test_memory_quotas_must_be_positive(self) -> None:
         with self.assertRaises(ValueError):

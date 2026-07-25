@@ -34,6 +34,31 @@ class ContextEngineTests(unittest.TestCase):
         self.assertEqual(result.messages, messages)
         self.assertEqual(result.estimated_tokens_before, result.estimated_tokens_after)
 
+    def test_prepends_ephemeral_messages_without_covering_them_in_checkpoint(self) -> None:
+        prefix = [Message(role="system", content="fresh dynamic prompt")]
+        messages = [
+            Message(role="user", content="initial"),
+            Message(role="assistant", content="large output " + "x" * 800),
+            Message(role="user", content="latest"),
+        ]
+        engine = ContextEngine(
+            context_limit_tokens=140,
+            reserved_output_tokens=20,
+            compression_threshold_ratio=0.5,
+            protect_first_messages=1,
+            tail_budget_ratio=0.15,
+            summarizer=FakeSummarizer(),
+        )
+
+        result = engine.build(messages, prefix_messages=prefix)
+
+        self.assertEqual(result.messages[0], prefix[0])
+        self.assertIsNotNone(result.checkpoint)
+        self.assertEqual(
+            result.checkpoint.source_hash,
+            engine.source_hash(messages[: result.checkpoint.covered_message_count]),
+        )
+
     def test_compresses_middle_and_preserves_head_and_tail(self) -> None:
         messages = [
             Message(role="system", content="system governance"),

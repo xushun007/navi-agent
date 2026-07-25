@@ -84,15 +84,19 @@ class TrackingPromptBuilder(PromptBuilder):
         super().__init__()
         self.calls = []
 
-    def build_initial_messages(self, session, user_message, system_prompt=None):
+    def build_run_system_message(self, *, user_id, user_message, system_prompt=None):
         self.calls.append(
             {
-                "session_id": session.session_id,
+                "user_id": user_id,
                 "user_message": user_message,
                 "system_prompt": system_prompt,
             }
         )
-        return super().build_initial_messages(session, user_message, system_prompt)
+        return super().build_run_system_message(
+            user_id=user_id,
+            user_message=user_message,
+            system_prompt=system_prompt,
+        )
 
 
 class RecordingObserver:
@@ -123,7 +127,7 @@ class EmptyToolResultRenderer:
 
 
 class FailingContextEngine:
-    def build(self, messages, checkpoint=None):
+    def build(self, messages, checkpoint=None, *, prefix_messages=None):
         raise TimeoutError("summary timeout")
 
 
@@ -586,7 +590,8 @@ class AgentRuntimeTests(unittest.TestCase):
         runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
 
         session = session_store.load(session_id="s1", user_id="u1")
-        self.assertEqual([message.role for message in session.messages], ["system", "user", "assistant"])
+        self.assertEqual([message.role for message in session.messages], ["user", "assistant"])
+        self.assertEqual(transport.calls[0].messages[0].role, "system")
 
     def test_runtime_uses_compressed_context_for_model_request(self) -> None:
         session_store = InMemorySessionStore()
@@ -677,7 +682,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(context_failed_events[0].metadata["error_category"], "retryable")
         self.assertEqual(context_failed_events[0].metadata["error_source"], "context")
 
-    def test_runtime_injects_system_prompt_on_first_turn_only(self) -> None:
+    def test_runtime_rebuilds_system_prompt_without_persisting_it(self) -> None:
         session_store = InMemorySessionStore()
         transport = FakeTransport(
             [ModelResponse(content="first"), ModelResponse(content="second")]
@@ -700,8 +705,11 @@ class AgentRuntimeTests(unittest.TestCase):
         session = session_store.load(session_id="s1", user_id="u1")
         self.assertEqual(
             [message.role for message in session.messages],
-            ["system", "user", "assistant", "user", "assistant"],
+            ["user", "assistant", "user", "assistant"],
         )
+        self.assertIn("system", transport.calls[0].messages[0].content)
+        self.assertNotIn("ignored", transport.calls[0].messages[0].content)
+        self.assertIn("ignored", transport.calls[1].messages[0].content)
 
     def test_runtime_uses_prompt_builder_boundary(self) -> None:
         transport = FakeTransport([ModelResponse(content="done")])

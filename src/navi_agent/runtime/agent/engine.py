@@ -380,23 +380,26 @@ class AgentRuntime:
                 ),
             },
         )
+        run_system_message = self._prompt_builder.build_run_system_message(
+            user_id=user_id,
+            user_message=user_message,
+            system_prompt=system_prompt,
+        )
         if resume_interaction is None:
-            for message in self._prompt_builder.build_initial_messages(
-                session=session,
-                user_message=user_message,
-                system_prompt=system_prompt,
-            ):
-                self._session_store.append(session, message)
+            self._session_store.append(
+                session,
+                Message(role="user", content=user_message),
+            )
             injected_skill_names = self._prompt_builder.last_injected_skill_names
         else:
-            injected_skill_names = []
+            injected_skill_names = self._prompt_builder.last_injected_skill_names
         tool_results = []
         publish_event(
             kind="observation",
             source="runtime",
             name="runtime.context_ready",
             payload={
-                "system_prompt": system_prompt,
+                "system_prompt": run_system_message.content,
                 "injected_skill_names": list(injected_skill_names),
             },
         )
@@ -691,6 +694,7 @@ class AgentRuntime:
                 context_result = self._context_engine.build(
                     session_snapshot,
                     checkpoint=checkpoint,
+                    prefix_messages=[run_system_message],
                 )
             except Exception as exc:
                 error_info = classify_exception(exc, error_source="context").to_metadata()
@@ -700,7 +704,7 @@ class AgentRuntime:
                     exc,
                 )
                 context_result = ContextBuildResult(
-                    messages=session_snapshot,
+                    messages=[run_system_message, *session_snapshot],
                     original_message_count=len(session_snapshot),
                     estimated_tokens_before=0,
                     estimated_tokens_after=0,

@@ -8,7 +8,7 @@ from typing import Protocol
 from navi_agent.memory import MemoryStore
 from navi_agent.memory.validation import sanitize_memory_for_prompt
 
-from ..models import ConversationState, Message
+from ..models import Message
 
 
 BASE_SYSTEM_PROMPT = "\n".join(
@@ -89,24 +89,19 @@ class PromptBuilder:
     def last_injected_context_files(self) -> list[str]:
         return list(self._last_injected_context_files)
 
-    def build_initial_messages(
+    def build_run_system_message(
         self,
-        session: ConversationState,
+        *,
+        user_id: str,
         user_message: str,
         system_prompt: str | None = None,
-    ) -> list[Message]:
-        self._last_injected_skill_names = []
-        self._last_injected_context_files = []
-        messages: list[Message] = []
-        if not session.messages:
-            prompt = self.build_system_prompt(
-                user_id=session.user_id,
-                user_message=user_message,
-                system_prompt=system_prompt,
-            )
-            messages.append(Message(role="system", content=prompt.render()))
-        messages.append(Message(role="user", content=user_message))
-        return messages
+    ) -> Message:
+        prompt = self.build_system_prompt(
+            user_id=user_id,
+            user_message=user_message,
+            system_prompt=system_prompt,
+        )
+        return Message(role="system", content=prompt.render())
 
     def build_system_prompt(
         self,
