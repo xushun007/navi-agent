@@ -1100,6 +1100,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().count("hello world"), 1)
 
+    def test_run_interactive_keeps_unknown_slash_command_local(self) -> None:
+        app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("builtins.input", side_effect=["/stats", "/exit"]):
+            with redirect_stdout(stdout):
+                exit_code = _run_interactive(
+                    app=app,
+                    user_id="u1",
+                    session_id="s1",
+                    system_prompt=None,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(app.calls, [])
+        self.assertIn("Unknown command: /stats", stdout.getvalue())
+
     def test_persistent_interactive_steers_active_run(self) -> None:
         from threading import Event
 
