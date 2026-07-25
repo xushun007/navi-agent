@@ -397,6 +397,37 @@ class AgentRuntime:
                 return "trajectory_incomplete"
             return default or result.status
 
+        def finish_result(
+            result: RuntimeResult,
+            *,
+            iteration: int,
+            attempt_count: int,
+            error_info: dict[str, object] | None = None,
+            end_reason: str | None = None,
+            failure_reason: str | None = None,
+        ) -> RuntimeResult:
+            publish_event(
+                kind="observation",
+                source="runtime",
+                name="runtime.completed",
+                iteration=iteration or None,
+                payload=completion_payload(
+                    result,
+                    attempt_count=attempt_count,
+                    error_info=error_info,
+                ),
+            )
+            apply_trajectory_health(result)
+            self._session_store.finalize(
+                session,
+                run_id,
+                status=result.status,
+                end_reason=finalization_reason(result, end_reason),
+                trajectory_complete=result.trajectory_complete,
+                failure_reason=result.trajectory_error or failure_reason,
+            )
+            return result
+
         def finish_cancelled(iteration: int) -> RuntimeResult:
             reason = cancellation_token.reason or "user_requested"
             self._session_store.append(
@@ -426,27 +457,13 @@ class AgentRuntime:
                 iteration=iteration or None,
                 payload={"status": result.status, "reason": reason},
             )
-            publish_event(
-                kind="observation",
-                source="runtime",
-                name="runtime.completed",
-                iteration=iteration or None,
-                payload=completion_payload(
-                    result,
-                    attempt_count=iteration,
-                    error_info=error_info,
-                ),
+            return finish_result(
+                result,
+                iteration=iteration,
+                attempt_count=iteration,
+                error_info=error_info,
+                end_reason=reason,
             )
-            apply_trajectory_health(result)
-            self._session_store.finalize(
-                session,
-                run_id,
-                status=result.status,
-                end_reason=finalization_reason(result, reason),
-                trajectory_complete=result.trajectory_complete,
-                failure_reason=result.trajectory_error,
-            )
-            return result
 
         def finish_waiting(iteration: int, pending_result) -> RuntimeResult:
             prompt = pending_result.structured_content.get("prompt")
@@ -474,23 +491,11 @@ class AgentRuntime:
                 item_id=pending_result.tool_call_id,
                 payload=payload,
             )
-            publish_event(
-                kind="observation",
-                source="runtime",
-                name="runtime.completed",
+            return finish_result(
+                result,
                 iteration=iteration,
-                payload=completion_payload(result, attempt_count=iteration),
+                attempt_count=iteration,
             )
-            apply_trajectory_health(result)
-            self._session_store.finalize(
-                session,
-                run_id,
-                status=result.status,
-                end_reason=finalization_reason(result),
-                trajectory_complete=result.trajectory_complete,
-                failure_reason=result.trajectory_error,
-            )
-            return result
 
         def record_tool_result(
             tool_result: ToolResult,
@@ -754,30 +759,14 @@ class AgentRuntime:
                     messages=self._session_store.snapshot(session),
                     tool_results=tool_results,
                 )
-                publish_event(
-                    kind="observation",
-                    source="runtime",
-                    name="runtime.completed",
+                return finish_result(
+                    result,
                     iteration=iteration_number,
-                    payload=completion_payload(
-                        result,
-                        attempt_count=iteration_number,
-                        error_info=error_info,
-                    ),
+                    attempt_count=iteration_number,
+                    error_info=error_info,
+                    end_reason=str(error_info["error_type"]),
+                    failure_reason=str(error_info["error_message"]),
                 )
-                apply_trajectory_health(result)
-                self._session_store.finalize(
-                    session,
-                    run_id,
-                    status=result.status,
-                    end_reason=finalization_reason(
-                        result,
-                        str(error_info["error_type"]),
-                    ),
-                    trajectory_complete=result.trajectory_complete,
-                    failure_reason=result.trajectory_error or str(error_info["error_message"]),
-                )
-                return result
             model_payload = {
                 "content": response.content,
                 "reasoning_content": response.reasoning_content,
@@ -857,23 +846,11 @@ class AgentRuntime:
                     messages=self._session_store.snapshot(session),
                     tool_results=tool_results,
                 )
-                publish_event(
-                    kind="observation",
-                    source="runtime",
-                    name="runtime.completed",
+                return finish_result(
+                    result,
                     iteration=iteration_number,
-                    payload=completion_payload(result, attempt_count=iteration_number),
+                    attempt_count=iteration_number,
                 )
-                apply_trajectory_health(result)
-                self._session_store.finalize(
-                    session,
-                    run_id,
-                    status=result.status,
-                    end_reason=finalization_reason(result),
-                    trajectory_complete=result.trajectory_complete,
-                    failure_reason=result.trajectory_error,
-                )
-                return result
 
             def emit_tool_output(payload: dict[str, object]) -> None:
                 tool_call_id = payload.get("tool_call_id")
@@ -978,30 +955,14 @@ class AgentRuntime:
             "http_status": None,
             "error_source": "runtime",
         }
-        publish_event(
-            kind="observation",
-            source="runtime",
-            name="runtime.completed",
+        return finish_result(
+            result,
             iteration=self._max_iterations,
-            payload=completion_payload(
-                result,
-                attempt_count=self._max_iterations,
-                error_info=error_info,
-            ),
+            attempt_count=self._max_iterations,
+            error_info=error_info,
+            end_reason=str(error_info["error_type"]),
+            failure_reason=str(error_info["error_message"]),
         )
-        apply_trajectory_health(result)
-        self._session_store.finalize(
-            session,
-            run_id,
-            status=result.status,
-            end_reason=finalization_reason(
-                result,
-                str(error_info["error_type"]),
-            ),
-            trajectory_complete=result.trajectory_complete,
-            failure_reason=result.trajectory_error or str(error_info["error_message"]),
-        )
-        return result
 
     @staticmethod
     def _render_background_notification(task: BackgroundTask) -> str:

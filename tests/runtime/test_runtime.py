@@ -127,11 +127,41 @@ class FailingContextEngine:
         raise TimeoutError("summary timeout")
 
 
+class CountingSessionStore(InMemorySessionStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.finalize_calls = 0
+
+    def finalize(self, session, run_id, **kwargs) -> None:
+        self.finalize_calls += 1
+        super().finalize(session, run_id, **kwargs)
+
+
 def ok_result(name: str, content: str, **kwargs) -> ToolResult:
     return ToolResult(tool_call_id="", name=name, content=content, **kwargs)
 
 
 class AgentRuntimeTests(unittest.TestCase):
+    def test_runtime_finalizes_failed_run_once(self) -> None:
+        session_store = CountingSessionStore()
+        runtime = AgentRuntime(
+            transport=FailingTransport(RuntimeError("provider unavailable")),
+            session_store=session_store,
+        )
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+        )
+
+        run = session_store.get_run(result.run_id)
+        self.assertEqual(session_store.finalize_calls, 1)
+        self.assertIsNotNone(run)
+        assert run is not None
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(run.failure_reason, "provider unavailable")
+
     def test_runtime_reports_incomplete_trajectory_when_event_store_fails(self) -> None:
         runtime = AgentRuntime(
             transport=FakeTransport([ModelResponse(content="done")]),
