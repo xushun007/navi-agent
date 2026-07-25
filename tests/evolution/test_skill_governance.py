@@ -82,6 +82,20 @@ def test_draft_is_isolated_until_configured_gate_passes(tmp_path: Path) -> None:
     assert version.parent_version_id == ""
     assert version.provenance == _provenance()
     assert len(version.content_hash) == 64
+    assert [result.suite for result in version.evaluation_results] == [
+        "targeted",
+        "regression",
+    ]
+    change_diff = (
+        tmp_path
+        / ".governance"
+        / "versions"
+        / "readme-review"
+        / draft.draft_id
+        / version.diff_path
+    ).read_text(encoding="utf-8")
+    assert "--- /dev/null" in change_diff
+    assert "+++ b/SKILL.md" in change_diff
 
 
 def test_missing_or_failed_evaluation_preserves_active_skill(tmp_path: Path) -> None:
@@ -102,6 +116,9 @@ def test_missing_or_failed_evaluation_preserves_active_skill(tmp_path: Path) -> 
 
     assert decided.status == "rejected"
     assert "missing required" in decided.decision_reason
+    assert decided.evaluation_results == [
+        SkillEvaluationResult("targeted", True, 0.5, 0.8)
+    ]
     assert store.get("readme-review").content == original
 
 
@@ -176,6 +193,17 @@ def test_promoted_skill_can_rollback_with_attachments(tmp_path: Path) -> None:
     assert active is not None
     assert active.status == "active"
     assert active.parent_version_id == baseline.version_id
+    change_diff = (
+        tmp_path
+        / ".governance"
+        / "versions"
+        / "readme-review"
+        / promoted.draft_id
+        / active.diff_path
+    ).read_text(encoding="utf-8")
+    assert "+- Add a verified step." in change_diff
+    assert "-original" in change_diff
+    assert "+proposed" in change_diff
     assert store.read_attachment(
         name="readme-review",
         relative_path="templates/report.md",

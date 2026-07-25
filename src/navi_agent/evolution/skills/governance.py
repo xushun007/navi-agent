@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
+import difflib
 import hashlib
 import json
 from pathlib import Path
@@ -31,7 +32,7 @@ class SkillDraft:
     previous_version_id: str = ""
     active_version_id: str = ""
     decision_reason: str = ""
-    evaluation_suites: list[str] = field(default_factory=list)
+    evaluation_results: list[SkillEvaluationResult] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +54,8 @@ class SkillVersionRecord:
     created_at: str
     content_hash: str
     provenance: SkillDraftProvenance | None = None
+    evaluation_results: tuple[SkillEvaluationResult, ...] = ()
+    diff_path: str = ""
 
 
 class SkillDraftEvaluator(Protocol):
@@ -197,7 +200,7 @@ class SkillGovernanceService:
         except Exception as error:
             return self.reject(draft_id, reason=f"evaluation failed: {error}")
 
-        draft.evaluation_suites = [result.suite for result in results]
+        draft.evaluation_results = list(results)
         decision, reason = self._gate_decision(results)
         if decision != "promoted":
             draft.status = decision
@@ -210,6 +213,8 @@ class SkillGovernanceService:
         self._save_version_from_draft(
             draft,
             parent_version_id=previous_version_id,
+            active=active,
+            evaluation_results=results,
         )
         if previous_version_id:
             self._set_version_status(
@@ -287,6 +292,10 @@ class SkillGovernanceService:
         provenance = self._load_provenance(payload.pop("provenance"))
         if provenance is None:
             raise ValueError(f"draft provenance is missing: {draft_id}")
+        payload["evaluation_results"] = [
+            SkillEvaluationResult(**item)
+            for item in payload.get("evaluation_results", [])
+        ]
         return SkillDraft(**payload, provenance=provenance)
 
     def list_drafts(self, *, skill_name: str | None = None) -> list[SkillDraft]:
@@ -308,6 +317,10 @@ class SkillGovernanceService:
         payload = json.loads(path.read_text(encoding="utf-8"))
         provenance_payload = payload.pop("provenance", None)
         provenance = self._load_provenance(provenance_payload)
+        payload["evaluation_results"] = tuple(
+            SkillEvaluationResult(**item)
+            for item in payload.get("evaluation_results", [])
+        )
         return SkillVersionRecord(**payload, provenance=provenance)
 
     def list_versions(self, skill_name: str) -> list[SkillVersionRecord]:
@@ -393,11 +406,22 @@ class SkillGovernanceService:
         draft: SkillDraft,
         *,
         parent_version_id: str,
+        active: SkillRecord | None,
+        evaluation_results: list[SkillEvaluationResult],
     ) -> None:
         source = self._draft_root(draft.draft_id) / draft.skill_name
-        destination = self._version_root(draft.skill_name, draft.draft_id) / draft.skill_name
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        version_root = self._version_root(draft.skill_name, draft.draft_id)
+        destination = version_root / draft.skill_name
+        version_root.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source, destination)
+        diff_path = version_root / "change.diff"
+        diff_path.write_text(
+            self._build_change_diff(
+                active.path.parent if active is not None else None,
+                source,
+            ),
+            encoding="utf-8",
+        )
         self._save_version_record(
             SkillVersionRecord(
                 version_id=draft.draft_id,
@@ -408,6 +432,8 @@ class SkillGovernanceService:
                 created_at=draft.created_at,
                 content_hash=self._content_hash(destination),
                 provenance=draft.provenance,
+                evaluation_results=tuple(evaluation_results),
+                diff_path=diff_path.name,
             )
         )
 
@@ -481,6 +507,54 @@ class SkillGovernanceService:
             digest.update(path.read_bytes())
             digest.update(b"\0")
         return digest.hexdigest()
+
+    @classmethod
+    def _build_change_diff(
+        cls,
+        before: Path | None,
+        after: Path,
+    ) -> str:
+        before_files = cls._relative_files(before)
+        after_files = cls._relative_files(after)
+        chunks: list[str] = []
+        for relative_path in sorted(before_files.keys() | after_files.keys()):
+            before_content = before_files.get(relative_path)
+            after_content = after_files.get(relative_path)
+            if before_content == after_content:
+                continue
+            try:
+                before_lines = (
+                    before_content.decode("utf-8").splitlines(keepends=True)
+                    if before_content is not None
+                    else []
+                )
+                after_lines = (
+                    after_content.decode("utf-8").splitlines(keepends=True)
+                    if after_content is not None
+                    else []
+                )
+            except UnicodeDecodeError:
+                chunks.append(f"Binary files a/{relative_path} and b/{relative_path} differ\n")
+                continue
+            chunks.extend(
+                difflib.unified_diff(
+                    before_lines,
+                    after_lines,
+                    fromfile=f"a/{relative_path}" if before_content is not None else "/dev/null",
+                    tofile=f"b/{relative_path}" if after_content is not None else "/dev/null",
+                )
+            )
+        return "".join(chunks)
+
+    @staticmethod
+    def _relative_files(root: Path | None) -> dict[str, bytes]:
+        if root is None or not root.exists():
+            return {}
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file()
+        }
 
     @staticmethod
     def _load_provenance(payload: object) -> SkillDraftProvenance | None:
