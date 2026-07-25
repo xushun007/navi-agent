@@ -9,6 +9,7 @@ from uuid import uuid4
 class ModelCallTrace:
     iteration: int
     response_content: str
+    purpose: str = "agent"
     tool_call_names: list[str] = field(default_factory=list)
     reasoning_content: str | None = None
     started_at: str | None = None

@@ -8,7 +8,13 @@ from .tools.approval import (
     WorkspaceYoloApprovalProvider,
 )
 from .tasks.background import BackgroundTask, BackgroundTaskManager
-from .agent.context import ContextBuildResult, ContextEngine, ContextSummarizer, LLMContextSummarizer
+from .agent.context import (
+    ContextBuildResult,
+    ContextEngine,
+    ContextSummarizer,
+    ContextSummaryCall,
+    LLMContextSummarizer,
+)
 from .agent.engine import AgentRuntime
 from .models import (
     ContextCompactionCheckpoint,
@@ -75,6 +81,7 @@ __all__ = [
     "ContextCompactionCheckpoint",
     "ContextEngine",
     "ContextSummarizer",
+    "ContextSummaryCall",
     "LLMContextSummarizer",
     "ConversationState",
     "DefaultToolResultRenderer",
