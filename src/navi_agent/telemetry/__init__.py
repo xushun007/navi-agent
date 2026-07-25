@@ -10,7 +10,17 @@ from .health import RuntimeHealthService, RuntimeHealthSummary
 from .langfuse import LangfuseTraceExporter, is_langfuse_sdk_available
 from .memory import InMemoryTraceStore
 from .models import ModelCallTrace, RuntimeTrace, ToolExecutionTrace
-from .replay import TraceReplayResult, TraceReplayService
+from .replay import (
+    ReplayModelStep,
+    ReplayModelOutput,
+    ReplayPlanError,
+    ReplayToolCall,
+    ReplayToolOutput,
+    ReplayToolStep,
+    ReplayUsage,
+    RuntimeReplayPlan,
+    RuntimeReplayPlanner,
+)
 from .serializer import TraceSerializer
 from .store import TraceStore
 from .trace_builder import TraceBuilder
@@ -31,8 +41,15 @@ __all__ = [
     "RuntimeEvent",
     "RuntimeTrajectory",
     "RuntimeTrajectoryService",
-    "TraceReplayResult",
-    "TraceReplayService",
+    "ReplayModelStep",
+    "ReplayModelOutput",
+    "ReplayPlanError",
+    "ReplayToolCall",
+    "ReplayToolOutput",
+    "ReplayToolStep",
+    "ReplayUsage",
+    "RuntimeReplayPlan",
+    "RuntimeReplayPlanner",
     "TraceSerializer",
     "TraceExporter",
     "ToolExecutionTrace",
