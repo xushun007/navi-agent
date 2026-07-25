@@ -24,6 +24,7 @@ from navi_agent.cli.main import (
     main,
 )
 from navi_agent.runtime import (
+    BackgroundTask,
     CliApprovalProvider,
     DeferredApprovalProvider,
     Message,
@@ -45,6 +46,7 @@ class FakeApp:
         self.applied_candidate = None
         self.rolled_back_candidate = None
         self.sessions = []
+        self.background_tasks = []
 
     def handle(self, request, *, event_subscribers=None):
         self.calls.append(request)
@@ -107,6 +109,9 @@ class FakeApp:
 
     def list_sessions(self, user_id, limit=10):
         return self.sessions[:limit]
+
+    def list_background_tasks(self, session_id, user_id):
+        return self.background_tasks
 
 
 class FakeSessionStore:
@@ -1189,6 +1194,33 @@ class CliTests(unittest.TestCase):
         self.assertIn("Recent sessions", stdout.getvalue())
         self.assertIn("* s1 · 2 messages", stdout.getvalue())
         self.assertIn("Resumed session · s2", stdout.getvalue())
+
+    def test_run_interactive_lists_background_tasks_locally(self) -> None:
+        app = FakeApp()
+        app.background_tasks = [
+            BackgroundTask(
+                task_id="task123456",
+                session_id="s1",
+                user_id="u1",
+                description="uv run pytest",
+                status="running",
+            )
+        ]
+        stdout = io.StringIO()
+
+        with patch("builtins.input", side_effect=["/tasks", "/exit"]):
+            with redirect_stdout(stdout):
+                exit_code = _run_interactive(
+                    app=app,
+                    user_id="u1",
+                    session_id="s1",
+                    system_prompt=None,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(app.calls, [])
+        self.assertIn("Background tasks", stdout.getvalue())
+        self.assertIn("task1234 · running · uv run pytest", stdout.getvalue())
 
     def test_persistent_interactive_steers_active_run(self) -> None:
         from threading import Event

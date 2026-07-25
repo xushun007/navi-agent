@@ -240,6 +240,18 @@ class AgentRuntime:
     def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
         return self._session_store.list_sessions(user_id, limit)
 
+    def list_background_tasks(
+        self,
+        session_id: str,
+        user_id: str,
+    ) -> list[BackgroundTask]:
+        if self._background_task_manager is None:
+            return []
+        return self._background_task_manager.list(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
     def event_delivery_health(self) -> RuntimeEventPublisherHealth:
         return self._event_publisher.health()
 

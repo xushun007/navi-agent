@@ -1698,6 +1698,18 @@ def _render_session_history(sessions, current_session_id: str) -> str:
     return "\n".join(lines)
 
 
+def _render_background_tasks(tasks) -> str:
+    if not tasks:
+        return "No background tasks."
+    lines = ["Background tasks"]
+    for task in tasks:
+        description = " ".join(task.description.split())
+        if len(description) > 60:
+            description = description[:57] + "..."
+        lines.append(f"{task.task_id[:8]} · {task.status} · {description}")
+    return "\n".join(lines)
+
+
 def _run_interactive(
     *,
     app,
@@ -1771,6 +1783,13 @@ def _run_interactive(
                 continue
             current_session_id = slash_command.argument
             print(f"Resumed session · {current_session_id}")
+            continue
+        if slash_command is not None and slash_command.name == "/tasks":
+            print(
+                _render_background_tasks(
+                    app.list_background_tasks(current_session_id, user_id)
+                )
+            )
             continue
         if slash_command is not None and slash_command.name == "/new":
             current_session_id = uuid4().hex
@@ -1930,6 +1949,13 @@ def _run_persistent_interactive(
                 return
             current_session_id = slash_command.argument
             prompt_session.show_notice(f"Resumed session · {current_session_id}")
+            return
+        if slash_command is not None and slash_command.name == "/tasks":
+            prompt_session.show_notice(
+                _render_background_tasks(
+                    app.list_background_tasks(current_session_id, user_id)
+                )
+            )
             return
         if slash_command is not None and slash_command.name == "/new":
             with state_lock:

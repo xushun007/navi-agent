@@ -266,6 +266,13 @@ class ApplicationService:
     def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
         return self._runtime.list_sessions(user_id, limit)
 
+    def list_background_tasks(
+        self,
+        session_id: str,
+        user_id: str,
+    ) -> list[BackgroundTask]:
+        return self._runtime.list_background_tasks(session_id, user_id)
+
     def get_session_traces(
         self,
         session_id: str,

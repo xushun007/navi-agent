@@ -27,6 +27,7 @@ COMMAND_SPECS = (
     SlashCommandSpec("/status", "Show the current session status", "/status"),
     SlashCommandSpec("/steer", "Redirect the active task", "/steer <message>"),
     SlashCommandSpec("/stop", "Stop the active task", "/stop"),
+    SlashCommandSpec("/tasks", "Show background tasks", "/tasks"),
 )
 _COMMANDS_BY_NAME = {spec.name: spec for spec in COMMAND_SPECS}
 
