@@ -35,6 +35,7 @@ from .skills.governance import (
     SkillEvaluationResult,
     SkillGovernanceService,
     SkillPromotionGate,
+    SkillVersionRecord,
 )
 from .skills.provenance import SkillProvenanceRecord, SkillProvenanceStore
 from .skills.store import EvolutionEngine, FileSkillStore, SkillAttachment, SkillRecord, SkillReference
@@ -103,6 +104,7 @@ __all__ = [
     "SkillEvaluationResult",
     "SkillGovernanceService",
     "SkillPromotionGate",
+    "SkillVersionRecord",
     "SkillProvenanceRecord",
     "SkillProvenanceStore",
     "SkillReviewEvidence",

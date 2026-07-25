@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -40,6 +41,18 @@ class SkillEvaluationResult:
     baseline_score: float
     draft_score: float
     reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SkillVersionRecord:
+    version_id: str
+    skill_name: str
+    parent_version_id: str
+    status: str
+    operation: str
+    created_at: str
+    content_hash: str
+    provenance: SkillDraftProvenance | None = None
 
 
 class SkillDraftEvaluator(Protocol):
@@ -194,7 +207,16 @@ class SkillGovernanceService:
             return draft
 
         previous_version_id = self._ensure_active_version(draft.skill_name)
-        self._save_version_from_draft(draft)
+        self._save_version_from_draft(
+            draft,
+            parent_version_id=previous_version_id,
+        )
+        if previous_version_id:
+            self._set_version_status(
+                draft.skill_name,
+                previous_version_id,
+                "deprecated",
+            )
         self._replace_active(draft)
         draft.status = "promoted"
         draft.active_version_id = draft.draft_id
@@ -226,6 +248,7 @@ class SkillGovernanceService:
             if promoted is None or promoted.operation != "create":
                 raise ValueError(f"no previous active version for skill: {skill_name}")
             self._skill_store.remove(skill_name)
+            self._set_version_status(skill_name, active_version_id, "archived")
             promoted.status = "rolled_back"
             self._save_draft(promoted)
             self._save_state(
@@ -239,6 +262,8 @@ class SkillGovernanceService:
         if not source.exists():
             raise ValueError(f"skill version not found: {previous_version_id}")
         self._replace_skill_dir(skill_name, source)
+        self._set_version_status(skill_name, active_version_id, "deprecated")
+        self._set_version_status(skill_name, previous_version_id, "active")
         promoted = self.get_draft(active_version_id)
         if promoted is None:
             raise ValueError(f"active draft metadata not found: {active_version_id}")
@@ -259,7 +284,9 @@ class SkillGovernanceService:
         if not path.exists():
             return None
         payload = json.loads(path.read_text(encoding="utf-8"))
-        provenance = SkillDraftProvenance(**payload.pop("provenance"))
+        provenance = self._load_provenance(payload.pop("provenance"))
+        if provenance is None:
+            raise ValueError(f"draft provenance is missing: {draft_id}")
         return SkillDraft(**payload, provenance=provenance)
 
     def list_drafts(self, *, skill_name: str | None = None) -> list[SkillDraft]:
@@ -269,6 +296,30 @@ class SkillGovernanceService:
             if draft is not None and (skill_name is None or draft.skill_name == skill_name):
                 drafts.append(draft)
         return drafts
+
+    def get_version(
+        self,
+        skill_name: str,
+        version_id: str,
+    ) -> SkillVersionRecord | None:
+        path = self._version_metadata_path(skill_name, version_id)
+        if not path.exists():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        provenance_payload = payload.pop("provenance", None)
+        provenance = self._load_provenance(provenance_payload)
+        return SkillVersionRecord(**payload, provenance=provenance)
+
+    def list_versions(self, skill_name: str) -> list[SkillVersionRecord]:
+        root = self._root / "versions" / skill_name
+        if not root.exists():
+            return []
+        versions = []
+        for path in sorted(root.glob("*/version.json")):
+            version = self.get_version(skill_name, path.parent.name)
+            if version is not None:
+                versions.append(version)
+        return versions
 
     def _gate_decision(self, results: list[SkillEvaluationResult]) -> tuple[str, str]:
         by_suite = {result.suite: result for result in results}
@@ -324,13 +375,41 @@ class SkillGovernanceService:
         destination = self._version_root(skill_name, version_id) / skill_name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(active.path.parent, destination)
+        self._save_version_record(
+            SkillVersionRecord(
+                version_id=version_id,
+                skill_name=skill_name,
+                parent_version_id="",
+                status="active",
+                operation="baseline",
+                created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                content_hash=self._content_hash(destination),
+            )
+        )
         return version_id
 
-    def _save_version_from_draft(self, draft: SkillDraft) -> None:
+    def _save_version_from_draft(
+        self,
+        draft: SkillDraft,
+        *,
+        parent_version_id: str,
+    ) -> None:
         source = self._draft_root(draft.draft_id) / draft.skill_name
         destination = self._version_root(draft.skill_name, draft.draft_id) / draft.skill_name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source, destination)
+        self._save_version_record(
+            SkillVersionRecord(
+                version_id=draft.draft_id,
+                skill_name=draft.skill_name,
+                parent_version_id=parent_version_id,
+                status="active",
+                operation=draft.operation,
+                created_at=draft.created_at,
+                content_hash=self._content_hash(destination),
+                provenance=draft.provenance,
+            )
+        )
 
     def _replace_active(self, draft: SkillDraft) -> None:
         source = self._draft_root(draft.draft_id) / draft.skill_name
@@ -370,6 +449,46 @@ class SkillGovernanceService:
 
     def _version_root(self, skill_name: str, version_id: str) -> Path:
         return self._root / "versions" / skill_name / version_id
+
+    def _version_metadata_path(self, skill_name: str, version_id: str) -> Path:
+        return self._version_root(skill_name, version_id) / "version.json"
+
+    def _save_version_record(self, version: SkillVersionRecord) -> None:
+        self._write_json(
+            self._version_metadata_path(version.skill_name, version.version_id),
+            asdict(version),
+        )
+
+    def _set_version_status(
+        self,
+        skill_name: str,
+        version_id: str,
+        status: str,
+    ) -> SkillVersionRecord:
+        version = self.get_version(skill_name, version_id)
+        if version is None:
+            raise ValueError(f"skill version metadata not found: {version_id}")
+        updated = replace(version, status=status)
+        self._save_version_record(updated)
+        return updated
+
+    @staticmethod
+    def _content_hash(skill_dir: Path) -> str:
+        digest = hashlib.sha256()
+        for path in sorted(item for item in skill_dir.rglob("*") if item.is_file()):
+            digest.update(path.relative_to(skill_dir).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+        return digest.hexdigest()
+
+    @staticmethod
+    def _load_provenance(payload: object) -> SkillDraftProvenance | None:
+        if not isinstance(payload, dict):
+            return None
+        values = dict(payload)
+        values["evidence_ids"] = tuple(values.get("evidence_ids") or ())
+        return SkillDraftProvenance(**values)
 
     def _state_path(self, skill_name: str) -> Path:
         return self._root / "state" / f"{skill_name}.json"
