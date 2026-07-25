@@ -7,6 +7,7 @@ from typing import Any
 from prompt_toolkit.formatted_text.utils import fragment_list_len
 from prompt_toolkit.layout.processors import Processor, Transformation, TransformationInput
 
+from navi_agent.cli.slash_commands import COMMAND_SPECS
 from navi_agent.ui_events import UiEvent, render_ui_event
 
 
@@ -30,6 +31,17 @@ INTERACTIVE_STYLE = {
     "status": "ansibrightblack italic",
     "response": "",
 }
+
+
+def build_slash_command_completer():
+    from prompt_toolkit.completion import WordCompleter
+
+    return WordCompleter(
+        [spec.name for spec in COMMAND_SPECS],
+        meta_dict={spec.name: spec.description for spec in COMMAND_SPECS},
+        ignore_case=True,
+        sentence=True,
+    )
 
 
 class PromptPlaceholderProcessor(Processor):
@@ -103,6 +115,7 @@ class InteractivePromptSession:
         from prompt_toolkit.layout.containers import HSplit, Window
         from prompt_toolkit.layout.controls import FormattedTextControl
         from prompt_toolkit.layout.dimension import Dimension
+        from prompt_toolkit.layout.menus import CompletionsMenu
         from prompt_toolkit.styles import Style
         from prompt_toolkit.widgets import Frame, TextArea
 
@@ -114,6 +127,8 @@ class InteractivePromptSession:
             dont_extend_height=True,
             style="class:input",
             wrap_lines=True,
+            completer=build_slash_command_completer(),
+            complete_while_typing=True,
         )
         text_area.control.input_processors.append(
             PromptPlaceholderProcessor(text_area, placeholder)
@@ -145,6 +160,7 @@ class InteractivePromptSession:
         root = HSplit(
             [
                 Frame(text_area, style="class:frame"),
+                CompletionsMenu(max_height=8),
                 toolbar,
             ]
         )
@@ -165,6 +181,7 @@ class InteractivePromptSession:
         from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Window
         from prompt_toolkit.layout.controls import FormattedTextControl
         from prompt_toolkit.layout.dimension import Dimension
+        from prompt_toolkit.layout.menus import CompletionsMenu
         from prompt_toolkit.styles import Style
         from prompt_toolkit.widgets import Frame, TextArea
 
@@ -176,6 +193,8 @@ class InteractivePromptSession:
             dont_extend_height=True,
             style="class:input",
             wrap_lines=True,
+            completer=build_slash_command_completer(),
+            complete_while_typing=True,
         )
         text_area.control.input_processors.append(
             PromptPlaceholderProcessor(text_area, "Message Navi Agent")
@@ -261,6 +280,7 @@ class InteractivePromptSession:
                     content=Frame(text_area, style="class:frame"),
                     filter=~approval_active,
                 ),
+                CompletionsMenu(max_height=8),
                 toolbar,
             ]
         )
