@@ -11,6 +11,11 @@ from uuid import uuid4
 from navi_agent.app import AppRequest
 from navi_agent.cli.input import InteractivePromptSession
 from navi_agent.cli.banner import render_banner
+from navi_agent.cli.slash_commands import (
+    command_spec,
+    parse_slash_command,
+    unknown_command_message,
+)
 from navi_agent.app.bootstrap import build_application
 from navi_agent.config import WeixinGatewaySettings, load_config
 from navi_agent.diagnostics.doctor import run_doctor
@@ -1703,9 +1708,47 @@ def _run_interactive(
                 return 0
         if not message:
             continue
-        if message.lower() in {"exit", "quit"}:
+        slash_command = parse_slash_command(message)
+        if slash_command is not None and command_spec(slash_command.name) is None:
+            print(unknown_command_message(slash_command.name))
+            continue
+        if message.lower() in {"exit", "quit"} or (
+            slash_command is not None and slash_command.name == "/exit"
+        ):
             _drain_background_reviews(app)
             return 0
+        if slash_command is not None and slash_command.name == "/stop":
+            cancelled = app.cancel_session(session_id, reason="user_stop")
+            if cancelled:
+                print("Stopping current task…")
+            else:
+                interaction = app.resolve_interaction(session_id, approved=False)
+                print(
+                    "Cancelled pending request."
+                    if interaction is not None
+                    else "No active task."
+                )
+            continue
+        if slash_command is not None and slash_command.name in {"/approve", "/deny"}:
+            approved = slash_command.name == "/approve"
+            interaction = app.resolve_interaction(session_id, approved=approved)
+            if interaction is None or interaction.kind != "approval":
+                print("No approval request is waiting.")
+                continue
+            action = "approved" if approved else "denied"
+            message = (
+                f"The user {action} the tool {interaction.tool_name}. "
+                + (
+                    "Retry it with exactly the same arguments."
+                    if approved
+                    else "Do not execute it and continue responding."
+                )
+            )
+        elif slash_command is not None and slash_command.name == "/steer":
+            if not slash_command.argument:
+                print("Usage: /steer <message>")
+                continue
+            message = slash_command.argument
         try:
             result = app.handle(
                 AppRequest(
@@ -1776,8 +1819,13 @@ def _run_persistent_interactive(
 
     def submit(message: str) -> None:
         nonlocal pending_message, exit_when_idle
-        command, separator, argument = message.strip().partition(" ")
-        if command in {"exit", "quit"}:
+        slash_command = parse_slash_command(message)
+        if slash_command is not None and command_spec(slash_command.name) is None:
+            prompt_session.show_notice(unknown_command_message(slash_command.name))
+            return
+        if message.strip() in {"exit", "quit"} or (
+            slash_command is not None and slash_command.name == "/exit"
+        ):
             with state_lock:
                 running = active
                 exit_when_idle = running
@@ -1788,7 +1836,7 @@ def _run_persistent_interactive(
                 _drain_background_reviews(app)
                 prompt_session.exit()
             return
-        if command == "/stop":
+        if slash_command is not None and slash_command.name == "/stop":
             cancelled = app.cancel_session(session_id, reason="user_stop")
             if not cancelled:
                 interaction = app.resolve_interaction(session_id, approved=False)
@@ -1802,11 +1850,14 @@ def _run_persistent_interactive(
             else:
                 prompt_session.show_notice("Stopping current task…")
             return
-        if command == "/steer":
-            if not separator or not argument.strip():
+        if slash_command is not None and slash_command.name in {"/approve", "/deny"}:
+            resolve_approval(slash_command.name == "/approve")
+            return
+        if slash_command is not None and slash_command.name == "/steer":
+            if not slash_command.argument:
                 prompt_session.show_notice("Usage: /steer <message>")
                 return
-            message = argument.strip()
+            message = slash_command.argument
 
         with state_lock:
             running = active
