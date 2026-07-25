@@ -29,7 +29,7 @@ from navi_agent.runtime import (
     Message,
     RuntimeEvent,
     RuntimeResult,
-    WorkspaceYoloApprovalProvider,
+    HostYoloApprovalProvider,
 )
 from navi_agent.runtime.tasks.cron import CronRunRecord
 from navi_agent.evolution.evals.smoke import SmokeCheckResult, SmokeRunSummary
@@ -347,18 +347,20 @@ class CliTests(unittest.TestCase):
         _, kwargs = build_application_mock.call_args
         self.assertEqual(kwargs["additional_workspace_roots"], [Path(added_dir).resolve()])
 
-    def test_main_uses_workspace_yolo_approval_provider(self) -> None:
+    def test_main_uses_host_yolo_approval_provider(self) -> None:
         fake_app = FakeApp()
         stdout = io.StringIO()
+        stderr = io.StringIO()
 
         with patch("navi_agent.cli.main.build_application", return_value=fake_app) as build_application_mock:
             with patch("sys.argv", ["navi-agent", "--yolo", "hello"]):
-                with redirect_stdout(stdout):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
                     exit_code = main()
 
         self.assertEqual(exit_code, 0)
         _, kwargs = build_application_mock.call_args
-        self.assertIsInstance(kwargs["approval_provider"], WorkspaceYoloApprovalProvider)
+        self.assertIsInstance(kwargs["approval_provider"], HostYoloApprovalProvider)
+        self.assertIn("does not provide sandbox isolation", stderr.getvalue())
 
     def test_main_defaults_to_interactive_mode(self) -> None:
         fake_app = FakeApp()

@@ -1,7 +1,7 @@
 import unittest
 
 from navi_agent.runtime import CliApprovalProvider
-from navi_agent.runtime import WorkspaceYoloApprovalProvider
+from navi_agent.runtime import HostYoloApprovalProvider
 from navi_agent.runtime.tools.approval import ApprovalRequest
 
 
@@ -42,8 +42,8 @@ class CliApprovalProviderTests(unittest.TestCase):
         self.assertFalse(decision.approved)
         self.assertIn("Approval denied", decision.reason)
 
-    def test_workspace_yolo_approves_workspace_tools(self) -> None:
-        provider = WorkspaceYoloApprovalProvider()
+    def test_host_yolo_approves_supported_host_tools(self) -> None:
+        provider = HostYoloApprovalProvider()
 
         decision = provider.request_approval(
             ApprovalRequest(
@@ -55,9 +55,11 @@ class CliApprovalProviderTests(unittest.TestCase):
 
         self.assertTrue(decision.approved)
         self.assertTrue(decision.metadata["yolo"])
+        self.assertEqual(decision.metadata["execution_isolation"], "host")
+        self.assertIn("host approval", decision.reason)
 
-    def test_workspace_yolo_denies_non_workspace_tools(self) -> None:
-        provider = WorkspaceYoloApprovalProvider()
+    def test_host_yolo_denies_unsupported_tools(self) -> None:
+        provider = HostYoloApprovalProvider()
 
         decision = provider.request_approval(
             ApprovalRequest(
@@ -69,6 +71,7 @@ class CliApprovalProviderTests(unittest.TestCase):
 
         self.assertFalse(decision.approved)
         self.assertTrue(decision.metadata["yolo"])
+        self.assertEqual(decision.metadata["execution_isolation"], "host")
 
 
 if __name__ == "__main__":

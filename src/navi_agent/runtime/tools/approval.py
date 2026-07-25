@@ -69,25 +69,27 @@ class AutoApproveApprovalProvider:
         )
 
 
-class WorkspaceYoloApprovalProvider:
-    _WORKSPACE_TOOLS = {"bash", "code_executor", "write_file", "patch"}
+class HostYoloApprovalProvider:
+    _HOST_TOOLS = {"bash", "code_executor", "write_file", "patch"}
 
     def request_approval(self, request: ApprovalRequest) -> ApprovalDecision:
-        if request.tool_name in self._WORKSPACE_TOOLS:
+        if request.tool_name in self._HOST_TOOLS:
             return ApprovalDecision.allow(
-                reason=f"YOLO workspace approval for tool: {request.tool_name}",
+                reason=f"YOLO host approval for tool: {request.tool_name}",
                 metadata={
                     "tool_name": request.tool_name,
                     "arguments": request.arguments,
                     "yolo": True,
+                    "execution_isolation": "host",
                 },
             )
         return ApprovalDecision.deny(
-            request.reason or f"Approval required for non-workspace tool: {request.tool_name}",
+            request.reason or f"Approval required for unsupported YOLO tool: {request.tool_name}",
             metadata={
                 "tool_name": request.tool_name,
                 "arguments": request.arguments,
                 "yolo": True,
+                "execution_isolation": "host",
             },
         )
 
