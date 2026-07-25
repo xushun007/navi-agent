@@ -9,7 +9,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
 
-from ..models import ConversationState, Message, SessionMetadata, SessionSearchHit, ToolCall
+from ..models import (
+    ContextCompactionCheckpoint,
+    ConversationState,
+    Message,
+    SessionMetadata,
+    SessionSearchHit,
+    ToolCall,
+)
 from .schema import SCHEMA_STATEMENTS
 
 
@@ -144,6 +151,99 @@ class SQLiteSessionStore:
             )
             for row in rows
         ]
+
+    def load_compaction_checkpoint(
+        self,
+        session: ConversationState,
+    ) -> ContextCompactionCheckpoint | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    session_id,
+                    covered_until_message_id,
+                    covered_message_count,
+                    protected_head_count,
+                    source_hash,
+                    summary,
+                    model,
+                    created_at
+                FROM context_compaction_checkpoints
+                WHERE session_id = ?
+                """,
+                (session.session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return ContextCompactionCheckpoint(
+            session_id=str(row["session_id"]),
+            covered_until_message_id=int(row["covered_until_message_id"]),
+            covered_message_count=int(row["covered_message_count"]),
+            protected_head_count=int(row["protected_head_count"]),
+            source_hash=str(row["source_hash"]),
+            summary=str(row["summary"]),
+            model=row["model"],
+            created_at=float(row["created_at"]),
+        )
+
+    def save_compaction_checkpoint(
+        self,
+        session: ConversationState,
+        checkpoint: ContextCompactionCheckpoint,
+    ) -> None:
+        if checkpoint.session_id != session.session_id:
+            raise ValueError("compaction checkpoint session does not match")
+        if checkpoint.covered_message_count <= 0:
+            raise ValueError("compaction checkpoint must cover at least one message")
+
+        def save(connection: sqlite3.Connection) -> None:
+            boundary = connection.execute(
+                """
+                SELECT id
+                FROM messages
+                WHERE session_id = ?
+                ORDER BY id ASC
+                LIMIT 1 OFFSET ?
+                """,
+                (session.session_id, checkpoint.covered_message_count - 1),
+            ).fetchone()
+            if boundary is None:
+                raise ValueError("compaction checkpoint exceeds stored message history")
+            connection.execute(
+                """
+                INSERT INTO context_compaction_checkpoints (
+                    session_id,
+                    covered_until_message_id,
+                    covered_message_count,
+                    protected_head_count,
+                    source_hash,
+                    summary,
+                    model,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    covered_until_message_id = excluded.covered_until_message_id,
+                    covered_message_count = excluded.covered_message_count,
+                    protected_head_count = excluded.protected_head_count,
+                    source_hash = excluded.source_hash,
+                    summary = excluded.summary,
+                    model = excluded.model,
+                    created_at = excluded.created_at
+                """,
+                (
+                    session.session_id,
+                    int(boundary["id"]),
+                    checkpoint.covered_message_count,
+                    checkpoint.protected_head_count,
+                    checkpoint.source_hash,
+                    checkpoint.summary,
+                    checkpoint.model,
+                    checkpoint.created_at or time.time(),
+                ),
+            )
+
+        self._execute_write(save)
 
     def get_lineage(self, session_id: str) -> list[str]:
         with self._connect() as connection:

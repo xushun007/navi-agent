@@ -60,6 +60,18 @@ class SessionMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextCompactionCheckpoint:
+    session_id: str
+    covered_message_count: int
+    protected_head_count: int
+    source_hash: str
+    summary: str
+    model: str | None = None
+    covered_until_message_id: int | None = None
+    created_at: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SessionSearchHit:
     session_id: str
     message_id: int

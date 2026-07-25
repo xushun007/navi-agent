@@ -48,6 +48,18 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS context_compaction_checkpoints (
+        session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        covered_until_message_id INTEGER NOT NULL REFERENCES messages(id),
+        covered_message_count INTEGER NOT NULL,
+        protected_head_count INTEGER NOT NULL,
+        source_hash TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        model TEXT,
+        created_at REAL NOT NULL
+    )
+    """,
+    """
     CREATE INDEX IF NOT EXISTS idx_messages_session
     ON messages(session_id, id)
     """,

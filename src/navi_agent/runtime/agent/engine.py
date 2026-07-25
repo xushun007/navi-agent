@@ -14,7 +14,7 @@ from navi_agent.tooling import ToolContext, ToolResult
 from ..tasks.background import BackgroundTask, BackgroundTaskManager
 from .context import ContextBuildResult, ContextEngine, LLMContextSummarizer
 from ..tools.interactions import PendingInteraction
-from ..models import Message, RuntimeResult, SessionMetadata, ToolCall
+from ..models import ContextCompactionCheckpoint, Message, RuntimeResult, SessionMetadata, ToolCall
 from .prompt import PromptBuilder
 from .control import RunCancellationToken, RunCancelledError
 from ..sessions.memory import InMemorySessionStore
@@ -556,8 +556,12 @@ class AgentRuntime:
             model_started_at = _utc_now_iso()
             model_started_perf = perf_counter()
             session_snapshot = self._session_store.snapshot(session)
+            checkpoint = self._session_store.load_compaction_checkpoint(session)
             try:
-                context_result = self._context_engine.build(session_snapshot)
+                context_result = self._context_engine.build(
+                    session_snapshot,
+                    checkpoint=checkpoint,
+                )
             except Exception as exc:
                 error_info = classify_exception(exc, error_source="context").to_metadata()
                 logger.exception(
@@ -608,6 +612,18 @@ class AgentRuntime:
                         "latest_user_anchored": context_result.latest_user_anchored,
                         "summary_status": context_result.summary_status,
                     },
+                )
+            if context_result.checkpoint is not None:
+                self._session_store.save_compaction_checkpoint(
+                    session,
+                    ContextCompactionCheckpoint(
+                        session_id=session.session_id,
+                        covered_message_count=context_result.checkpoint.covered_message_count,
+                        protected_head_count=context_result.checkpoint.protected_head_count,
+                        source_hash=context_result.checkpoint.source_hash,
+                        summary=context_result.checkpoint.summary,
+                        model=self._model,
+                    ),
                 )
             try:
                 model_item_id = f"model:{iteration_number}"

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from ..models import ConversationState, Message, SessionMetadata
+from ..models import ContextCompactionCheckpoint, ConversationState, Message, SessionMetadata
 
 
 class InMemorySessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, ConversationState] = {}
+        self._compaction_checkpoints: dict[str, ContextCompactionCheckpoint] = {}
 
     def load(
         self,
@@ -24,3 +25,16 @@ class InMemorySessionStore:
 
     def snapshot(self, session: ConversationState) -> list[Message]:
         return list(session.messages)
+
+    def load_compaction_checkpoint(
+        self,
+        session: ConversationState,
+    ) -> ContextCompactionCheckpoint | None:
+        return self._compaction_checkpoints.get(session.session_id)
+
+    def save_compaction_checkpoint(
+        self,
+        session: ConversationState,
+        checkpoint: ContextCompactionCheckpoint,
+    ) -> None:
+        self._compaction_checkpoints[session.session_id] = checkpoint
