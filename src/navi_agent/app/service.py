@@ -35,6 +35,7 @@ from navi_agent.runtime import (
     AgentRuntime,
     BackgroundTask,
     JsonPendingInteractionStore,
+    Message,
     PendingInteraction,
     RuntimeResult,
     RuntimeMode,
@@ -265,6 +266,13 @@ class ApplicationService:
 
     def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
         return self._runtime.list_sessions(user_id, limit)
+
+    def get_session_messages(
+        self,
+        session_id: str,
+        user_id: str,
+    ) -> list[Message]:
+        return self._runtime.get_session_messages(session_id, user_id)
 
     def list_background_tasks(
         self,

@@ -240,6 +240,17 @@ class AgentRuntime:
     def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
         return self._session_store.list_sessions(user_id, limit)
 
+    def get_session_messages(
+        self,
+        session_id: str,
+        user_id: str,
+    ) -> list[Message]:
+        if not self._session_store.has_session(session_id, user_id):
+            return []
+        return self._session_store.snapshot(
+            ConversationState(session_id=session_id, user_id=user_id)
+        )
+
     def list_background_tasks(
         self,
         session_id: str,

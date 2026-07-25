@@ -1710,6 +1710,24 @@ def _render_background_tasks(tasks) -> str:
     return "\n".join(lines)
 
 
+def _render_session_preview(messages, limit: int = 6) -> str:
+    visible = [
+        message
+        for message in messages
+        if message.role in {"user", "assistant"} and message.content.strip()
+    ][-limit:]
+    if not visible:
+        return "No previous messages."
+    lines = ["Recent context"]
+    for message in visible:
+        content = " ".join(message.content.split())
+        if len(content) > 160:
+            content = content[:157] + "..."
+        label = "You " if message.role == "user" else "Navi"
+        lines.append(f"{label} · {content}")
+    return "\n".join(lines)
+
+
 def _run_interactive(
     *,
     app,
@@ -1782,7 +1800,10 @@ def _run_interactive(
                 print(f"Session not found: {slash_command.argument}")
                 continue
             current_session_id = slash_command.argument
-            print(f"Resumed session · {current_session_id}")
+            print(
+                f"Resumed session · {current_session_id}\n\n"
+                f"{_render_session_preview(app.get_session_messages(current_session_id, user_id))}"
+            )
             continue
         if slash_command is not None and slash_command.name == "/tasks":
             print(
@@ -1948,7 +1969,10 @@ def _run_persistent_interactive(
                 prompt_session.show_notice(f"Session not found: {slash_command.argument}")
                 return
             current_session_id = slash_command.argument
-            prompt_session.show_notice(f"Resumed session · {current_session_id}")
+            prompt_session.show_notice(
+                f"Resumed session · {current_session_id}\n\n"
+                f"{_render_session_preview(app.get_session_messages(current_session_id, user_id))}"
+            )
             return
         if slash_command is not None and slash_command.name == "/tasks":
             prompt_session.show_notice(

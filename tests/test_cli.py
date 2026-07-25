@@ -46,6 +46,7 @@ class FakeApp:
         self.applied_candidate = None
         self.rolled_back_candidate = None
         self.sessions = []
+        self.session_messages = {}
         self.background_tasks = []
 
     def handle(self, request, *, event_subscribers=None):
@@ -109,6 +110,9 @@ class FakeApp:
 
     def list_sessions(self, user_id, limit=10):
         return self.sessions[:limit]
+
+    def get_session_messages(self, session_id, user_id):
+        return self.session_messages.get(session_id, [])
 
     def list_background_tasks(self, session_id, user_id):
         return self.background_tasks
@@ -1175,6 +1179,12 @@ class CliTests(unittest.TestCase):
             SessionSummary(session_id="s2", updated_at=2, message_count=4),
             SessionSummary(session_id="s1", updated_at=1, message_count=2),
         ]
+        app.session_messages["s2"] = [
+            Message(role="system", content="system"),
+            Message(role="user", content="previous question"),
+            Message(role="tool", content="tool output"),
+            Message(role="assistant", content="previous answer"),
+        ]
         stdout = io.StringIO()
 
         with patch(
@@ -1194,6 +1204,9 @@ class CliTests(unittest.TestCase):
         self.assertIn("Recent sessions", stdout.getvalue())
         self.assertIn("* s1 · 2 messages", stdout.getvalue())
         self.assertIn("Resumed session · s2", stdout.getvalue())
+        self.assertIn("You  · previous question", stdout.getvalue())
+        self.assertIn("Navi · previous answer", stdout.getvalue())
+        self.assertNotIn("tool output", stdout.getvalue())
 
     def test_run_interactive_lists_background_tasks_locally(self) -> None:
         app = FakeApp()
