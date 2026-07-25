@@ -41,6 +41,10 @@ class FileSkillStore:
     def __init__(self, root: Path) -> None:
         self._root = root
 
+    @property
+    def root(self) -> Path:
+        return self._root
+
     def create(self, *, name: str, content: str) -> SkillRecord:
         name = _normalize_skill_name(name)
         skill_dir = self._root / name

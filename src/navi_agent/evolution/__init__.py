@@ -27,6 +27,14 @@ from .reviews.run_store import JsonlReviewRunStore, ReviewRunRecord, ReviewToolR
 from .reviews.service import ReviewLoopService, ReviewLoopSummary
 from .reviews.trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, ReviewTriggerPolicy
 from .skills.curator import SkillCuratorArchiveResult, SkillCuratorRecord, SkillCuratorService, SkillCuratorStatus, SkillCuratorStatusService
+from .skills.governance import (
+    SkillDraft,
+    SkillDraftEvaluator,
+    SkillDraftProvenance,
+    SkillEvaluationResult,
+    SkillGovernanceService,
+    SkillPromotionGate,
+)
 from .skills.provenance import SkillProvenanceRecord, SkillProvenanceStore
 from .skills.review import SkillReviewDecision, SkillReviewService
 from .skills.store import EvolutionEngine, FileSkillStore, SkillAttachment, SkillRecord, SkillReference
@@ -88,6 +96,12 @@ __all__ = [
     "SkillCuratorService",
     "SkillCuratorStatus",
     "SkillCuratorStatusService",
+    "SkillDraft",
+    "SkillDraftEvaluator",
+    "SkillDraftProvenance",
+    "SkillEvaluationResult",
+    "SkillGovernanceService",
+    "SkillPromotionGate",
     "SkillProvenanceRecord",
     "SkillProvenanceStore",
     "SkillReviewDecision",
