@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,17 @@ from .workspace_tool import WorkspaceTool
 
 if TYPE_CHECKING:
     from navi_agent.runtime.tasks.background import BackgroundTaskManager
+
+
+@dataclass(slots=True)
+class _RunningCommand:
+    process: subprocess.Popen
+    stdout_chunks: list[str]
+    stderr_chunks: list[str]
+    stdout_thread: threading.Thread
+    stderr_thread: threading.Thread
+    emit_output: list[Any]
+    started_at: float
 
 
 class BashTool(WorkspaceTool):
@@ -44,8 +56,10 @@ class BashTool(WorkspaceTool):
     def __init__(
         self,
         root=None,
-        default_timeout_seconds: int = 20,
+        default_timeout_seconds: int | None = None,
         max_timeout_seconds: int = 60,
+        default_yield_time_ms: int = 10_000,
+        max_yield_time_ms: int = 30_000,
         max_output_chars: int = 20_000,
         background_task_manager: BackgroundTaskManager | None = None,
         additional_roots: Iterable[Path] | None = None,
@@ -53,6 +67,8 @@ class BashTool(WorkspaceTool):
         super().__init__(root=root, additional_roots=additional_roots)
         self._default_timeout_seconds = default_timeout_seconds
         self._max_timeout_seconds = max_timeout_seconds
+        self._default_yield_time_ms = default_yield_time_ms
+        self._max_yield_time_ms = max_yield_time_ms
         self._max_output_chars = max_output_chars
         self._background_task_manager = background_task_manager
 
@@ -74,6 +90,15 @@ class BashTool(WorkspaceTool):
                     "type": "integer",
                     "minimum": 1,
                     "maximum": self._max_timeout_seconds,
+                    "description": "Optional maximum command runtime.",
+                },
+                "yield_time_ms": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": self._max_yield_time_ms,
+                    "description": (
+                        "Wait before returning a background task for a still-running command."
+                    ),
                 },
                 "background": {"type": "boolean"},
             },
@@ -84,8 +109,19 @@ class BashTool(WorkspaceTool):
         command = str(kwargs["command"]).strip()
         if not command:
             return ToolResult.error(name=self.name, content="Command must not be empty")
-        timeout_seconds = int(kwargs.get("timeout_seconds", self._default_timeout_seconds))
-        timeout_seconds = max(1, min(timeout_seconds, self._max_timeout_seconds))
+        timeout_value = kwargs.get("timeout_seconds", self._default_timeout_seconds)
+        timeout_seconds = (
+            max(1, min(int(timeout_value), self._max_timeout_seconds))
+            if timeout_value is not None
+            else None
+        )
+        yield_time_ms = max(
+            1,
+            min(
+                int(kwargs.get("yield_time_ms", self._default_yield_time_ms)),
+                self._max_yield_time_ms,
+            ),
+        )
         try:
             cwd = self._resolve_path(kwargs.get("cwd"))
         except ValueError as exc:
@@ -137,6 +173,15 @@ class BashTool(WorkspaceTool):
                 metadata={"cwd": str(cwd), "timeout_seconds": timeout_seconds, "command": command},
             )
 
+        if context is not None and self._background_task_manager is not None:
+            return self._execute_with_yield(
+                context=context,
+                command=command,
+                cwd=cwd,
+                timeout_seconds=timeout_seconds,
+                yield_time_ms=yield_time_ms,
+            )
+
         return self._execute(
             command=command,
             cwd=cwd,
@@ -170,67 +215,214 @@ class BashTool(WorkspaceTool):
         *,
         command: str,
         cwd,
-        timeout_seconds: int,
+        timeout_seconds: int | None,
         emit_output,
         cancellation_requested,
     ) -> ToolResult:
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
-
         if cancellation_requested is not None and cancellation_requested():
             return self._cancelled_result(command, cwd, timeout_seconds, "", "", emit_output)
+        running = self._start_process(command, cwd, emit_output)
+        outcome = self._wait_for_process(
+            running,
+            timeout_seconds=timeout_seconds,
+            cancellation_requested=cancellation_requested,
+        )
+        return self._finish_process(
+            running,
+            outcome=outcome,
+            command=command,
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+        )
 
-        try:
-            env = os.environ.copy()
-            env.pop("CDPATH", None)
-            process = subprocess.Popen(
+    def _execute_with_yield(
+        self,
+        *,
+        context: ToolContext,
+        command: str,
+        cwd,
+        timeout_seconds: int | None,
+        yield_time_ms: int,
+    ) -> ToolResult:
+        if context.cancellation_requested is not None and context.cancellation_requested():
+            return self._cancelled_result(
                 command,
-                shell=True,
+                cwd,
+                timeout_seconds,
+                "",
+                "",
+                context.emit_output,
+            )
+        running = self._start_process(command, cwd, context.emit_output)
+        outcome = self._wait_for_process(
+            running,
+            timeout_seconds=timeout_seconds,
+            cancellation_requested=context.cancellation_requested,
+            yield_time_ms=yield_time_ms,
+        )
+        if outcome != "yielded":
+            return self._finish_process(
+                running,
+                outcome=outcome,
+                command=command,
                 cwd=cwd,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                start_new_session=True,
+                timeout_seconds=timeout_seconds,
             )
-            stdout_thread = threading.Thread(
-                target=self._consume_stream,
-                args=(process.stdout, "stdout", stdout_chunks, emit_output),
-                daemon=True,
+
+        running.emit_output[0] = None
+        try:
+            task = self._background_task_manager.submit(
+                session_id=context.session_id,
+                user_id=context.user_id,
+                description=command,
+                runner=lambda: self._resume_process(
+                    running,
+                    command=command,
+                    cwd=cwd,
+                    timeout_seconds=timeout_seconds,
+                ),
             )
-            stderr_thread = threading.Thread(
-                target=self._consume_stream,
-                args=(process.stderr, "stderr", stderr_chunks, emit_output),
-                daemon=True,
+        except RuntimeError:
+            outcome = self._wait_for_process(
+                running,
+                timeout_seconds=timeout_seconds,
+                cancellation_requested=context.cancellation_requested,
             )
-            stdout_thread.start()
-            stderr_thread.start()
-            deadline = time.monotonic() + timeout_seconds
-            while process.poll() is None:
-                if cancellation_requested is not None and cancellation_requested():
-                    self._terminate_process(process)
-                    stdout_thread.join()
-                    stderr_thread.join()
-                    return self._cancelled_result(
-                        command,
-                        cwd,
-                        timeout_seconds,
-                        "".join(stdout_chunks).strip(),
-                        "".join(stderr_chunks).strip(),
-                        emit_output,
-                    )
-                if time.monotonic() >= deadline:
-                    raise subprocess.TimeoutExpired(command, timeout_seconds)
-                time.sleep(0.05)
-            stdout_thread.join()
-            stderr_thread.join()
-        except subprocess.TimeoutExpired:
-            self._terminate_process(process)
-            stdout_thread.join()
-            stderr_thread.join()
-            stdout = "".join(stdout_chunks).strip()
-            stderr = "".join(stderr_chunks).strip()
+            return self._finish_process(
+                running,
+                outcome=outcome,
+                command=command,
+                cwd=cwd,
+                timeout_seconds=timeout_seconds,
+            )
+
+        return ToolResult.ok(
+            name=self.name,
+            content=(
+                f"Command still running\n"
+                f"task_id: {task.task_id}\n"
+                f"command: {command}"
+            ),
+            structured_content={
+                "task_id": task.task_id,
+                "status": task.status,
+                "command": command,
+                "background": True,
+                "yielded": True,
+                "timed_out": False,
+                "exit_code": None,
+            },
+            metadata={
+                "cwd": str(cwd),
+                "timeout_seconds": timeout_seconds,
+                "yield_time_ms": yield_time_ms,
+                "command": command,
+            },
+        )
+
+    def _resume_process(
+        self,
+        running: _RunningCommand,
+        *,
+        command: str,
+        cwd,
+        timeout_seconds: int | None,
+    ) -> ToolResult:
+        outcome = self._wait_for_process(
+            running,
+            timeout_seconds=timeout_seconds,
+            cancellation_requested=None,
+        )
+        return self._finish_process(
+            running,
+            outcome=outcome,
+            command=command,
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def _start_process(self, command: str, cwd, emit_output) -> _RunningCommand:
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        emit_output_holder = [emit_output]
+        env = os.environ.copy()
+        env.pop("CDPATH", None)
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+        stdout_thread = threading.Thread(
+            target=self._consume_stream,
+            args=(process.stdout, "stdout", stdout_chunks, emit_output_holder),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=self._consume_stream,
+            args=(process.stderr, "stderr", stderr_chunks, emit_output_holder),
+            daemon=True,
+        )
+        running = _RunningCommand(
+            process=process,
+            stdout_chunks=stdout_chunks,
+            stderr_chunks=stderr_chunks,
+            stdout_thread=stdout_thread,
+            stderr_thread=stderr_thread,
+            emit_output=emit_output_holder,
+            started_at=time.monotonic(),
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        return running
+
+    @staticmethod
+    def _wait_for_process(
+        running: _RunningCommand,
+        *,
+        timeout_seconds: int | None,
+        cancellation_requested,
+        yield_time_ms: int | None = None,
+    ) -> str:
+        timeout_deadline = (
+            running.started_at + timeout_seconds if timeout_seconds is not None else None
+        )
+        yield_deadline = (
+            time.monotonic() + (yield_time_ms / 1000) if yield_time_ms is not None else None
+        )
+        while running.process.poll() is None:
+            if cancellation_requested is not None and cancellation_requested():
+                return "cancelled"
+            now = time.monotonic()
+            if timeout_deadline is not None and now >= timeout_deadline:
+                return "timed_out"
+            if yield_deadline is not None and now >= yield_deadline:
+                return "yielded"
+            time.sleep(0.05)
+        return "completed"
+
+    def _finish_process(
+        self,
+        running: _RunningCommand,
+        *,
+        outcome: str,
+        command: str,
+        cwd,
+        timeout_seconds: int | None,
+    ) -> ToolResult:
+        if outcome in {"timed_out", "cancelled"}:
+            self._terminate_process(running.process)
+        self._join_streams(running)
+        stdout = "".join(running.stdout_chunks).strip()
+        stderr = "".join(running.stderr_chunks).strip()
+        emit_output = running.emit_output[0]
+
+        if outcome == "timed_out":
             return ToolResult.error(
                 name=self.name,
                 content=f"Command timed out after {timeout_seconds} seconds",
@@ -248,9 +440,16 @@ class BashTool(WorkspaceTool):
                     "command": command,
                 },
             )
+        if outcome == "cancelled":
+            return self._cancelled_result(
+                command,
+                cwd,
+                timeout_seconds,
+                stdout,
+                stderr,
+                emit_output,
+            )
 
-        stdout = "".join(stdout_chunks).strip()
-        stderr = "".join(stderr_chunks).strip()
         truncated = False
         if len(stdout) > self._max_output_chars:
             stdout = stdout[: self._max_output_chars] + "\n...<truncated>"
@@ -258,17 +457,17 @@ class BashTool(WorkspaceTool):
         if len(stderr) > self._max_output_chars:
             stderr = stderr[: self._max_output_chars] + "\n...<truncated>"
             truncated = True
-        parts = [f"exit_code: {process.returncode}"]
+        parts = [f"exit_code: {running.process.returncode}"]
         if stdout:
             parts.append(f"stdout:\n{stdout}")
         if stderr:
             parts.append(f"stderr:\n{stderr}")
-        result_cls = ToolResult.ok if process.returncode == 0 else ToolResult.error
+        result_cls = ToolResult.ok if running.process.returncode == 0 else ToolResult.error
         return result_cls(
             name=self.name,
             content="\n".join(parts),
             structured_content={
-                "exit_code": process.returncode,
+                "exit_code": running.process.returncode,
                 "stdout": stdout,
                 "stderr": stderr,
                 "truncated": truncated,
@@ -284,7 +483,7 @@ class BashTool(WorkspaceTool):
         self,
         command: str,
         cwd,
-        timeout_seconds: int,
+        timeout_seconds: int | None,
         stdout: str,
         stderr: str,
         emit_output,
@@ -326,13 +525,14 @@ class BashTool(WorkspaceTool):
         stream,
         stream_name: str,
         chunks: list[str],
-        emit_output,
+        emit_output_holder: list[Any],
     ) -> None:
         if stream is None:
             return
         try:
             for line in stream:
                 chunks.append(line)
+                emit_output = emit_output_holder[0]
                 if emit_output is not None:
                     emit_output(
                         {
@@ -343,6 +543,12 @@ class BashTool(WorkspaceTool):
                     )
         finally:
             stream.close()
+
+    @staticmethod
+    def _join_streams(running: _RunningCommand) -> None:
+        deadline = time.monotonic() + 1
+        for thread in (running.stdout_thread, running.stderr_thread):
+            thread.join(timeout=max(0, deadline - time.monotonic()))
 
     def _inspect_command(self, command: str, cwd) -> ToolResult | None:
         if re.search(r"(^|[;&|])\s*[^&]*&\s*$", command):

@@ -76,6 +76,68 @@ class BashToolTests(unittest.TestCase):
         self.assertIn("timed out", result.content)
         self.assertTrue(result.structured_content["timed_out"])
 
+    def test_yields_long_foreground_command_to_background(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = BackgroundTaskManager()
+            tool = BashTool(root=Path(tmpdir), background_task_manager=manager)
+            started = time.monotonic()
+            result = tool.invoke(
+                context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+                command=(
+                    "python -c 'import time; "
+                    'print("start", flush=True); time.sleep(0.3); print("done")\''
+                ),
+                yield_time_ms=50,
+            )
+
+            self.assertLess(time.monotonic() - started, 0.25)
+            self.assertEqual(result.status, "success")
+            self.assertTrue(result.structured_content["yielded"])
+            self.assertFalse(result.structured_content["timed_out"])
+            task_id = result.structured_content["task_id"]
+            deadline = time.monotonic() + 2
+            while manager.get(task_id, session_id="s1", user_id="u1").status not in {
+                "succeeded",
+                "failed",
+            }:
+                if time.monotonic() >= deadline:
+                    self.fail("yielded command did not finish")
+                time.sleep(0.01)
+            task = manager.get(task_id, session_id="s1", user_id="u1")
+
+        self.assertEqual(task.status, "succeeded")
+        self.assertIn("start", task.result.content)
+        self.assertIn("done", task.result.content)
+
+    def test_explicit_timeout_applies_after_yield(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = BackgroundTaskManager()
+            tool = BashTool(
+                root=Path(tmpdir),
+                max_timeout_seconds=1,
+                background_task_manager=manager,
+            )
+            result = tool.invoke(
+                context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+                command="python -c 'import time; time.sleep(2)'",
+                timeout_seconds=1,
+                yield_time_ms=50,
+            )
+
+            task_id = result.structured_content["task_id"]
+            deadline = time.monotonic() + 2
+            while manager.get(task_id, session_id="s1", user_id="u1").status not in {
+                "succeeded",
+                "failed",
+            }:
+                if time.monotonic() >= deadline:
+                    self.fail("timed command did not finish")
+                time.sleep(0.01)
+            task = manager.get(task_id, session_id="s1", user_id="u1")
+
+        self.assertEqual(task.status, "failed")
+        self.assertTrue(task.result.structured_content["timed_out"])
+
     def test_streams_output_chunks(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             events = []
