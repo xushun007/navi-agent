@@ -36,6 +36,8 @@ from navi_agent.evolution import (
     build_tool_use_case_from_trajectory,
     render_tool_use_case_jsonl,
     FileSkillStore,
+    SkillGovernanceService,
+    SkillPromotionGate,
     SkillCuratorService,
     SkillCuratorStatusService,
     SkillProvenanceStore,
@@ -1219,7 +1221,10 @@ def _archive_unused_agent_skills() -> int:
     skill_store = FileSkillStore(get_skills_dir())
     usage_store = SkillUsageStore(get_skills_dir())
     result = SkillCuratorService(
-        skill_store=skill_store,
+        skill_governance=SkillGovernanceService(
+            skill_store,
+            gate=SkillPromotionGate(required_suites=()),
+        ),
         usage_service=SkillUsageService(
             skill_store=skill_store,
             trace_store=JsonlTraceStore(get_trace_store_path()),

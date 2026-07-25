@@ -5,6 +5,8 @@ from navi_agent.evolution import (
     FileSkillStore,
     SkillCuratorStatusService,
     SkillCuratorService,
+    SkillGovernanceService,
+    SkillPromotionGate,
     SkillProvenanceStore,
     SkillUsageService,
     SkillUsageStore,
@@ -77,7 +79,10 @@ def test_curator_archives_unused_agent_created_skills(tmp_path: Path) -> None:
     usage_store = SkillUsageStore(tmp_path)
 
     result = SkillCuratorService(
-        skill_store=skill_store,
+        skill_governance=SkillGovernanceService(
+            skill_store,
+            gate=SkillPromotionGate(required_suites=()),
+        ),
         usage_service=SkillUsageService(
             skill_store=skill_store,
             trace_store=trace_store,
@@ -90,6 +95,12 @@ def test_curator_archives_unused_agent_created_skills(tmp_path: Path) -> None:
     assert result.archived_count == 1
     assert result.archived_names == ["unused-agent-skill"]
     assert (tmp_path / ".archive" / "unused-agent-skill" / "SKILL.md").exists()
+    versions = SkillGovernanceService(
+        skill_store,
+        gate=SkillPromotionGate(required_suites=()),
+    ).list_versions("unused-agent-skill")
+    assert len(versions) == 1
+    assert versions[0].status == "archived"
     assert skill_store.get("used-agent-skill") is not None
     assert skill_store.get("manual-skill") is not None
     assert usage_store.get("unused-agent-skill").archived_count == 1

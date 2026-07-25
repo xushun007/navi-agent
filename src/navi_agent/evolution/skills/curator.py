@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .provenance import SkillProvenanceStore
+from .governance import SkillGovernanceService
 from .usage import SkillUsageRecord, SkillUsageService, SkillUsageStore
-from .store import FileSkillStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,12 +84,12 @@ class SkillCuratorService:
     def __init__(
         self,
         *,
-        skill_store: FileSkillStore,
+        skill_governance: SkillGovernanceService,
         usage_service: SkillUsageService,
         provenance_store: SkillProvenanceStore,
         usage_store: SkillUsageStore | None = None,
     ) -> None:
-        self._skill_store = skill_store
+        self._skill_governance = skill_governance
         self._usage_service = usage_service
         self._provenance_store = provenance_store
         self._usage_store = usage_store
@@ -105,7 +105,7 @@ class SkillCuratorService:
             if record.origin != "agent" or record.injected_count != 0:
                 skipped_count += 1
                 continue
-            archived = self._skill_store.archive(record.name)
+            archived = self._skill_governance.archive(record.name)
             if archived is None:
                 skipped_count += 1
                 continue

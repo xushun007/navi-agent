@@ -20,7 +20,7 @@ class SkillManageTool(BaseTool):
         self,
         skill_store: FileSkillStore,
         *,
-        governance: SkillGovernanceService | None = None,
+        governance: SkillGovernanceService,
         provenance: SkillDraftProvenance | None = None,
     ) -> None:
         self._skill_store = skill_store
@@ -158,31 +158,19 @@ class SkillManageTool(BaseTool):
                     name=self.name,
                     content=f"skill_manage_error: {validation_error}",
                 )
-            if self._governance is not None:
-                draft = self._governance.create_draft(
-                    skill_name=skill_name,
-                    content=skill_content,
-                    provenance=self._require_provenance(),
-                )
-                return ToolResult.ok(
-                    name=self.name,
-                    content=f"skill_draft_created: {draft.draft_id}",
-                    structured_content={
-                        "action": "draft_create",
-                        "draft_id": draft.draft_id,
-                        "skill_name": draft.skill_name,
-                        "status": draft.status,
-                    },
-                )
-            record = self._skill_store.create(name=skill_name, content=skill_content)
+            draft = self._governance.create_draft(
+                skill_name=skill_name,
+                content=skill_content,
+                provenance=self._require_provenance(),
+            )
             return ToolResult.ok(
                 name=self.name,
-                content=f"skill_created: {record.name}",
+                content=f"skill_draft_created: {draft.draft_id}",
                 structured_content={
-                    "action": "create",
-                    "skill_name": record.name,
-                    "description": record.description,
-                    "category": record.category,
+                    "action": "draft_create",
+                    "draft_id": draft.draft_id,
+                    "skill_name": draft.skill_name,
+                    "status": draft.status,
                 },
             )
 
@@ -205,47 +193,27 @@ class SkillManageTool(BaseTool):
                     name=self.name,
                     content=f"skill_manage_error: {validation_error}",
                 )
-            if self._governance is not None:
-                try:
-                    draft = self._governance.append_draft(
-                        skill_name=skill_name,
-                        section=section,
-                        content=append_content,
-                        provenance=self._require_provenance(),
-                    )
-                except ValueError as error:
-                    return ToolResult.error(
-                        name=self.name,
-                        content=f"skill_manage_error: {error}",
-                    )
-                return ToolResult.ok(
-                    name=self.name,
-                    content=f"skill_draft_created: {draft.draft_id}",
-                    structured_content={
-                        "action": "draft_append",
-                        "draft_id": draft.draft_id,
-                        "skill_name": draft.skill_name,
-                        "section": section,
-                        "status": draft.status,
-                    },
+            try:
+                draft = self._governance.append_draft(
+                    skill_name=skill_name,
+                    section=section,
+                    content=append_content,
+                    provenance=self._require_provenance(),
                 )
-            record = self._skill_store.append_to_section(
-                name=skill_name,
-                section=section,
-                content=append_content,
-            )
-            if record is None:
+            except ValueError as error:
                 return ToolResult.error(
                     name=self.name,
-                    content=f"skill_manage_error: skill not found: {skill_name}",
+                    content=f"skill_manage_error: {error}",
                 )
             return ToolResult.ok(
                 name=self.name,
-                content=f"skill_updated: {record.name}",
+                content=f"skill_draft_created: {draft.draft_id}",
                 structured_content={
-                    "action": "append",
-                    "skill_name": record.name,
+                    "action": "draft_append",
+                    "draft_id": draft.draft_id,
+                    "skill_name": draft.skill_name,
                     "section": section,
+                    "status": draft.status,
                 },
             )
 
@@ -263,39 +231,15 @@ class SkillManageTool(BaseTool):
                     name=self.name,
                     content=f"skill_manage_error: {validation_error}",
                 )
-            if self._governance is not None:
-                draft_id = str(kwargs.get("draft_id") or "").strip()
-                if not draft_id:
-                    return ToolResult.error(
-                        name=self.name,
-                        content="skill_manage_error: draft_id is required for write_attachment",
-                    )
-                try:
-                    attachment = self._governance.write_draft_attachment(
-                        draft_id=draft_id,
-                        relative_path=attachment_path,
-                        content=attachment_content,
-                    )
-                except ValueError as error:
-                    return ToolResult.error(
-                        name=self.name,
-                        content=f"skill_manage_error: {error}",
-                    )
-                return ToolResult.ok(
+            draft_id = str(kwargs.get("draft_id") or "").strip()
+            if not draft_id:
+                return ToolResult.error(
                     name=self.name,
-                    content=f"skill_draft_attachment_written: {attachment.path}",
-                    structured_content={
-                        "action": "draft_attachment",
-                        "draft_id": draft_id,
-                        "skill_name": skill_name,
-                        "attachment_path": attachment.path,
-                        "attachment_kind": attachment.kind,
-                        "size_bytes": attachment.size_bytes,
-                    },
+                    content="skill_manage_error: draft_id is required for write_attachment",
                 )
             try:
-                attachment = self._skill_store.write_attachment(
-                    name=skill_name,
+                attachment = self._governance.write_draft_attachment(
+                    draft_id=draft_id,
                     relative_path=attachment_path,
                     content=attachment_content,
                 )
@@ -304,16 +248,12 @@ class SkillManageTool(BaseTool):
                     name=self.name,
                     content=f"skill_manage_error: {error}",
                 )
-            if attachment is None:
-                return ToolResult.error(
-                    name=self.name,
-                    content=f"skill_manage_error: skill not found: {skill_name}",
-                )
             return ToolResult.ok(
                 name=self.name,
-                content=f"skill_attachment_written: {attachment.path}",
+                content=f"skill_draft_attachment_written: {attachment.path}",
                 structured_content={
-                    "action": "write_attachment",
+                    "action": "draft_attachment",
+                    "draft_id": draft_id,
                     "skill_name": skill_name,
                     "attachment_path": attachment.path,
                     "attachment_kind": attachment.kind,
