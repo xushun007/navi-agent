@@ -919,6 +919,7 @@ class AgentRuntimeTests(unittest.TestCase):
                 "runtime.completed",
             ],
         )
+        self.assertEqual(observer.events[0].metadata["runtime_mode"], "online")
         self.assertEqual(len(observer.events[4].metadata["tool_calls"]), 1)
         self.assertEqual(observer.events[6].metadata["tool_name"], "echo")
 

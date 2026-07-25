@@ -14,6 +14,7 @@ from navi_agent.runtime import (
     ToolDefinition,
     ToolRegistry,
     ModelResponse,
+    RuntimeMode,
     build_transport,
 )
 from navi_agent.runtime.tools.policy import SensitiveToolPolicy
@@ -302,6 +303,7 @@ class ToolUseWorkflowService:
             session_id=session_id,
             user_id="tool-use-eval",
             user_message=case.prompt,
+            mode=RuntimeMode.EVAL,
         )
         trace = trace_store.get_latest_trace(session_id=session_id, user_id="tool-use-eval")
         if trace is None:
@@ -382,6 +384,7 @@ class ToolUseEvalWorkflowService:
             session_id=session_id,
             user_id="tool-use-eval",
             user_message=case.prompt,
+            mode=RuntimeMode.EVAL,
         )
         trace = trace_store.get_latest_trace(session_id=session_id, user_id="tool-use-eval")
         if trace is None:

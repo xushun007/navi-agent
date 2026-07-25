@@ -18,6 +18,7 @@ from navi_agent.runtime import (
     Message,
     ModelResponse,
     PromptBuilder,
+    RuntimeMode,
     ToolCall,
 )
 from navi_agent.telemetry import InMemoryTraceStore
@@ -94,6 +95,7 @@ class SmokeWorkflowService:
             session_id=session_id,
             user_id="smoke",
             user_message="hello smoke",
+            mode=RuntimeMode.EVAL,
         )
         trace = trace_store.get_latest_trace(session_id=session_id, user_id="smoke")
         passed = (
@@ -130,6 +132,7 @@ class SmokeWorkflowService:
             session_id=session_id,
             user_id="smoke",
             user_message="请记录一个待办",
+            mode=RuntimeMode.EVAL,
         )
         trace = trace_store.get_latest_trace(session_id=session_id, user_id="smoke")
         tool_names = [execution.tool_name for execution in trace.tool_executions] if trace else []

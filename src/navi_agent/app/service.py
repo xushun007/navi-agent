@@ -37,6 +37,7 @@ from navi_agent.runtime import (
     JsonPendingInteractionStore,
     PendingInteraction,
     RuntimeResult,
+    RuntimeMode,
     RuntimeRunState,
     RunStateTracker,
 )
@@ -49,8 +50,7 @@ class AppRequest:
     message: str
     session_id: str | None = None
     system_prompt: str | None = None
-    auto_propose_eval_case: bool = True
-    auto_propose_skill: bool = True
+    mode: RuntimeMode = RuntimeMode.ONLINE
     source: str = "console"
 
 
@@ -129,7 +129,8 @@ class ApplicationService:
                 )
             resume_interaction = self._interaction_store.get_resolved(session_id)
 
-        self._hydrate_review_trigger(session_id=session_id, user_id=request.user_id)
+        if request.mode is RuntimeMode.ONLINE:
+            self._hydrate_review_trigger(session_id=session_id, user_id=request.user_id)
         cancellation_token = self._active_runs.start(session_id)
         try:
             result = self._runtime.run_conversation(
@@ -138,6 +139,7 @@ class ApplicationService:
                 user_message=request.message,
                 system_prompt=system_prompt,
                 source=request.source,
+                mode=request.mode,
                 event_subscribers=[self._run_states, *(event_subscribers or [])],
                 cancellation_token=cancellation_token,
                 resume_interaction=resume_interaction,
@@ -148,13 +150,11 @@ class ApplicationService:
             self._attach_pending_tool_call(result)
         if self._interaction_store is not None and resume_interaction is not None:
             self._interaction_store.complete(resume_interaction.interaction_id)
-        if request.auto_propose_eval_case or request.auto_propose_skill:
+        if request.mode is RuntimeMode.ONLINE:
             self._maybe_add_runtime_candidates(
                 result=result,
                 session_id=result.session_id,
                 user_id=request.user_id,
-                auto_propose_eval_case=request.auto_propose_eval_case,
-                auto_propose_skill=request.auto_propose_skill,
             )
         return result
 
@@ -447,8 +447,6 @@ class ApplicationService:
         result: RuntimeResult,
         session_id: str,
         user_id: str,
-        auto_propose_eval_case: bool,
-        auto_propose_skill: bool,
     ) -> None:
         if result.status in {"cancelled", "superseded", "awaiting_input"}:
             return
@@ -457,29 +455,27 @@ class ApplicationService:
         trace = self._runtime.get_latest_trace(session_id=session_id, user_id=user_id)
         if trace is None:
             return
-        if auto_propose_eval_case:
-            candidate = self._evaluator.build_eval_case_candidate(trace)
-            if candidate is not None:
-                self.add_candidate(candidate)
-        if auto_propose_skill:
-            decision = self._review_trigger_policy.decide(
+        candidate = self._evaluator.build_eval_case_candidate(trace)
+        if candidate is not None:
+            self.add_candidate(candidate)
+        decision = self._review_trigger_policy.decide(
+            trace,
+            memory_available=self._review_agent_service is not None,
+            skill_available=self._review_agent_service is not None,
+        )
+        if self._background_skill_review is not None and (
+            (decision.review_memory and self._review_agent_service is not None)
+            or (decision.review_skill and self._review_agent_service is not None)
+        ):
+            self._background_skill_review.submit(
                 trace,
-                memory_available=self._review_agent_service is not None,
-                skill_available=self._review_agent_service is not None,
-            )
-            if self._background_skill_review is not None and (
-                (decision.review_memory and self._review_agent_service is not None)
-                or (decision.review_skill and self._review_agent_service is not None)
-            ):
-                self._background_skill_review.submit(
+                review_evidence=self._build_skill_review_evidence(
                     trace,
-                    review_evidence=self._build_skill_review_evidence(
-                        trace,
-                        result=result,
-                    ),
-                    review_memory=decision.review_memory and self._review_agent_service is not None,
-                    review_skill=decision.review_skill and self._review_agent_service is not None,
-                )
+                    result=result,
+                ),
+                review_memory=decision.review_memory and self._review_agent_service is not None,
+                review_skill=decision.review_skill and self._review_agent_service is not None,
+            )
 
     def _hydrate_review_trigger(self, *, session_id: str, user_id: str) -> None:
         hydrate = getattr(self._review_trigger_policy, "hydrate", None)

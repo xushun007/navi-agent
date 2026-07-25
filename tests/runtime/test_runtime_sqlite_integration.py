@@ -54,7 +54,7 @@ class RuntimeSQLiteIntegrationTests(unittest.TestCase):
             self.assertEqual(result.final_response, "done")
             self.assertEqual(
                 [message.role for message in restored.messages],
-                ["system", "user", "assistant"],
+                ["user", "assistant"],
             )
             self.assertEqual(restored.messages[-1].content, "done")
             self.assertEqual(restored.messages[-1].provider, "openai-compatible")
@@ -81,7 +81,7 @@ class RuntimeSQLiteIntegrationTests(unittest.TestCase):
             assert run is not None
             self.assertEqual(run.status, "completed")
             self.assertEqual(run.start_message_id, 1)
-            self.assertEqual(run.end_message_id, 3)
+            self.assertEqual(run.end_message_id, 2)
             self.assertEqual(run.input_tokens, 40)
             self.assertEqual(run.output_tokens, 8)
             self.assertAlmostEqual(run.estimated_cost_usd or 0, 0.002)

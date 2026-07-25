@@ -9,7 +9,7 @@ from navi_agent.evolution import EvaluationResult, EvolutionCandidate, SimpleEva
 from navi_agent.evolution import ReviewLoopService
 from navi_agent.evolution import EvolutionReportWriter
 from navi_agent.paths import get_evolution_reports_dir
-from navi_agent.runtime import RuntimeResult
+from navi_agent.runtime import RuntimeMode, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace
 
 
@@ -159,7 +159,7 @@ def run_healthcheck_task(
             session_id=session_id or f"healthcheck-{task.name}-{uuid4().hex[:8]}",
             message=task.prompt,
             system_prompt=system_prompt,
-            auto_propose_eval_case=False,
+            mode=RuntimeMode.EVAL,
         )
     )
 

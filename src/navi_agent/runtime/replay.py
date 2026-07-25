@@ -17,7 +17,7 @@ from navi_agent.tooling import ToolContext, ToolResult
 
 from .agent.context import ContextEngine
 from .agent.engine import AgentRuntime
-from .models import ModelResponse, ModelUsage, RuntimeResult, ToolCall
+from .models import ModelResponse, ModelUsage, RuntimeMode, RuntimeResult, ToolCall
 from .sessions.memory import InMemorySessionStore
 from .transports.base import ModelRequest
 
@@ -71,6 +71,7 @@ class OfflineRuntimeReplay:
             user_message=plan.user_message,
             system_prompt=plan.system_prompt,
             source="replay",
+            mode=RuntimeMode.REPLAY,
         )
         divergences = [
             *transport.divergences,

@@ -83,7 +83,7 @@ from navi_agent.telemetry import (
     RuntimeTrajectoryService,
 )
 from navi_agent.ui_events import ConsoleUiEventSink, UiEventEmitter
-from navi_agent.runtime import CliApprovalProvider
+from navi_agent.runtime import CliApprovalProvider, RuntimeMode
 from navi_agent.runtime import ConversationState
 from navi_agent.runtime import DeferredApprovalProvider
 from navi_agent.runtime import JsonPendingInteractionStore
@@ -776,7 +776,7 @@ def _run_ifeval(*, yolo: bool = False) -> int:
                 user_id="ifeval",
                 session_id=seed.session_id,
                 message=seed.prompt,
-                auto_propose_eval_case=False,
+                mode=RuntimeMode.EVAL,
             )
         )
         result = evaluator.evaluate(

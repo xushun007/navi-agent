@@ -8,6 +8,7 @@ from navi_agent.runtime import (
     ContextEngine,
     InMemorySessionStore,
     ModelTransport,
+    RuntimeMode,
 )
 from navi_agent.runtime.tools.policy import AllowAllToolPolicy
 from navi_agent.runtime.tools.registry import ToolRegistry, ToolsetDefinition
@@ -68,6 +69,7 @@ class ReviewAgentService:
                 review_skill=review_skill,
             ),
             system_prompt=_REVIEW_AGENT_SYSTEM_PROMPT,
+            mode=RuntimeMode.REVIEW,
         )
         decided_drafts = {}
         for tool_result in result.tool_results:
