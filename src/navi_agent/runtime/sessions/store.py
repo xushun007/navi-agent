@@ -7,6 +7,7 @@ from ..models import (
     ConversationState,
     Message,
     ModelResponse,
+    RuntimeRunRecord,
     SessionMetadata,
 )
 
@@ -28,8 +29,11 @@ class SessionStore(Protocol):
     def start_run(
         self,
         session: ConversationState,
+        run_id: str,
         metadata: SessionMetadata,
     ) -> None: ...
+
+    def get_run(self, run_id: str) -> RuntimeRunRecord | None: ...
 
     def load_compaction_checkpoint(
         self,
@@ -45,13 +49,17 @@ class SessionStore(Protocol):
     def record_model_response(
         self,
         session: ConversationState,
+        run_id: str,
         response: ModelResponse,
     ) -> None: ...
 
     def finalize(
         self,
         session: ConversationState,
+        run_id: str,
         *,
         status: str,
         end_reason: str | None = None,
+        trajectory_complete: bool = True,
+        failure_reason: str | None = None,
     ) -> None: ...

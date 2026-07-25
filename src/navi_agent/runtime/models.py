@@ -65,6 +65,32 @@ class SessionMetadata:
     cwd: str | None = None
 
 
+@dataclass(slots=True)
+class RuntimeRunRecord:
+    run_id: str
+    session_id: str
+    user_id: str
+    source: str
+    agent_role: str
+    status: str
+    started_at: float
+    updated_at: float
+    completed_at: float | None = None
+    start_message_id: int | None = None
+    end_message_id: int | None = None
+    provider: str | None = None
+    model: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    reasoning_tokens: int = 0
+    estimated_cost_usd: float | None = None
+    trajectory_complete: bool = True
+    failure_reason: str | None = None
+    completion_reason: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class ContextCompactionCheckpoint:
     session_id: str
@@ -122,6 +148,7 @@ class RuntimeResult:
     session_id: str
     status: str
     final_response: str
+    run_id: str = ""
     messages: list[Message] = field(default_factory=list)
     tool_results: list[ToolResult] = field(default_factory=list)
     trajectory_complete: bool = True

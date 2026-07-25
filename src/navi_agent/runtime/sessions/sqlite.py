@@ -14,6 +14,7 @@ from ..models import (
     ConversationState,
     Message,
     ModelResponse,
+    RuntimeRunRecord,
     SessionMetadata,
     SessionRecallMessage,
     SessionRecallResult,
@@ -183,10 +184,20 @@ class SQLiteSessionStore:
     def start_run(
         self,
         session: ConversationState,
+        run_id: str,
         metadata: SessionMetadata,
     ) -> None:
-        self._execute_write(
-            lambda connection: connection.execute(
+        def start(connection: sqlite3.Connection) -> None:
+            now = time.time()
+            start_boundary = connection.execute(
+                """
+                SELECT COALESCE(MAX(id), 0) + 1 AS next_message_id
+                FROM messages
+                WHERE session_id = ?
+                """,
+                (session.session_id,),
+            ).fetchone()
+            connection.execute(
                 """
                 UPDATE sessions
                 SET source = ?,
@@ -209,6 +220,70 @@ class SQLiteSessionStore:
                     session.session_id,
                 ),
             )
+            connection.execute(
+                """
+                INSERT INTO runs (
+                    id,
+                    session_id,
+                    user_id,
+                    source,
+                    agent_role,
+                    status,
+                    model,
+                    started_at,
+                    updated_at,
+                    start_message_id
+                )
+                VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    session.session_id,
+                    session.user_id,
+                    metadata.source,
+                    metadata.agent_role,
+                    metadata.model,
+                    now,
+                    now,
+                    int(start_boundary["next_message_id"]),
+                ),
+            )
+
+        self._execute_write(start)
+
+    def get_run(self, run_id: str) -> RuntimeRunRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return RuntimeRunRecord(
+            run_id=str(row["id"]),
+            session_id=str(row["session_id"]),
+            user_id=str(row["user_id"]),
+            source=str(row["source"]),
+            agent_role=str(row["agent_role"]),
+            status=str(row["status"]),
+            provider=row["provider"],
+            model=row["model"],
+            started_at=float(row["started_at"]),
+            updated_at=float(row["updated_at"]),
+            completed_at=(
+                float(row["completed_at"]) if row["completed_at"] is not None else None
+            ),
+            start_message_id=row["start_message_id"],
+            end_message_id=row["end_message_id"],
+            input_tokens=int(row["input_tokens"]),
+            output_tokens=int(row["output_tokens"]),
+            cache_read_tokens=int(row["cache_read_tokens"]),
+            cache_write_tokens=int(row["cache_write_tokens"]),
+            reasoning_tokens=int(row["reasoning_tokens"]),
+            estimated_cost_usd=row["estimated_cost_usd"],
+            trajectory_complete=bool(row["trajectory_complete"]),
+            failure_reason=row["failure_reason"],
+            completion_reason=row["completion_reason"],
         )
 
     def load_compaction_checkpoint(
@@ -307,12 +382,14 @@ class SQLiteSessionStore:
     def record_model_response(
         self,
         session: ConversationState,
+        run_id: str,
         response: ModelResponse,
     ) -> None:
         usage = response.usage
         cost = usage.cost_usd
-        self._execute_write(
-            lambda connection: connection.execute(
+        def record(connection: sqlite3.Connection) -> None:
+            now = time.time()
+            connection.execute(
                 """
                 UPDATE sessions
                 SET provider = COALESCE(?, provider),
@@ -339,22 +416,66 @@ class SQLiteSessionStore:
                     usage.reasoning_tokens,
                     cost,
                     cost,
-                    time.time(),
+                    now,
                     session.session_id,
                 ),
             )
-        )
+            connection.execute(
+                """
+                UPDATE runs
+                SET provider = COALESCE(?, provider),
+                    model = COALESCE(?, model),
+                    input_tokens = input_tokens + ?,
+                    output_tokens = output_tokens + ?,
+                    cache_read_tokens = cache_read_tokens + ?,
+                    cache_write_tokens = cache_write_tokens + ?,
+                    reasoning_tokens = reasoning_tokens + ?,
+                    estimated_cost_usd = CASE
+                        WHEN ? IS NULL THEN estimated_cost_usd
+                        ELSE COALESCE(estimated_cost_usd, 0) + ?
+                    END,
+                    updated_at = ?
+                WHERE id = ? AND session_id = ?
+                """,
+                (
+                    response.provider,
+                    response.model,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    usage.cache_read_tokens,
+                    usage.cache_write_tokens,
+                    usage.reasoning_tokens,
+                    cost,
+                    cost,
+                    now,
+                    run_id,
+                    session.session_id,
+                ),
+            )
+
+        self._execute_write(record)
 
     def finalize(
         self,
         session: ConversationState,
+        run_id: str,
         *,
         status: str,
         end_reason: str | None = None,
+        trajectory_complete: bool = True,
+        failure_reason: str | None = None,
     ) -> None:
         completed_at = time.time()
-        self._execute_write(
-            lambda connection: connection.execute(
+        def complete(connection: sqlite3.Connection) -> None:
+            end_boundary = connection.execute(
+                """
+                SELECT MAX(id) AS end_message_id
+                FROM messages
+                WHERE session_id = ?
+                """,
+                (session.session_id,),
+            ).fetchone()
+            connection.execute(
                 """
                 UPDATE sessions
                 SET updated_at = ?,
@@ -369,7 +490,32 @@ class SQLiteSessionStore:
                     session.session_id,
                 ),
             )
-        )
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = ?,
+                    updated_at = ?,
+                    completed_at = ?,
+                    end_message_id = ?,
+                    trajectory_complete = ?,
+                    failure_reason = ?,
+                    completion_reason = ?
+                WHERE id = ? AND session_id = ?
+                """,
+                (
+                    _run_status(status),
+                    completed_at,
+                    completed_at,
+                    end_boundary["end_message_id"],
+                    int(trajectory_complete),
+                    failure_reason,
+                    end_reason or status,
+                    run_id,
+                    session.session_id,
+                ),
+            )
+
+        self._execute_write(complete)
 
     def get_lineage(self, session_id: str) -> list[str]:
         with self._connect() as connection:
@@ -780,6 +926,7 @@ class SQLiteSessionStore:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
         self._execute_write(self._create_schema)
+        self._execute_write(self._mark_interrupted_runs)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._db_path, timeout=self._BUSY_TIMEOUT_MS / 1000)
@@ -793,6 +940,21 @@ class SQLiteSessionStore:
     def _create_schema(connection: sqlite3.Connection) -> None:
         for statement in SCHEMA_STATEMENTS:
             connection.execute(statement)
+
+    @staticmethod
+    def _mark_interrupted_runs(connection: sqlite3.Connection) -> None:
+        now = time.time()
+        connection.execute(
+            """
+            UPDATE runs
+            SET status = 'interrupted',
+                updated_at = ?,
+                completed_at = ?,
+                completion_reason = 'process_restarted'
+            WHERE status IN ('started', 'running')
+            """,
+            (now, now),
+        )
 
     def _execute_write(self, operation: Callable[[sqlite3.Connection], T]) -> T:
         last_error: sqlite3.OperationalError | None = None
@@ -862,3 +1024,10 @@ class SQLiteSessionStore:
             )
             for item in raw_items
         ]
+
+
+def _run_status(status: str) -> str:
+    return {
+        "success": "completed",
+        "iteration_limit_exceeded": "failed",
+    }.get(status, status)
