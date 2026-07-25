@@ -88,7 +88,7 @@ from navi_agent.runtime import ConversationState
 from navi_agent.runtime import DeferredApprovalProvider
 from navi_agent.runtime import JsonPendingInteractionStore
 from navi_agent.runtime import SQLiteSessionStore
-from navi_agent.runtime import WorkspaceYoloApprovalProvider
+from navi_agent.runtime import HostYoloApprovalProvider
 from navi_agent.runtime.tasks.cron import CronJobStore, CronSchedulerService
 from navi_agent.evolution.evals.healthcheck import (
     compare_healthcheck_workflow_results,
@@ -130,7 +130,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--system-prompt")
     parser.add_argument("--banner", action="store_true")
     parser.add_argument("--interactive", action="store_true")
-    parser.add_argument("-y", "--yolo", action="store_true")
+    parser.add_argument(
+        "-y",
+        "--yolo",
+        action="store_true",
+        help="auto-approve supported host operations; does not enable sandbox isolation",
+    )
     parser.add_argument(
         "--add-dir",
         action="append",
@@ -181,6 +186,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if args.yolo:
+        print(
+            "Warning: --yolo auto-approves supported operations on the host; "
+            "it does not provide sandbox isolation.",
+            file=sys.stderr,
+        )
     if args.message == "init":
         return _init_config()
     if args.message == "doctor":
@@ -373,7 +384,7 @@ def main() -> int:
 
 def _build_approval_provider(args):
     if getattr(args, "yolo", False):
-        return WorkspaceYoloApprovalProvider()
+        return HostYoloApprovalProvider()
     return CliApprovalProvider()
 
 
@@ -440,7 +451,7 @@ def _run_weixin_gateway(args) -> int:
         return 1
     interaction_store = JsonPendingInteractionStore(get_pending_interactions_path())
     approval_provider = (
-        WorkspaceYoloApprovalProvider()
+        HostYoloApprovalProvider()
         if getattr(args, "yolo", False)
         else DeferredApprovalProvider(interaction_store)
     )
@@ -767,7 +778,9 @@ def _run_ifeval(*, yolo: bool = False) -> int:
         print("no ifeval seeds found")
         return 0
 
-    app = build_application(approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider())
+    app = build_application(
+        approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider()
+    )
     evaluator = IfevalEvaluator()
     results = []
     for seed in seeds:
@@ -964,7 +977,7 @@ def _review_eval_case(
 ) -> int:
     app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+        approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     pending_candidates = [
         candidate
@@ -1064,7 +1077,7 @@ def _review_skill(
 ) -> int:
     app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+        approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     pending_candidates = [
         candidate
@@ -1256,7 +1269,7 @@ def _print_background_review_status(
 ) -> int:
     app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+        approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     status = app.get_background_review_status()
     print("background_review: skill")
@@ -1325,7 +1338,7 @@ def _import_runtime_tool_use_case(
         return 1
     app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+        approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     candidate = EvolutionCandidate(
         target="eval_case",
@@ -1361,7 +1374,7 @@ def _run_curator(
 ) -> int:
     app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+        approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     summary = ReviewLoopService().summarize(
         candidates=app.list_candidates(limit=50),
@@ -1498,7 +1511,7 @@ def _run_candidate_apply_workflow(
 ) -> int:
     source_app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+        approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     candidate = source_app.get_candidate(candidate_id)
     if candidate is None:
@@ -1527,7 +1540,7 @@ def _run_candidate_apply_workflow(
         return 1
     rerun_app = build_application(
         default_system_prompt=system_prompt,
-        approval_provider=WorkspaceYoloApprovalProvider() if yolo else CliApprovalProvider(),
+        approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider(),
     )
     replay_result = run_healthcheck_workflow(
         app=rerun_app,

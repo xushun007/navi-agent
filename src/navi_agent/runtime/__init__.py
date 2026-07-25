@@ -5,7 +5,7 @@ from .tools.approval import (
     AutoApproveApprovalProvider,
     CliApprovalProvider,
     DenyAllApprovalProvider,
-    WorkspaceYoloApprovalProvider,
+    HostYoloApprovalProvider,
 )
 from .tasks.background import BackgroundTask, BackgroundTaskManager
 from .agent.context import (
@@ -143,6 +143,6 @@ __all__ = [
     "ToolResultRenderer",
     "ToolResult",
     "ToolsetDefinition",
-    "WorkspaceYoloApprovalProvider",
+    "HostYoloApprovalProvider",
     "build_transport",
 ]
