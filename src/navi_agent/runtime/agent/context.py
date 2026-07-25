@@ -78,15 +78,18 @@ class ContextEngine:
         self,
         messages: list[Message],
         checkpoint: ContextCompactionCheckpoint | None = None,
+        *,
+        prefix_messages: list[Message] | None = None,
     ) -> ContextBuildResult:
         original = list(messages)
-        estimated_before = self.estimate_tokens(original)
+        prefix = list(prefix_messages or ())
+        estimated_before = self.estimate_tokens([*prefix, *original])
         reusable = self._materialize_checkpoint(original, checkpoint)
         if reusable is not None:
-            estimated_reused = self.estimate_tokens(reusable)
+            estimated_reused = self.estimate_tokens([*prefix, *reusable])
             if estimated_reused <= self._threshold_tokens:
                 return ContextBuildResult(
-                    messages=reusable,
+                    messages=[*prefix, *reusable],
                     original_message_count=len(original),
                     estimated_tokens_before=estimated_before,
                     estimated_tokens_after=estimated_reused,
@@ -101,7 +104,7 @@ class ContextEngine:
                 )
         if estimated_before <= self._threshold_tokens:
             return ContextBuildResult(
-                messages=original,
+                messages=[*prefix, *original],
                 original_message_count=len(original),
                 estimated_tokens_before=estimated_before,
                 estimated_tokens_after=estimated_before,
@@ -114,7 +117,7 @@ class ContextEngine:
 
         if compress_start >= tail_start:
             return ContextBuildResult(
-                messages=original,
+                messages=[*prefix, *original],
                 original_message_count=len(original),
                 estimated_tokens_before=estimated_before,
                 estimated_tokens_after=estimated_before,
@@ -127,7 +130,7 @@ class ContextEngine:
 
         if self._summarizer is None:
             return ContextBuildResult(
-                messages=original,
+                messages=[*prefix, *original],
                 original_message_count=len(original),
                 estimated_tokens_before=estimated_before,
                 estimated_tokens_after=estimated_before,
@@ -153,9 +156,10 @@ class ContextEngine:
             *original[tail_start:],
         ]
         compacted = self._sanitize_tool_pairs(compacted)
-        estimated_after = self.estimate_tokens(compacted)
+        rendered = [*prefix, *compacted]
+        estimated_after = self.estimate_tokens(rendered)
         return ContextBuildResult(
-            messages=compacted,
+            messages=rendered,
             original_message_count=len(original),
             estimated_tokens_before=estimated_before,
             estimated_tokens_after=estimated_after,
