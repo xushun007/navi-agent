@@ -124,7 +124,7 @@ class ToolRegistry:
             )
             if tool.is_available()
         }
-        dispatch_tools = selected_tools or self._tools
+        dispatch_tools = selected_tools
         if (
             should_run_tools_concurrently(tool_calls, dispatch_tools)
             and self._executor.can_execute_concurrently(tool_calls, context)
@@ -137,7 +137,7 @@ class ToolRegistry:
 
         results: list[ToolResult] = []
         for tool_call in tool_calls:
-            if selected_tools and tool_call.name not in selected_tools:
+            if tool_call.name not in selected_tools:
                 results.append(
                     ToolResult(
                         tool_call_id=tool_call.id,
@@ -186,7 +186,7 @@ class ToolRegistry:
         }
         return self._executor.execute_approved(
             tool_call,
-            tools_by_name=selected_tools or self._tools,
+            tools_by_name=selected_tools,
             context=context,
         )
 
@@ -196,15 +196,16 @@ class ToolRegistry:
         disabled_toolsets: list[str] | None,
     ) -> list[BaseTool]:
         tools = list(self._tools.values())
-        if not enabled_toolsets and not disabled_toolsets:
+        if enabled_toolsets is None and disabled_toolsets is None:
             return tools
 
         enabled_names = self._resolve_enabled_tool_names(enabled_toolsets)
         disabled_names = self._resolve_enabled_tool_names(disabled_toolsets)
+        enabled_filter_present = enabled_toolsets is not None
 
         selected: list[BaseTool] = []
         for tool in tools:
-            if enabled_names and tool.name not in enabled_names:
+            if enabled_filter_present and tool.name not in enabled_names:
                 continue
             if tool.name in disabled_names:
                 continue

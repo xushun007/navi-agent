@@ -121,6 +121,97 @@ class ToolRegistryTests(unittest.TestCase):
 
         self.assertEqual([item["name"] for item in result], ["browser_open", "web_search"])
 
+    def test_registry_fails_closed_for_unknown_enabled_toolset(self) -> None:
+        called = {"value": False}
+
+        def echo() -> ToolResult:
+            called["value"] = True
+            return ok_result("echo", "unexpected")
+
+        registry = ToolRegistry(
+            registered_tools=[
+                ("utility", FunctionTool(name="echo", description="Echo", handler=echo))
+            ]
+        )
+
+        result = registry.dispatch(
+            [ToolCall(id="tc1", name="echo")],
+            enabled_toolsets=["missing"],
+        )
+
+        self.assertEqual(registry.schemas(enabled_toolsets=["missing"]), [])
+        self.assertFalse(called["value"])
+        self.assertEqual(result[0].status, "error")
+        self.assertIn("not enabled", result[0].content)
+
+    def test_registry_fails_closed_for_explicit_empty_enabled_toolsets(self) -> None:
+        registry = ToolRegistry(
+            registered_tools=[
+                (
+                    "utility",
+                    FunctionTool(
+                        name="echo",
+                        description="Echo",
+                        handler=lambda: ok_result("echo", "unexpected"),
+                    ),
+                )
+            ]
+        )
+
+        result = registry.dispatch(
+            [ToolCall(id="tc1", name="echo")],
+            enabled_toolsets=[],
+        )
+
+        self.assertEqual(registry.schemas(enabled_toolsets=[]), [])
+        self.assertEqual(result[0].status, "error")
+        self.assertIn("not enabled", result[0].content)
+
+    def test_registry_fails_closed_when_toolset_is_disabled(self) -> None:
+        registry = ToolRegistry(
+            registered_tools=[
+                (
+                    "utility",
+                    FunctionTool(
+                        name="echo",
+                        description="Echo",
+                        handler=lambda: ok_result("echo", "unexpected"),
+                    ),
+                )
+            ],
+            toolsets=[ToolsetDefinition(name="utility", tools=["echo"])],
+        )
+
+        result = registry.dispatch(
+            [ToolCall(id="tc1", name="echo")],
+            disabled_toolsets=["utility"],
+        )
+
+        self.assertEqual(result[0].status, "error")
+        self.assertIn("not enabled", result[0].content)
+
+    def test_registry_approved_dispatch_cannot_bypass_toolset_filter(self) -> None:
+        registry = ToolRegistry(
+            registered_tools=[
+                (
+                    "utility",
+                    FunctionTool(
+                        name="echo",
+                        description="Echo",
+                        handler=lambda: ok_result("echo", "unexpected"),
+                    ),
+                )
+            ]
+        )
+
+        result = registry.dispatch_approved(
+            ToolCall(id="tc1", name="echo"),
+            enabled_toolsets=[],
+        )
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("Unknown tool", result.content)
+
     def test_registry_passes_tool_context_to_context_aware_handler(self) -> None:
         captured = {}
 
