@@ -30,6 +30,7 @@ from navi_agent.runtime import (
     RuntimeEvent,
     RuntimeResult,
     HostYoloApprovalProvider,
+    SessionSummary,
 )
 from navi_agent.runtime.tasks.cron import CronRunRecord
 from navi_agent.evolution.evals.smoke import SmokeCheckResult, SmokeRunSummary
@@ -43,6 +44,7 @@ class FakeApp:
         self.saved_eval_cases = []
         self.applied_candidate = None
         self.rolled_back_candidate = None
+        self.sessions = []
 
     def handle(self, request, *, event_subscribers=None):
         self.calls.append(request)
@@ -99,6 +101,12 @@ class FakeApp:
 
     def get_background_review_status(self):
         return getattr(self, "background_review_status", None)
+
+    def has_session(self, session_id, user_id):
+        return any(session.session_id == session_id for session in self.sessions)
+
+    def list_sessions(self, user_id, limit=10):
+        return self.sessions[:limit]
 
 
 class FakeSessionStore:
@@ -1155,6 +1163,32 @@ class CliTests(unittest.TestCase):
         self.assertIn("/steer <message>", stdout.getvalue())
         self.assertIn("Session   · s1", stdout.getvalue())
         self.assertIn("Status    · idle", stdout.getvalue())
+
+    def test_run_interactive_lists_and_resumes_session(self) -> None:
+        app = FakeApp()
+        app.sessions = [
+            SessionSummary(session_id="s2", updated_at=2, message_count=4),
+            SessionSummary(session_id="s1", updated_at=1, message_count=2),
+        ]
+        stdout = io.StringIO()
+
+        with patch(
+            "builtins.input",
+            side_effect=["/history", "/resume s2", "hello", "/exit"],
+        ):
+            with redirect_stdout(stdout):
+                exit_code = _run_interactive(
+                    app=app,
+                    user_id="u1",
+                    session_id="s1",
+                    system_prompt=None,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(app.calls[0].session_id, "s2")
+        self.assertIn("Recent sessions", stdout.getvalue())
+        self.assertIn("* s1 · 2 messages", stdout.getvalue())
+        self.assertIn("Resumed session · s2", stdout.getvalue())
 
     def test_persistent_interactive_steers_active_run(self) -> None:
         from threading import Event

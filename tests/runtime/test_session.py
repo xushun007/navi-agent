@@ -25,3 +25,15 @@ class InMemorySessionStoreTest(unittest.TestCase):
         s2 = self.store.load("s2", "u2")
         self.store.append(s1, Message(role="user", content="hello"))
         self.assertEqual(len(self.store.snapshot(s2)), 0)
+
+    def test_lists_recent_sessions_for_user(self) -> None:
+        first = self.store.load("s1", "u1")
+        self.store.append(first, Message(role="user", content="hello"))
+        self.store.load("s2", "u2")
+
+        sessions = self.store.list_sessions("u1")
+
+        self.assertTrue(self.store.has_session("s1", "u1"))
+        self.assertFalse(self.store.has_session("s1", "u2"))
+        self.assertEqual([session.session_id for session in sessions], ["s1"])
+        self.assertEqual(sessions[0].message_count, 1)

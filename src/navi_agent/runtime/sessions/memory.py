@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from navi_agent.tooling import ToolResult
 
 from ..models import (
@@ -9,6 +11,7 @@ from ..models import (
     ModelResponse,
     RuntimeRunRecord,
     SessionMetadata,
+    SessionSummary,
     ToolCall,
 )
 
@@ -19,6 +22,7 @@ class InMemorySessionStore:
         self._compaction_checkpoints: dict[str, ContextCompactionCheckpoint] = {}
         self._runs: dict[str, RuntimeRunRecord] = {}
         self._tool_results: dict[tuple[str, str], ToolResult] = {}
+        self._updated_at: dict[str, float] = {}
 
     def load(
         self,
@@ -30,13 +34,31 @@ class InMemorySessionStore:
         if session is None:
             session = ConversationState(session_id=session_id, user_id=user_id)
             self._sessions[session_id] = session
+            self._updated_at[session_id] = time.time()
         return session
 
     def append(self, session: ConversationState, message: Message) -> None:
         session.messages.append(message)
+        self._updated_at[session.session_id] = time.time()
 
     def snapshot(self, session: ConversationState) -> list[Message]:
         return list(session.messages)
+
+    def has_session(self, session_id: str, user_id: str) -> bool:
+        session = self._sessions.get(session_id)
+        return session is not None and session.user_id == user_id
+
+    def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
+        sessions = [
+            SessionSummary(
+                session_id=session.session_id,
+                updated_at=self._updated_at.get(session.session_id, 0),
+                message_count=len(session.messages),
+            )
+            for session in self._sessions.values()
+            if session.user_id == user_id
+        ]
+        return sorted(sessions, key=lambda item: item.updated_at, reverse=True)[:limit]
 
     def start_run(
         self,

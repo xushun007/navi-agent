@@ -66,6 +66,13 @@ class SessionMetadata:
     cwd: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SessionSummary:
+    session_id: str
+    updated_at: float
+    message_count: int
+
+
 @dataclass(slots=True)
 class RuntimeRunRecord:
     run_id: str

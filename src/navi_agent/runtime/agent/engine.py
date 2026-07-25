@@ -21,6 +21,7 @@ from ..models import (
     RuntimeResult,
     RuntimeMode,
     SessionMetadata,
+    SessionSummary,
     ToolCall,
 )
 from .prompt import PromptBuilder
@@ -232,6 +233,12 @@ class AgentRuntime:
             return False
         self._background_task_manager.add_completion_listener(listener)
         return True
+
+    def has_session(self, session_id: str, user_id: str) -> bool:
+        return self._session_store.has_session(session_id, user_id)
+
+    def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
+        return self._session_store.list_sessions(user_id, limit)
 
     def event_delivery_health(self) -> RuntimeEventPublisherHealth:
         return self._event_publisher.health()

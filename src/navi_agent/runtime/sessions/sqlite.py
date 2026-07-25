@@ -21,6 +21,7 @@ from ..models import (
     SessionRecallMessage,
     SessionRecallResult,
     SessionRecallView,
+    SessionSummary,
     ToolCall,
 )
 from .schema import SCHEMA_STATEMENTS
@@ -179,6 +180,35 @@ class SQLiteSessionStore:
                 model=row["model"],
                 token_count=row["token_count"],
                 finish_reason=row["finish_reason"],
+            )
+            for row in rows
+        ]
+
+    def has_session(self, session_id: str, user_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM sessions WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
+            ).fetchone()
+        return row is not None
+
+    def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, updated_at, message_count
+                FROM sessions
+                WHERE user_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (user_id, max(1, limit)),
+            ).fetchall()
+        return [
+            SessionSummary(
+                session_id=str(row["id"]),
+                updated_at=float(row["updated_at"]),
+                message_count=int(row["message_count"]),
             )
             for row in rows
         ]

@@ -63,6 +63,20 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertEqual(len(restored.messages), 1)
             self.assertEqual(restored.messages[0].content, "hello")
 
+    def test_lists_recent_sessions_for_user(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteSessionStore(Path(tmpdir) / "state.db")
+            first = store.load(session_id="s1", user_id="u1")
+            store.append(first, Message(role="user", content="hello"))
+            store.load(session_id="s2", user_id="u2")
+
+            sessions = store.list_sessions("u1")
+
+            self.assertTrue(store.has_session("s1", "u1"))
+            self.assertFalse(store.has_session("s1", "u2"))
+            self.assertEqual([session.session_id for session in sessions], ["s1"])
+            self.assertEqual(sessions[0].message_count, 1)
+
     def test_store_uses_wal_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "state.db"

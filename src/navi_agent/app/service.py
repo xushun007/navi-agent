@@ -40,6 +40,7 @@ from navi_agent.runtime import (
     RuntimeMode,
     RuntimeRunState,
     RunStateTracker,
+    SessionSummary,
 )
 from navi_agent.telemetry import RuntimeTrace
 
@@ -258,6 +259,12 @@ class ApplicationService:
 
     def add_background_task_listener(self, listener: Callable[[BackgroundTask], None]) -> bool:
         return self._runtime.add_background_task_listener(listener)
+
+    def has_session(self, session_id: str, user_id: str) -> bool:
+        return self._runtime.has_session(session_id, user_id)
+
+    def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
+        return self._runtime.list_sessions(user_id, limit)
 
     def get_session_traces(
         self,

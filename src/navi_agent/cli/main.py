@@ -1686,6 +1686,18 @@ def _candidate_outcome_status(eval_case_status: str) -> str:
     return "applied"
 
 
+def _render_session_history(sessions, current_session_id: str) -> str:
+    if not sessions:
+        return "No sessions found."
+    lines = ["Recent sessions"]
+    for session in sessions:
+        marker = "*" if session.session_id == current_session_id else " "
+        lines.append(
+            f"{marker} {session.session_id} · {session.message_count} messages"
+        )
+    return "\n".join(lines)
+
+
 def _run_interactive(
     *,
     app,
@@ -1741,6 +1753,24 @@ def _run_interactive(
                 f"Status    · idle\n"
                 f"Workspace · {Path.cwd()}"
             )
+            continue
+        if slash_command is not None and slash_command.name == "/history":
+            print(
+                _render_session_history(
+                    app.list_sessions(user_id, limit=10),
+                    current_session_id,
+                )
+            )
+            continue
+        if slash_command is not None and slash_command.name == "/resume":
+            if not slash_command.argument:
+                print("Usage: /resume <id>")
+                continue
+            if not app.has_session(slash_command.argument, user_id):
+                print(f"Session not found: {slash_command.argument}")
+                continue
+            current_session_id = slash_command.argument
+            print(f"Resumed session · {current_session_id}")
             continue
         if slash_command is not None and slash_command.name == "/new":
             current_session_id = uuid4().hex
@@ -1877,6 +1907,29 @@ def _run_persistent_interactive(
                 f"Status    · {status}\n"
                 f"Workspace · {Path.cwd()}"
             )
+            return
+        if slash_command is not None and slash_command.name == "/history":
+            prompt_session.show_notice(
+                _render_session_history(
+                    app.list_sessions(user_id, limit=10),
+                    current_session_id,
+                )
+            )
+            return
+        if slash_command is not None and slash_command.name == "/resume":
+            if not slash_command.argument:
+                prompt_session.show_notice("Usage: /resume <id>")
+                return
+            with state_lock:
+                running = active
+            if running:
+                prompt_session.show_notice("Stop the active task before resuming a session.")
+                return
+            if not app.has_session(slash_command.argument, user_id):
+                prompt_session.show_notice(f"Session not found: {slash_command.argument}")
+                return
+            current_session_id = slash_command.argument
+            prompt_session.show_notice(f"Resumed session · {current_session_id}")
             return
         if slash_command is not None and slash_command.name == "/new":
             with state_lock:

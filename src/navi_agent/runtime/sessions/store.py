@@ -11,6 +11,7 @@ from ..models import (
     ModelResponse,
     RuntimeRunRecord,
     SessionMetadata,
+    SessionSummary,
     ToolCall,
 )
 
@@ -28,6 +29,10 @@ class SessionStore(Protocol):
     def append(self, session: ConversationState, message: Message) -> None: ...
 
     def snapshot(self, session: ConversationState) -> list[Message]: ...
+
+    def has_session(self, session_id: str, user_id: str) -> bool: ...
+
+    def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]: ...
 
     def start_run(
         self,
