@@ -284,6 +284,26 @@ class SkillGovernanceService:
         self._record_event(promoted, "rolled_back")
         return promoted
 
+    def archive(self, skill_name: str) -> SkillRecord | None:
+        active_version_id = self._ensure_active_version(skill_name)
+        if not active_version_id:
+            return None
+        archived = self._skill_store.archive(skill_name)
+        if archived is None:
+            return None
+        version = self._set_version_status(
+            skill_name,
+            active_version_id,
+            "archived",
+        )
+        self._save_state(
+            skill_name,
+            active_version_id="",
+            previous_version_id="",
+        )
+        self._record_version_event(version, "archived")
+        return archived
+
     def get_draft(self, draft_id: str) -> SkillDraft | None:
         path = self._draft_metadata_path(draft_id)
         if not path.exists():
@@ -603,6 +623,22 @@ class SkillGovernanceService:
             "source_session_id": draft.provenance.source_session_id,
             "source_trace_id": draft.provenance.source_trace_id,
             "decision_reason": draft.decision_reason,
+        }
+        with (self._root / "history.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+    def _record_version_event(
+        self,
+        version: SkillVersionRecord,
+        action: str,
+    ) -> None:
+        self._root.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "action": action,
+            "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+            "version_id": version.version_id,
+            "skill_name": version.skill_name,
+            "status": version.status,
         }
         with (self._root / "history.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=True) + "\n")

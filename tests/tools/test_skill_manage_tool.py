@@ -1,11 +1,63 @@
 from pathlib import Path
 
-from navi_agent.evolution import FileSkillStore
+from navi_agent.evolution import (
+    DefaultSkillDraftEvaluator,
+    FileSkillStore,
+    SkillDraftProvenance,
+    SkillGovernanceService,
+    SkillPromotionGate,
+)
 from navi_agent.tools.skill_manage_tool import SkillManageTool
 
 
+def _tool(
+    store: FileSkillStore,
+) -> tuple[SkillManageTool, SkillGovernanceService]:
+    governance = SkillGovernanceService(
+        store,
+        gate=SkillPromotionGate(
+            required_suites=("draft_validation", "content_regression"),
+        ),
+    )
+    tool = SkillManageTool(
+        store,
+        governance=governance,
+        provenance=SkillDraftProvenance(
+            review_run_id="review-1",
+            source_session_id="session-1",
+            source_trace_id="trace-1",
+        ),
+    )
+    return tool, governance
+
+
+def _promote(
+    governance: SkillGovernanceService,
+    draft_id: str,
+) -> None:
+    decision = governance.evaluate_and_promote(
+        draft_id,
+        evaluator=DefaultSkillDraftEvaluator(),
+    )
+    assert decision.status == "promoted"
+
+
+def _skill_content(name: str, title: str, procedure: str) -> str:
+    return (
+        "---\n"
+        f"name: {name}\n"
+        f"description: Maintain {title} workflows.\n"
+        "category: coding\n"
+        "---\n\n"
+        f"# {title}\n\n"
+        f"## When To Use\n\nUse for {title.lower()} workflows.\n\n"
+        f"## Procedure\n\n{procedure}"
+    )
+
+
 def test_skill_manage_create_and_view(tmp_path: Path) -> None:
-    tool = SkillManageTool(FileSkillStore(tmp_path))
+    store = FileSkillStore(tmp_path)
+    tool, governance = _tool(store)
 
     created = tool.invoke(
         action="create",
@@ -21,11 +73,12 @@ def test_skill_manage_create_and_view(tmp_path: Path) -> None:
             "## Procedure\n\n- Read the README.\n- Verify the summary."
         ),
     )
+    _promote(governance, created.structured_content["draft_id"])
     viewed = tool.invoke(action="view", skill_name="readme-review")
 
     assert created.status == "success"
     assert created.structured_content["skill_name"] == "readme-review"
-    assert created.structured_content["category"] == "coding"
+    assert created.structured_content["status"] == "draft"
     assert viewed.status == "success"
     assert viewed.structured_content["description"] == "Review README files."
     assert viewed.structured_content["category"] == "coding"
@@ -36,9 +89,13 @@ def test_skill_manage_append_preserves_existing_content(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
     store.create(
         name="readme-review",
-        content="# README Review\n\n## Procedure\n\n- Read README.",
+        content=_skill_content(
+            "readme-review",
+            "README Review",
+            "- Read README.",
+        ),
     )
-    tool = SkillManageTool(store)
+    tool, governance = _tool(store)
 
     result = tool.invoke(
         action="append",
@@ -46,6 +103,8 @@ def test_skill_manage_append_preserves_existing_content(tmp_path: Path) -> None:
         section="## Procedure",
         append_content="- Verify the result.",
     )
+    assert "- Verify the result." not in store.get("readme-review").content
+    _promote(governance, result.structured_content["draft_id"])
     record = store.get("readme-review")
 
     assert result.status == "success"
@@ -66,7 +125,7 @@ def test_skill_manage_list_returns_skill_summaries(tmp_path: Path) -> None:
             "# README Review\n"
         ),
     )
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(action="list")
 
@@ -77,7 +136,7 @@ def test_skill_manage_list_returns_skill_summaries(tmp_path: Path) -> None:
 
 def test_skill_manage_rejects_create_without_frontmatter(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="create",
@@ -92,7 +151,7 @@ def test_skill_manage_rejects_create_without_frontmatter(tmp_path: Path) -> None
 
 def test_skill_manage_rejects_create_without_required_frontmatter_fields(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="create",
@@ -115,7 +174,7 @@ def test_skill_manage_rejects_create_without_required_frontmatter_fields(tmp_pat
 
 def test_skill_manage_rejects_create_when_frontmatter_name_mismatches(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="create",
@@ -139,7 +198,7 @@ def test_skill_manage_rejects_create_when_frontmatter_name_mismatches(tmp_path: 
 
 def test_skill_manage_rejects_create_without_required_sections(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="create",
@@ -165,7 +224,7 @@ def test_skill_manage_rejects_placeholder_append(tmp_path: Path) -> None:
         name="readme-review",
         content="# README Review\n\n## Procedure\n\n- Read README.",
     )
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="append",
@@ -184,7 +243,7 @@ def test_skill_manage_rejects_negative_tool_claim(tmp_path: Path) -> None:
         name="readme-review",
         content="# README Review\n\n## Procedure\n\n- Read README.",
     )
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="append",
@@ -201,16 +260,29 @@ def test_skill_manage_writes_attachment(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
     store.create(
         name="dogfood",
-        content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
+        content=_skill_content(
+            "dogfood",
+            "Dogfood",
+            "- Produce concise QA reports.",
+        ),
     )
-    tool = SkillManageTool(store)
+    tool, governance = _tool(store)
+
+    draft = tool.invoke(
+        action="append",
+        skill_name="dogfood",
+        section="## Procedure",
+        append_content="- Store the report template.",
+    )
 
     result = tool.invoke(
         action="write_attachment",
         skill_name="dogfood",
+        draft_id=draft.structured_content["draft_id"],
         attachment_path="templates/report.md",
         attachment_content="# Report\n\n{issues}\n",
     )
+    _promote(governance, draft.structured_content["draft_id"])
     viewed = tool.invoke(action="view", skill_name="dogfood")
 
     assert result.status == "success"
@@ -232,7 +304,7 @@ def test_skill_manage_views_attachment(tmp_path: Path) -> None:
         relative_path="references/taxonomy.md",
         content="# Taxonomy\n\n- Critical\n",
     )
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="view_attachment",
@@ -251,7 +323,7 @@ def test_skill_manage_view_attachment_returns_error_for_missing_file(tmp_path: P
         name="dogfood",
         content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
     )
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="view_attachment",
@@ -269,7 +341,7 @@ def test_skill_manage_view_attachment_rejects_path_escape(tmp_path: Path) -> Non
         name="dogfood",
         content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
     )
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="view_attachment",
@@ -287,11 +359,18 @@ def test_skill_manage_rejects_attachment_path_escape(tmp_path: Path) -> None:
         name="dogfood",
         content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
     )
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
+    draft = tool.invoke(
+        action="append",
+        skill_name="dogfood",
+        section="## Procedure",
+        append_content="- Add an attachment.",
+    )
 
     result = tool.invoke(
         action="write_attachment",
         skill_name="dogfood",
+        draft_id=draft.structured_content["draft_id"],
         attachment_path="../bad.md",
         attachment_content="bad",
     )
@@ -306,7 +385,7 @@ def test_skill_manage_rejects_placeholder_attachment(tmp_path: Path) -> None:
         name="dogfood",
         content="# Dogfood\n\n## Procedure\n\n- Produce concise QA reports.",
     )
-    tool = SkillManageTool(store)
+    tool, _ = _tool(store)
 
     result = tool.invoke(
         action="write_attachment",
