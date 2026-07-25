@@ -14,6 +14,7 @@ from navi_agent.cli.banner import render_banner
 from navi_agent.cli.slash_commands import (
     command_spec,
     parse_slash_command,
+    render_command_help,
     unknown_command_message,
 )
 from navi_agent.app.bootstrap import build_application
@@ -1697,6 +1698,7 @@ def _run_interactive(
         )
     ui_sink = ConsoleUiEventSink()
     ui_emitter = UiEventEmitter(ui_sink)
+    current_session_id = session_id
     while True:
         message = pending_message
         pending_message = None
@@ -1717,12 +1719,26 @@ def _run_interactive(
         ):
             _drain_background_reviews(app)
             return 0
+        if slash_command is not None and slash_command.name == "/help":
+            print(render_command_help())
+            continue
+        if slash_command is not None and slash_command.name == "/status":
+            print(
+                f"Session   · {current_session_id}\n"
+                f"Status    · idle\n"
+                f"Workspace · {Path.cwd()}"
+            )
+            continue
+        if slash_command is not None and slash_command.name == "/new":
+            current_session_id = uuid4().hex
+            print(f"New session · {current_session_id}")
+            continue
         if slash_command is not None and slash_command.name == "/stop":
-            cancelled = app.cancel_session(session_id, reason="user_stop")
+            cancelled = app.cancel_session(current_session_id, reason="user_stop")
             if cancelled:
                 print("Stopping current task…")
             else:
-                interaction = app.resolve_interaction(session_id, approved=False)
+                interaction = app.resolve_interaction(current_session_id, approved=False)
                 print(
                     "Cancelled pending request."
                     if interaction is not None
@@ -1731,7 +1747,7 @@ def _run_interactive(
             continue
         if slash_command is not None and slash_command.name in {"/approve", "/deny"}:
             approved = slash_command.name == "/approve"
-            interaction = app.resolve_interaction(session_id, approved=approved)
+            interaction = app.resolve_interaction(current_session_id, approved=approved)
             if interaction is None or interaction.kind != "approval":
                 print("No approval request is waiting.")
                 continue
@@ -1753,7 +1769,7 @@ def _run_interactive(
             result = app.handle(
                 AppRequest(
                     user_id=user_id,
-                    session_id=session_id,
+                    session_id=current_session_id,
                     message=message,
                     system_prompt=system_prompt,
                 ),
@@ -1778,6 +1794,7 @@ def _run_persistent_interactive(
     active = False
     pending_message: str | None = None
     exit_when_idle = False
+    current_session_id = session_id
 
     def start_run(message: str) -> None:
         nonlocal active
@@ -1793,7 +1810,7 @@ def _run_persistent_interactive(
                 result = app.handle(
                     AppRequest(
                         user_id=user_id,
-                        session_id=session_id,
+                        session_id=current_session_id,
                         message=message,
                         system_prompt=system_prompt,
                     ),
@@ -1818,7 +1835,7 @@ def _run_persistent_interactive(
         Thread(target=execute, daemon=True, name="navi-interactive-runtime").start()
 
     def submit(message: str) -> None:
-        nonlocal pending_message, exit_when_idle
+        nonlocal current_session_id, pending_message, exit_when_idle
         slash_command = parse_slash_command(message)
         if slash_command is not None and command_spec(slash_command.name) is None:
             prompt_session.show_notice(unknown_command_message(slash_command.name))
@@ -1836,10 +1853,31 @@ def _run_persistent_interactive(
                 _drain_background_reviews(app)
                 prompt_session.exit()
             return
+        if slash_command is not None and slash_command.name == "/help":
+            prompt_session.show_notice(render_command_help())
+            return
+        if slash_command is not None and slash_command.name == "/status":
+            with state_lock:
+                status = "running" if active else "idle"
+            prompt_session.show_notice(
+                f"Session   · {current_session_id}\n"
+                f"Status    · {status}\n"
+                f"Workspace · {Path.cwd()}"
+            )
+            return
+        if slash_command is not None and slash_command.name == "/new":
+            with state_lock:
+                running = active
+            if running:
+                prompt_session.show_notice("Stop the active task before starting a new session.")
+                return
+            current_session_id = uuid4().hex
+            prompt_session.show_notice(f"New session · {current_session_id}")
+            return
         if slash_command is not None and slash_command.name == "/stop":
-            cancelled = app.cancel_session(session_id, reason="user_stop")
+            cancelled = app.cancel_session(current_session_id, reason="user_stop")
             if not cancelled:
-                interaction = app.resolve_interaction(session_id, approved=False)
+                interaction = app.resolve_interaction(current_session_id, approved=False)
                 if interaction is not None:
                     prompt_session.clear_approval()
                 prompt_session.show_notice(
@@ -1864,13 +1902,13 @@ def _run_persistent_interactive(
             if running:
                 pending_message = message
         if running:
-            app.cancel_session(session_id, reason="user_steer")
+            app.cancel_session(current_session_id, reason="user_steer")
             prompt_session.show_notice("Steering current task…")
             return
         start_run(message)
 
     def resolve_approval(approved: bool) -> None:
-        interaction = app.resolve_interaction(session_id, approved=approved)
+        interaction = app.resolve_interaction(current_session_id, approved=approved)
         if interaction is None or interaction.kind != "approval":
             prompt_session.show_notice("No approval request is waiting.")
             return

@@ -20,6 +20,9 @@ COMMAND_SPECS = (
     SlashCommandSpec("/approve", "Approve the pending tool request", "/approve"),
     SlashCommandSpec("/deny", "Deny the pending tool request", "/deny"),
     SlashCommandSpec("/exit", "Exit Navi Agent", "/exit"),
+    SlashCommandSpec("/help", "Show available commands", "/help"),
+    SlashCommandSpec("/new", "Start a new session", "/new"),
+    SlashCommandSpec("/status", "Show the current session status", "/status"),
     SlashCommandSpec("/steer", "Redirect the active task", "/steer <message>"),
     SlashCommandSpec("/stop", "Stop the active task", "/stop"),
 )
@@ -43,3 +46,11 @@ def command_spec(name: str) -> SlashCommandSpec | None:
 
 def unknown_command_message(name: str) -> str:
     return f"Unknown command: {name}\nType /help to see available commands."
+
+
+def render_command_help() -> str:
+    width = max(len(spec.usage) for spec in COMMAND_SPECS)
+    return "\n".join(
+        f"{spec.usage:<{width}}  {spec.description}"
+        for spec in COMMAND_SPECS
+    )
