@@ -1,6 +1,9 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from navi_agent.runtime import (
+    ApprovalDecision,
     AutoApproveApprovalProvider,
     ToolCall,
     ToolContext,
@@ -8,7 +11,7 @@ from navi_agent.runtime import (
     ToolResult,
 )
 from navi_agent.runtime.tools.policy import SensitiveToolPolicy
-from navi_agent.tools import FunctionTool
+from navi_agent.tools import BashTool, FunctionTool
 
 
 class ToolExecutorTests(unittest.TestCase):
@@ -87,6 +90,39 @@ class ToolExecutorTests(unittest.TestCase):
 
         self.assertEqual(result[0].status, "success")
         self.assertEqual(result[0].content, "ran:pwd")
+
+    def test_executor_rejects_failed_preflight_before_approval(self) -> None:
+        class RecordingApprovalProvider:
+            def __init__(self) -> None:
+                self.requests = []
+
+            def request_approval(self, request):
+                self.requests.append(request)
+                return ApprovalDecision.allow()
+
+        provider = RecordingApprovalProvider()
+        executor = ToolExecutor(
+            policy=SensitiveToolPolicy(
+                approval_required_tools={"bash": "bash requires approval"}
+            ),
+            approval_provider=provider,
+        )
+        with TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir))
+            result = executor.execute(
+                tool_calls=[
+                    ToolCall(
+                        id="tc1",
+                        name="bash",
+                        arguments={"command": "cat ../secret.txt"},
+                    )
+                ],
+                tools_by_name={"bash": tool},
+            )
+
+        self.assertEqual(result[0].status, "error")
+        self.assertIn("outside workspace", result[0].content)
+        self.assertEqual(provider.requests, [])
 
     def test_executor_marks_raised_tool_exception_with_error_type(self) -> None:
         executor = ToolExecutor(policy=SensitiveToolPolicy())

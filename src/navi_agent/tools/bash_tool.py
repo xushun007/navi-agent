@@ -146,6 +146,24 @@ class BashTool(WorkspaceTool):
             ),
         )
 
+    def preflight(
+        self,
+        context: ToolContext | None = None,
+        **kwargs: Any,
+    ) -> ToolResult | None:
+        command = str(kwargs.get("command") or "").strip()
+        if not command:
+            return ToolResult.error(name=self.name, content="Command must not be empty")
+        try:
+            cwd = self._resolve_path(kwargs.get("cwd"))
+        except ValueError as exc:
+            return ToolResult.error(
+                name=self.name,
+                content=str(exc),
+                metadata={"cwd": kwargs.get("cwd")},
+            )
+        return self._inspect_command(command, cwd)
+
     def _execute(
         self,
         *,

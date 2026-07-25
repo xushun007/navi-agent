@@ -93,6 +93,20 @@ class ToolExecutor:
                 )
                 continue
 
+            preflight_result = tool.preflight(
+                context=tool_context,
+                **tool_call.arguments,
+            )
+            if preflight_result is not None:
+                results.append(
+                    _stamp_result(
+                        preflight_result.bind(tool_call.id, tool_call.name),
+                        started_at=started_at,
+                        started_perf=started_perf,
+                    )
+                )
+                continue
+
             decision = self._policy.decide(tool_call.name, tool_call.arguments, tool_context)
             if not decision.allows_execution:
                 if decision.requires_approval:

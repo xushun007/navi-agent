@@ -22,6 +22,13 @@ class BaseTool(ABC):
     def is_available(self) -> bool:
         return True
 
+    def preflight(
+        self,
+        context: ToolContext | None = None,
+        **kwargs: Any,
+    ) -> ToolResult | None:
+        return None
+
     @abstractmethod
     def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult: ...
 
