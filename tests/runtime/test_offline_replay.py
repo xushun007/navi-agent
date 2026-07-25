@@ -3,8 +3,12 @@ import unittest
 from pathlib import Path
 
 from navi_agent.events import RuntimeEvent
-from navi_agent.runtime import OfflineRuntimeReplay
-from navi_agent.telemetry import RuntimeReplayPlanner, RuntimeTrajectory
+from navi_agent.runtime import OfflineReplayService, OfflineRuntimeReplay
+from navi_agent.telemetry import (
+    InMemoryRuntimeEventStore,
+    RuntimeReplayPlanner,
+    RuntimeTrajectory,
+)
 
 
 def event(
@@ -95,6 +99,21 @@ def write_file_trajectory(path: Path) -> RuntimeTrajectory:
 
 
 class OfflineRuntimeReplayTests(unittest.TestCase):
+    def test_service_loads_one_run_from_event_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trajectory = write_file_trajectory(Path(tmpdir) / "must-not-exist.txt")
+            event_store = InMemoryRuntimeEventStore()
+            for item in trajectory.events:
+                event_store.record(item)
+
+            replay = OfflineReplayService(event_store).replay(
+                session_id="s1",
+                run_id="r1",
+            )
+
+            self.assertTrue(replay.verified)
+            self.assertEqual(replay.source_run_id, "r1")
+
     def test_replays_runtime_control_flow_without_tool_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "must-not-exist.txt"

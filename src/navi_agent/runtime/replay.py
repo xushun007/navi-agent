@@ -8,7 +8,10 @@ from navi_agent.telemetry import (
     ReplayModelOutput,
     ReplayModelStep,
     ReplayToolStep,
+    RuntimeEventStore,
     RuntimeReplayPlan,
+    RuntimeReplayPlanner,
+    RuntimeTrajectoryService,
 )
 from navi_agent.tooling import ToolContext, ToolResult
 
@@ -110,6 +113,20 @@ class OfflineRuntimeReplay:
             runtime_result=result,
             divergences=tuple(divergences),
         )
+
+
+class OfflineReplayService:
+    def __init__(self, event_store: RuntimeEventStore) -> None:
+        self._trajectory_service = RuntimeTrajectoryService(event_store)
+        self._planner = RuntimeReplayPlanner()
+        self._replay = OfflineRuntimeReplay()
+
+    def replay(self, *, session_id: str, run_id: str) -> OfflineReplayResult:
+        trajectory = self._trajectory_service.load(
+            session_id=session_id,
+            run_id=run_id,
+        )
+        return self._replay.execute(self._planner.build(trajectory))
 
 
 class _RecordedModelTransport:
