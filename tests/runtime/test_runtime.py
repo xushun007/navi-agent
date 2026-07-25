@@ -103,6 +103,11 @@ class RecordingObserver:
         self.events.append(event)
 
 
+class FailingEventStore:
+    def record(self, event: RuntimeEvent) -> None:
+        raise OSError("event store unavailable")
+
+
 class RecordingToolResultRenderer:
     def __init__(self) -> None:
         self.results: list[ToolResult] = []
@@ -127,6 +132,27 @@ def ok_result(name: str, content: str, **kwargs) -> ToolResult:
 
 
 class AgentRuntimeTests(unittest.TestCase):
+    def test_runtime_reports_incomplete_trajectory_when_event_store_fails(self) -> None:
+        runtime = AgentRuntime(
+            transport=FakeTransport([ModelResponse(content="done")]),
+            event_store=FailingEventStore(),
+        )
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertFalse(result.trajectory_complete)
+        self.assertIn("EventStoreWriter", result.trajectory_error)
+        self.assertFalse(runtime.event_delivery_health().healthy)
+        self.assertGreater(
+            runtime.event_delivery_health().critical_failure_count,
+            0,
+        )
+
     def test_runtime_logs_include_run_and_session_correlation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "navi-agent.log"

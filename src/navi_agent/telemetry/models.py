@@ -47,6 +47,8 @@ class ToolExecutionTrace:
 
 @dataclass(slots=True)
 class RuntimeTrace:
+    """Derived diagnostic and evaluation view projected from runtime events."""
+
     session_id: str
     user_id: str
     user_message: str

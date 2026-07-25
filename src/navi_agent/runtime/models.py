@@ -95,3 +95,5 @@ class RuntimeResult:
     final_response: str
     messages: list[Message] = field(default_factory=list)
     tool_results: list[ToolResult] = field(default_factory=list)
+    trajectory_complete: bool = True
+    trajectory_error: str | None = None
