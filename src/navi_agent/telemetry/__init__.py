@@ -13,6 +13,7 @@ from .models import ModelCallTrace, RuntimeTrace, ToolExecutionTrace
 from .replay import (
     ReplayModelStep,
     ReplayModelOutput,
+    ReplayModelFailure,
     ReplayPlanError,
     ReplayToolCall,
     ReplayToolOutput,
@@ -43,6 +44,7 @@ __all__ = [
     "RuntimeTrajectoryService",
     "ReplayModelStep",
     "ReplayModelOutput",
+    "ReplayModelFailure",
     "ReplayPlanError",
     "ReplayToolCall",
     "ReplayToolOutput",

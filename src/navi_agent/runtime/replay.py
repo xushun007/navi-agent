@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from navi_agent.telemetry import (
+    ReplayModelFailure,
     ReplayModelOutput,
+    ReplayModelStep,
     ReplayToolStep,
     RuntimeReplayPlan,
 )
@@ -40,7 +42,7 @@ class OfflineRuntimeReplay:
 
     def execute(self, plan: RuntimeReplayPlan) -> OfflineReplayResult:
         transport = _RecordedModelTransport(
-            [step.response for step in plan.agent_model_steps]
+            list(plan.agent_model_steps)
         )
         tool_registry = _RecordedToolRegistry(
             list(plan.tool_steps)
@@ -111,17 +113,17 @@ class OfflineRuntimeReplay:
 
 
 class _RecordedModelTransport:
-    def __init__(self, outputs: list[ReplayModelOutput]) -> None:
-        self._outputs = list(outputs)
+    def __init__(self, steps: list[ReplayModelStep]) -> None:
+        self._steps = list(steps)
         self._index = 0
         self.divergences: list[ReplayDivergence] = []
 
     @property
     def remaining(self) -> int:
-        return len(self._outputs) - self._index
+        return len(self._steps) - self._index
 
     def generate(self, request: ModelRequest) -> ModelResponse:
-        if self._index >= len(self._outputs):
+        if self._index >= len(self._steps):
             self.divergences.append(
                 ReplayDivergence(
                     kind="model_steps",
@@ -129,9 +131,13 @@ class _RecordedModelTransport:
                 )
             )
             return ModelResponse(content="")
-        output = self._outputs[self._index]
+        step = self._steps[self._index]
         self._index += 1
-        return _model_response(output)
+        if step.failure is not None:
+            raise _recorded_exception(step.failure)
+        if step.response is None:
+            raise RuntimeError("recorded model step has no response or failure")
+        return _model_response(step.response)
 
 
 class _RecordedToolRegistry:
@@ -237,6 +243,14 @@ def _model_response(output: ReplayModelOutput) -> ModelResponse:
             cost_usd=output.usage.cost_usd,
         ),
     )
+
+
+def _recorded_exception(failure: ReplayModelFailure) -> Exception:
+    error_class = type(failure.error_type, (RuntimeError,), {})
+    error = error_class(failure.error_message)
+    if failure.http_status is not None:
+        error.status_code = failure.http_status
+    return error
 
 
 def _tool_result(step: ReplayToolStep) -> ToolResult:

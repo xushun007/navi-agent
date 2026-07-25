@@ -40,6 +40,14 @@ class ReplayModelOutput:
 
 
 @dataclass(frozen=True, slots=True)
+class ReplayModelFailure:
+    error_type: str
+    error_message: str
+    retryable: bool
+    http_status: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class ReplayToolOutput:
     tool_call_id: str
     name: str
@@ -53,7 +61,8 @@ class ReplayToolOutput:
 class ReplayModelStep:
     iteration: int
     purpose: str
-    response: ReplayModelOutput
+    response: ReplayModelOutput | None = None
+    failure: ReplayModelFailure | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +121,7 @@ class RuntimeReplayPlanner:
             model_steps=tuple(
                 self._model_step(event)
                 for event in events
-                if event.name == "model.response"
+                if event.name in {"model.response", "model.failed"}
             ),
             tool_steps=tuple(
                 self._tool_step(event)
@@ -159,6 +168,17 @@ class RuntimeReplayPlanner:
     @staticmethod
     def _model_step(event: RuntimeEvent) -> ReplayModelStep:
         metadata = event.metadata
+        if event.name == "model.failed":
+            return ReplayModelStep(
+                iteration=event.iteration or 0,
+                purpose=_optional_string(metadata, "purpose") or "agent",
+                failure=ReplayModelFailure(
+                    error_type=_required_string(metadata, "error_type"),
+                    error_message=_required_string(metadata, "error_message"),
+                    retryable=metadata.get("retryable") is True,
+                    http_status=_optional_integer(metadata.get("http_status")),
+                ),
+            )
         usage = _mapping(metadata.get("usage"))
         return ReplayModelStep(
             iteration=event.iteration or 0,
@@ -235,6 +255,10 @@ def _optional_string(mapping: dict[str, Any], key: str) -> str | None:
 
 def _integer(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _optional_integer(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _number(value: object) -> float | None:
