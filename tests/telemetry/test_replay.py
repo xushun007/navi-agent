@@ -108,6 +108,7 @@ class RuntimeReplayPlannerTests(unittest.TestCase):
         self.assertEqual(plan.expected_status, "success")
         self.assertEqual(plan.expected_final_response, "done")
         self.assertEqual(len(plan.agent_model_steps), 2)
+        assert plan.model_steps[0].response is not None
         self.assertEqual(plan.model_steps[0].response.model, "model-1")
         self.assertEqual(plan.model_steps[0].response.usage.input_tokens, 10)
         self.assertEqual(plan.tool_steps[0].call.name, "write_file")
@@ -151,6 +152,41 @@ class RuntimeReplayPlannerTests(unittest.TestCase):
 
         self.assertEqual([step.purpose for step in plan.model_steps], ["context_summary", "agent"])
         self.assertEqual(len(plan.agent_model_steps), 1)
+
+    def test_builds_recorded_model_failure_step(self) -> None:
+        trajectory = RuntimeTrajectory(
+            session_id="s1",
+            run_id="r1",
+            events=[
+                event(1, "runtime.started"),
+                event(2, "user.message", {"content": "hello"}),
+                event(
+                    3,
+                    "model.failed",
+                    {
+                        "error_type": "RateLimitError",
+                        "error_message": "quota exhausted",
+                        "retryable": True,
+                        "http_status": 429,
+                    },
+                    iteration=1,
+                ),
+                event(
+                    4,
+                    "runtime.completed",
+                    {"status": "failed", "final_response": "retry later"},
+                    iteration=1,
+                ),
+            ],
+        )
+
+        plan = RuntimeReplayPlanner().build(trajectory)
+
+        failure = plan.agent_model_steps[0].failure
+        self.assertIsNotNone(failure)
+        assert failure is not None
+        self.assertEqual(failure.error_type, "RateLimitError")
+        self.assertEqual(failure.http_status, 429)
 
     def test_rejects_mixed_runs(self) -> None:
         trajectory = RuntimeTrajectory(
