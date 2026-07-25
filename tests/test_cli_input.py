@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from prompt_toolkit import Application
+from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
 from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.keys import Keys
@@ -17,6 +19,7 @@ from navi_agent.cli.input import (
     InteractivePromptSession,
     PromptPlaceholderProcessor,
     _styled_history_fragments,
+    build_slash_command_completer,
     install_shift_enter_alias,
 )
 from navi_agent.ui_events import UiEvent
@@ -78,6 +81,21 @@ def test_interactive_prompt_builds_framed_application() -> None:
     application = run.call_args.args[0]
     assert application.full_screen is False
     assert application.layout.current_control is not None
+
+
+def test_slash_command_completer_filters_command_prefix() -> None:
+    completions = list(
+        build_slash_command_completer().get_completions(
+            Document("/st"),
+            CompleteEvent(completion_requested=True),
+        )
+    )
+
+    assert [completion.text for completion in completions] == [
+        "/status",
+        "/steer",
+        "/stop",
+    ]
 
 
 def test_persistent_interactive_application_keeps_input_active() -> None:
