@@ -237,9 +237,11 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             db_path = Path(tmpdir) / "state.db"
             store = SQLiteSessionStore(db_path)
             session = store.load(session_id="s1", user_id="u1")
+            store.start_run(session, "run-1", SessionMetadata())
 
             store.record_model_response(
                 session,
+                "run-1",
                 ModelResponse(
                     provider="openai-compatible",
                     model="deepseek-v4-pro",
@@ -255,6 +257,7 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             )
             store.record_model_response(
                 session,
+                "run-1",
                 ModelResponse(
                     provider="openai-compatible",
                     model="deepseek-v4-pro",
@@ -265,7 +268,7 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                     ),
                 ),
             )
-            store.finalize(session, status="success")
+            store.finalize(session, "run-1", status="success")
 
             with sqlite3.connect(db_path) as connection:
                 connection.row_factory = sqlite3.Row
@@ -283,6 +286,33 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertAlmostEqual(row["estimated_cost_usd"], 0.015)
             self.assertIsNotNone(row["ended_at"])
             self.assertEqual(row["end_reason"], "success")
+
+            run = store.get_run("run-1")
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.status, "completed")
+            self.assertEqual(run.session_id, "s1")
+            self.assertEqual(run.input_tokens, 150)
+            self.assertEqual(run.output_tokens, 30)
+            self.assertAlmostEqual(run.estimated_cost_usd or 0, 0.015)
+            self.assertIsNotNone(run.completed_at)
+            self.assertEqual(run.completion_reason, "success")
+
+    def test_store_marks_unfinished_run_interrupted_on_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            store = SQLiteSessionStore(db_path)
+            session = store.load(session_id="s1", user_id="u1")
+            store.start_run(session, "run-1", SessionMetadata())
+
+            restarted_store = SQLiteSessionStore(db_path)
+
+            run = restarted_store.get_run("run-1")
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.status, "interrupted")
+            self.assertEqual(run.completion_reason, "process_restarted")
+            self.assertIsNotNone(run.completed_at)
 
     def test_append_round_trips_message_execution_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

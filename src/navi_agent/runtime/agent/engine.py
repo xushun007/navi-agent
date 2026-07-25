@@ -301,7 +301,7 @@ class AgentRuntime:
             user_id=user_id,
             metadata=session_metadata,
         )
-        self._session_store.start_run(session, session_metadata)
+        self._session_store.start_run(session, run_id, session_metadata)
 
         def inject_background_notifications(iteration: int) -> None:
             if self._background_task_manager is None:
@@ -407,6 +407,7 @@ class AgentRuntime:
                 session_id=session.session_id,
                 status="cancelled",
                 final_response=_CANCELLED_RESPONSE,
+                run_id=run_id,
                 messages=self._session_store.snapshot(session),
                 tool_results=tool_results,
             )
@@ -439,8 +440,11 @@ class AgentRuntime:
             apply_trajectory_health(result)
             self._session_store.finalize(
                 session,
+                run_id,
                 status=result.status,
                 end_reason=finalization_reason(result, reason),
+                trajectory_complete=result.trajectory_complete,
+                failure_reason=result.trajectory_error,
             )
             return result
 
@@ -452,6 +456,7 @@ class AgentRuntime:
                 session_id=session.session_id,
                 status="awaiting_input",
                 final_response=prompt,
+                run_id=run_id,
                 messages=self._session_store.snapshot(session),
                 tool_results=tool_results,
             )
@@ -479,8 +484,11 @@ class AgentRuntime:
             apply_trajectory_health(result)
             self._session_store.finalize(
                 session,
+                run_id,
                 status=result.status,
                 end_reason=finalization_reason(result),
+                trajectory_complete=result.trajectory_complete,
+                failure_reason=result.trajectory_error,
             )
             return result
 
@@ -723,6 +731,7 @@ class AgentRuntime:
                     session_id=session.session_id,
                     status="failed",
                     final_response=fallback_response,
+                    run_id=run_id,
                     messages=self._session_store.snapshot(session),
                     tool_results=tool_results,
                 )
@@ -740,11 +749,14 @@ class AgentRuntime:
                 apply_trajectory_health(result)
                 self._session_store.finalize(
                     session,
+                    run_id,
                     status=result.status,
                     end_reason=finalization_reason(
                         result,
                         str(error_info["error_type"]),
                     ),
+                    trajectory_complete=result.trajectory_complete,
+                    failure_reason=result.trajectory_error or str(error_info["error_message"]),
                 )
                 return result
             model_payload = {
@@ -772,7 +784,7 @@ class AgentRuntime:
                     for tool_call in response.tool_calls
                 ],
             }
-            self._session_store.record_model_response(session, response)
+            self._session_store.record_model_response(session, run_id, response)
             if cancellation_token.is_cancelled:
                 publish_event(
                     kind="observation",
@@ -822,6 +834,7 @@ class AgentRuntime:
                     session_id=session.session_id,
                     status="success",
                     final_response=response.content,
+                    run_id=run_id,
                     messages=self._session_store.snapshot(session),
                     tool_results=tool_results,
                 )
@@ -835,8 +848,11 @@ class AgentRuntime:
                 apply_trajectory_health(result)
                 self._session_store.finalize(
                     session,
+                    run_id,
                     status=result.status,
                     end_reason=finalization_reason(result),
+                    trajectory_complete=result.trajectory_complete,
+                    failure_reason=result.trajectory_error,
                 )
                 return result
 
@@ -916,6 +932,7 @@ class AgentRuntime:
             session_id=session.session_id,
             status="iteration_limit_exceeded",
             final_response=_ITERATION_LIMIT_RESPONSE,
+            run_id=run_id,
             messages=self._session_store.snapshot(session),
             tool_results=tool_results,
         )
@@ -941,11 +958,14 @@ class AgentRuntime:
         apply_trajectory_health(result)
         self._session_store.finalize(
             session,
+            run_id,
             status=result.status,
             end_reason=finalization_reason(
                 result,
                 str(error_info["error_type"]),
             ),
+            trajectory_complete=result.trajectory_complete,
+            failure_reason=result.trajectory_error or str(error_info["error_message"]),
         )
         return result
 

@@ -76,6 +76,16 @@ class RuntimeSQLiteIntegrationTests(unittest.TestCase):
             self.assertEqual(session_row["end_reason"], "success")
             self.assertIsNotNone(session_row["ended_at"])
 
+            run = store.get_run(result.run_id)
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.status, "completed")
+            self.assertEqual(run.start_message_id, 1)
+            self.assertEqual(run.end_message_id, 3)
+            self.assertEqual(run.input_tokens, 40)
+            self.assertEqual(run.output_tokens, 8)
+            self.assertAlmostEqual(run.estimated_cost_usd or 0, 0.002)
+
 
 if __name__ == "__main__":
     unittest.main()

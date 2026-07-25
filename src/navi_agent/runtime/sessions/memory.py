@@ -5,6 +5,7 @@ from ..models import (
     ConversationState,
     Message,
     ModelResponse,
+    RuntimeRunRecord,
     SessionMetadata,
 )
 
@@ -13,6 +14,7 @@ class InMemorySessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, ConversationState] = {}
         self._compaction_checkpoints: dict[str, ContextCompactionCheckpoint] = {}
+        self._runs: dict[str, RuntimeRunRecord] = {}
 
     def load(
         self,
@@ -35,9 +37,27 @@ class InMemorySessionStore:
     def start_run(
         self,
         session: ConversationState,
+        run_id: str,
         metadata: SessionMetadata,
     ) -> None:
-        return None
+        import time
+
+        now = time.time()
+        self._runs[run_id] = RuntimeRunRecord(
+            run_id=run_id,
+            session_id=session.session_id,
+            user_id=session.user_id,
+            source=metadata.source,
+            agent_role=metadata.agent_role,
+            status="running",
+            started_at=now,
+            updated_at=now,
+            start_message_id=len(session.messages) + 1,
+            model=metadata.model,
+        )
+
+    def get_run(self, run_id: str) -> RuntimeRunRecord | None:
+        return self._runs.get(run_id)
 
     def load_compaction_checkpoint(
         self,
@@ -55,15 +75,47 @@ class InMemorySessionStore:
     def record_model_response(
         self,
         session: ConversationState,
+        run_id: str,
         response: ModelResponse,
     ) -> None:
-        return None
+        import time
+
+        run = self._runs[run_id]
+        run.provider = response.provider or run.provider
+        run.model = response.model or run.model
+        run.input_tokens += response.usage.input_tokens
+        run.output_tokens += response.usage.output_tokens
+        run.cache_read_tokens += response.usage.cache_read_tokens
+        run.cache_write_tokens += response.usage.cache_write_tokens
+        run.reasoning_tokens += response.usage.reasoning_tokens
+        if response.usage.cost_usd is not None:
+            run.estimated_cost_usd = (run.estimated_cost_usd or 0) + response.usage.cost_usd
+        run.updated_at = time.time()
 
     def finalize(
         self,
         session: ConversationState,
+        run_id: str,
         *,
         status: str,
         end_reason: str | None = None,
+        trajectory_complete: bool = True,
+        failure_reason: str | None = None,
     ) -> None:
-        return None
+        import time
+
+        run = self._runs[run_id]
+        run.status = _run_status(status)
+        run.completed_at = time.time()
+        run.updated_at = run.completed_at
+        run.end_message_id = len(session.messages)
+        run.trajectory_complete = trajectory_complete
+        run.failure_reason = failure_reason
+        run.completion_reason = end_reason or status
+
+
+def _run_status(status: str) -> str:
+    return {
+        "success": "completed",
+        "iteration_limit_exceeded": "failed",
+    }.get(status, status)
