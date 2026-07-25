@@ -506,6 +506,45 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.messages[-2].role, "tool")
         self.assertEqual(result.messages[-2].content, "tool:ping")
 
+    def test_runtime_reuses_completed_tool_call_without_reexecution(self) -> None:
+        executions = 0
+
+        def write_value(value: str) -> ToolResult:
+            nonlocal executions
+            executions += 1
+            return ok_result("write_value", f"written:{value}")
+
+        transport = FakeTransport(
+            [
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(id="tc1", name="write_value", arguments={"value": "one"})
+                    ]
+                ),
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(id="tc1", name="write_value", arguments={"value": "one"})
+                    ]
+                ),
+                ModelResponse(content="done"),
+            ]
+        )
+        runtime = AgentRuntime(
+            transport=transport,
+            tool_registry=ToolRegistry(tools={"write_value": write_value}),
+        )
+
+        result = runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="write once",
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(executions, 1)
+        self.assertEqual(len(result.tool_results), 2)
+        self.assertTrue(result.tool_results[-1].metadata["deduplicated"])
+
     def test_runtime_persists_message_history_in_session_store(self) -> None:
         session_store = InMemorySessionStore()
         transport = FakeTransport([ModelResponse(content="done")])

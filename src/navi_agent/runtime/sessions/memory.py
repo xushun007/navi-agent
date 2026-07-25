@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from navi_agent.tooling import ToolResult
+
 from ..models import (
     ContextCompactionCheckpoint,
     ConversationState,
@@ -7,6 +9,7 @@ from ..models import (
     ModelResponse,
     RuntimeRunRecord,
     SessionMetadata,
+    ToolCall,
 )
 
 
@@ -15,6 +18,7 @@ class InMemorySessionStore:
         self._sessions: dict[str, ConversationState] = {}
         self._compaction_checkpoints: dict[str, ContextCompactionCheckpoint] = {}
         self._runs: dict[str, RuntimeRunRecord] = {}
+        self._tool_results: dict[tuple[str, str], ToolResult] = {}
 
     def load(
         self,
@@ -58,6 +62,27 @@ class InMemorySessionStore:
 
     def get_run(self, run_id: str) -> RuntimeRunRecord | None:
         return self._runs.get(run_id)
+
+    def start_tool_call(
+        self,
+        session: ConversationState,
+        run_id: str,
+        tool_call: ToolCall,
+    ) -> None:
+        return None
+
+    def get_tool_result(self, run_id: str, tool_call_id: str) -> ToolResult | None:
+        return self._tool_results.get((run_id, tool_call_id))
+
+    def complete_tool_call(
+        self,
+        session: ConversationState,
+        run_id: str,
+        result: ToolResult,
+    ) -> None:
+        if result.structured_content.get("interaction_pending") is True:
+            return
+        self._tool_results[(run_id, result.tool_call_id)] = result
 
     def load_compaction_checkpoint(
         self,

@@ -497,6 +497,7 @@ class AgentRuntime:
             *,
             iteration: int,
             arguments: dict[str, object],
+            checkpoint_run_id: str = run_id,
             persist_message: bool = True,
         ) -> None:
             tool_metadata, tool_started_at, tool_completed_at, tool_duration_ms = _pop_trace_timing(
@@ -511,6 +512,11 @@ class AgentRuntime:
             error_info = _classify_tool_error(
                 tool_result=tool_result,
                 tool_metadata=tool_metadata,
+            )
+            self._session_store.complete_tool_call(
+                session,
+                checkpoint_run_id,
+                tool_result,
             )
             publish_event(
                 kind="observation",
@@ -569,7 +575,19 @@ class AgentRuntime:
                 run_id=run_id,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
             )
-            if resume_interaction.kind == "approval" and resume_interaction.status == "approved":
+            checkpoint_run_id = resume_interaction.run_id or run_id
+            self._session_store.start_tool_call(
+                session,
+                checkpoint_run_id,
+                resumed_call,
+            )
+            resumed_result = self._session_store.get_tool_result(
+                checkpoint_run_id,
+                resumed_call.id,
+            )
+            if resumed_result is not None:
+                resumed_result.metadata["deduplicated"] = True
+            elif resume_interaction.kind == "approval" and resume_interaction.status == "approved":
                 resumed_result = self._tool_registry.dispatch_approved(
                     resumed_call,
                     context=resumed_context,
@@ -598,6 +616,7 @@ class AgentRuntime:
                 resumed_result,
                 iteration=0,
                 arguments=dict(resume_interaction.arguments or {}),
+                checkpoint_run_id=checkpoint_run_id,
             )
 
         for iteration in range(self._max_iterations):
@@ -875,7 +894,17 @@ class AgentRuntime:
                 emit_output=emit_tool_output,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
             )
+            unique_tool_calls = []
+            seen_tool_call_ids = set()
             for tool_call in response.tool_calls:
+                if tool_call.id in seen_tool_call_ids:
+                    continue
+                seen_tool_call_ids.add(tool_call.id)
+                unique_tool_calls.append(tool_call)
+
+            pending_tool_calls = []
+            completed_tool_results = {}
+            for tool_call in unique_tool_calls:
                 publish_event(
                     kind="action",
                     source="agent",
@@ -888,24 +917,29 @@ class AgentRuntime:
                         "arguments": dict(tool_call.arguments),
                     },
                 )
-            for tool_result in self._tool_registry.dispatch(
-                response.tool_calls,
+                self._session_store.start_tool_call(session, run_id, tool_call)
+                completed_result = self._session_store.get_tool_result(run_id, tool_call.id)
+                if completed_result is None:
+                    pending_tool_calls.append(tool_call)
+                else:
+                    completed_result.metadata["deduplicated"] = True
+                    completed_tool_results[tool_call.id] = completed_result
+
+            dispatched_results = self._tool_registry.dispatch(
+                pending_tool_calls,
                 context=tool_context,
                 enabled_toolsets=self._enabled_toolsets,
                 disabled_toolsets=self._disabled_toolsets,
-            ):
-                arguments = next(
-                    (
-                        dict(tool_call.arguments)
-                        for tool_call in response.tool_calls
-                        if tool_call.id == tool_result.tool_call_id
-                    ),
-                    {},
-                )
+            )
+            completed_tool_results.update(
+                {tool_result.tool_call_id: tool_result for tool_result in dispatched_results}
+            )
+            for tool_call in unique_tool_calls:
+                tool_result = completed_tool_results[tool_call.id]
                 record_tool_result(
                     tool_result,
                     iteration=iteration_number,
-                    arguments=arguments,
+                    arguments=dict(tool_call.arguments),
                     persist_message=(
                         tool_result.structured_content.get("interaction_pending") is not True
                     ),
