@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -153,3 +154,11 @@ class RuntimeResult:
     tool_results: list[ToolResult] = field(default_factory=list)
     trajectory_complete: bool = True
     trajectory_error: str | None = None
+
+
+class RuntimeMode(StrEnum):
+    ONLINE = "online"
+    EVAL = "eval"
+    REPLAY = "replay"
+    REVIEW = "review"
+    SCHEDULED = "scheduled"

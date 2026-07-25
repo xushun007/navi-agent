@@ -17,7 +17,7 @@ from navi_agent.evolution import (
     SkillGovernanceService,
     SkillPromotionGate,
 )
-from navi_agent.runtime import JsonPendingInteractionStore, Message, RuntimeResult
+from navi_agent.runtime import JsonPendingInteractionStore, Message, RuntimeMode, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -35,6 +35,7 @@ class FakeRuntime:
         user_message,
         system_prompt=None,
         source="console",
+        mode=RuntimeMode.ONLINE,
         event_subscribers=None,
         cancellation_token=None,
         resume_interaction=None,
@@ -46,6 +47,7 @@ class FakeRuntime:
                 "user_message": user_message,
                 "system_prompt": system_prompt,
                 "source": source,
+                "mode": mode,
                 "event_subscribers": event_subscribers,
                 "cancellation_token": cancellation_token,
                 "resume_interaction": resume_interaction,
@@ -418,6 +420,7 @@ class ApplicationServiceTests(unittest.TestCase):
 
         self.assertEqual(result.session_id, "s1")
         self.assertEqual(runtime.calls[0]["source"], "console")
+        self.assertIs(runtime.calls[0]["mode"], RuntimeMode.ONLINE)
         self.assertEqual(runtime.calls[0]["session_id"], "s1")
 
     def test_handle_generates_session_id_when_missing(self) -> None:
@@ -511,6 +514,32 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(candidate.target, "eval_case")
         self.assertEqual(candidate.metadata["trace_id"], "trace-1")
         self.assertEqual(candidate.metadata["session_id"], "s1")
+
+    def test_eval_mode_does_not_generate_learning_candidates(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="hello",
+            final_response="",
+            status="failed",
+            trace_id="trace-1",
+            error_count=1,
+        )
+        candidate_store = FakeCandidateStore()
+        service = ApplicationService(runtime=runtime, candidate_store=candidate_store)
+
+        service.handle(
+            AppRequest(
+                user_id="u1",
+                message="hello",
+                session_id="s1",
+                mode=RuntimeMode.EVAL,
+            )
+        )
+
+        self.assertEqual(candidate_store.items, [])
+        self.assertIs(runtime.calls[0]["mode"], RuntimeMode.EVAL)
 
     def test_handle_does_not_use_legacy_skill_candidate_fallback(self) -> None:
         runtime = FakeRuntime()

@@ -263,7 +263,15 @@ class ToolUseEvalTests(unittest.TestCase):
                 self._trace_store = trace_store
                 self.calls = []
 
-            def run_conversation(self, *, session_id, user_id, user_message, system_prompt=None):
+            def run_conversation(
+                self,
+                *,
+                session_id,
+                user_id,
+                user_message,
+                system_prompt=None,
+                mode=None,
+            ):
                 self.calls.append((session_id, user_id, user_message, system_prompt))
                 self._trace_store.record(
                     RuntimeTrace(

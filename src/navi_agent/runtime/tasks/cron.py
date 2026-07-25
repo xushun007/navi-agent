@@ -186,12 +186,14 @@ class CronSchedulerService:
             if not _is_due(job, now):
                 continue
             from navi_agent.app import AppRequest
+            from navi_agent.runtime import RuntimeMode
 
             result = app.handle(
                 AppRequest(
                     user_id=job.user_id,
                     session_id=job.session_id,
                     message=job.prompt,
+                    mode=RuntimeMode.SCHEDULED,
                 )
             )
             ran_at = now.isoformat(timespec="seconds")
