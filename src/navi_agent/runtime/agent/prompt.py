@@ -59,15 +59,19 @@ class PromptBuilder:
     def __init__(
         self,
         memory_store: MemoryStore | None = None,
-        memory_limit: int = 5,
+        profile_memory_limit: int = 3,
+        relevant_memory_limit: int = 5,
         skill_store: SkillIndexStore | None = None,
         project_context_root: Path | None = None,
         additional_workspace_roots: Iterable[Path] | None = None,
     ) -> None:
-        if memory_limit <= 0:
-            raise ValueError("memory_limit must be positive")
+        if profile_memory_limit <= 0:
+            raise ValueError("profile_memory_limit must be positive")
+        if relevant_memory_limit <= 0:
+            raise ValueError("relevant_memory_limit must be positive")
         self._memory_store = memory_store
-        self._memory_limit = memory_limit
+        self._profile_memory_limit = profile_memory_limit
+        self._relevant_memory_limit = relevant_memory_limit
         self._skill_store = skill_store
         self._project_context_root = project_context_root
         self._additional_workspace_roots = tuple(
@@ -138,17 +142,27 @@ class PromptBuilder:
     def _build_memory_block(self, user_id: str, user_message: str) -> str | None:
         if self._memory_store is None:
             return None
-        records = self._memory_store.search_for_user(
+        recall = self._memory_store.recall_for_user(
             user_id,
-            query=user_message,
-            limit=self._memory_limit,
+            user_message,
+            profile_limit=self._profile_memory_limit,
+            relevant_limit=self._relevant_memory_limit,
         )
-        if not records:
+        if not recall.profile and not recall.relevant:
             return None
         lines = ["[Memory]"]
-        lines.extend(
-            f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}" for record in records
-        )
+        if recall.profile:
+            lines.append("User Profile:")
+            lines.extend(
+                f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}"
+                for record in recall.profile
+            )
+        if recall.relevant:
+            lines.append("Relevant Facts:")
+            lines.extend(
+                f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}"
+                for record in recall.relevant
+            )
         return "\n".join(lines)
 
     def _build_skill_block(self) -> str | None:

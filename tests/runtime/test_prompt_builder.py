@@ -66,7 +66,7 @@ class PromptBuilderTest(unittest.TestCase):
     def test_new_session_injects_only_relevant_memory_entries(self) -> None:
         for index in range(7):
             self.memory.add_for_user("u1", f"Project {index} uses Python")
-        builder = PromptBuilder(memory_store=self.memory, memory_limit=5)
+        builder = PromptBuilder(memory_store=self.memory, relevant_memory_limit=5)
         session = ConversationState(session_id="s1", user_id="u1")
 
         msgs = builder.build_initial_messages(session, "Which projects use Python?")
@@ -85,6 +85,36 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn(MEMORY_GUIDANCE, msgs[0].content)
         self.assertIn(SKILL_GUIDANCE, msgs[0].content)
         self.assertEqual(msgs[1].role, "user")
+
+    def test_profile_and_relevant_memory_use_independent_quotas(self) -> None:
+        for index in range(5):
+            self.memory.add_for_user(
+                "u1",
+                f"Preference {index}",
+                kind="preference",
+                target="user",
+            )
+        self.memory.add_for_user("u1", "Backend uses Python and SQLite")
+        self.memory.add_for_user("u1", "Tests use pytest for Python")
+        self.memory.add_for_user("u1", "Frontend uses TypeScript")
+        builder = PromptBuilder(
+            memory_store=self.memory,
+            profile_memory_limit=2,
+            relevant_memory_limit=2,
+        )
+        session = ConversationState(session_id="s1", user_id="u1")
+
+        prompt = builder.build_initial_messages(
+            session,
+            "How is Python used?",
+        )[0].content
+
+        self.assertIn("User Profile:", prompt)
+        self.assertEqual(prompt.count("- [preference]"), 2)
+        self.assertIn("Relevant Facts:", prompt)
+        self.assertIn("Backend uses Python and SQLite", prompt)
+        self.assertIn("Tests use pytest for Python", prompt)
+        self.assertNotIn("Frontend uses TypeScript", prompt)
 
     def test_system_prompt_parts_are_ordered(self) -> None:
         self.memory.add_for_user("u1", "Likes Python")
@@ -230,6 +260,8 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertEqual(len(msgs), 1)
         self.assertEqual(msgs[0].content, "follow-up")
 
-    def test_memory_limit_must_be_positive(self) -> None:
+    def test_memory_quotas_must_be_positive(self) -> None:
         with self.assertRaises(ValueError):
-            PromptBuilder(memory_store=self.memory, memory_limit=0)
+            PromptBuilder(memory_store=self.memory, profile_memory_limit=0)
+        with self.assertRaises(ValueError):
+            PromptBuilder(memory_store=self.memory, relevant_memory_limit=0)

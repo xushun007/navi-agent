@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from .models import MemoryAuditRecord, MemoryRecord, MemoryWriteProvenance
-from .search import search_memories
+from .models import MemoryAuditRecord, MemoryRecall, MemoryRecord, MemoryWriteProvenance
+from .search import recall_memories, search_memories
 from .validation import normalize_memory_content, validate_memory_content
 
 
@@ -18,6 +18,21 @@ class InMemoryMemoryStore:
 
     def search_for_user(self, user_id: str, query: str, limit: int) -> list[MemoryRecord]:
         return search_memories(self.list_for_user(user_id), query=query, limit=limit)
+
+    def recall_for_user(
+        self,
+        user_id: str,
+        query: str,
+        *,
+        profile_limit: int,
+        relevant_limit: int,
+    ) -> MemoryRecall:
+        return recall_memories(
+            self.list_for_user(user_id),
+            query=query,
+            profile_limit=profile_limit,
+            relevant_limit=relevant_limit,
+        )
 
     def add_for_user(
         self,
