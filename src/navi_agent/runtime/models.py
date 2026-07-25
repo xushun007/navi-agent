@@ -78,14 +78,43 @@ class ContextCompactionCheckpoint:
 
 
 @dataclass(frozen=True, slots=True)
-class SessionSearchHit:
-    session_id: str
-    message_id: int
+class SessionRecallMessage:
+    id: int
     role: str
     content: str
     created_at: float
+    anchor: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SessionRecallResult:
+    session_id: str
+    lineage_id: str
+    title: str
     source: str
-    title: str | None = None
+    model: str | None
+    timestamp: float
+    matched_message: SessionRecallMessage
+    highlighted_snippet: str
+    beginning: list[SessionRecallMessage]
+    window: list[SessionRecallMessage]
+    ending: list[SessionRecallMessage]
+    messages_before: int
+    messages_after: int
+
+
+@dataclass(frozen=True, slots=True)
+class SessionRecallView:
+    session_id: str
+    title: str
+    source: str
+    model: str | None
+    timestamp: float
+    messages: list[SessionRecallMessage]
+    total_message_count: int
+    messages_before: int
+    messages_after: int
+    truncated: bool
 
 
 @dataclass(slots=True)

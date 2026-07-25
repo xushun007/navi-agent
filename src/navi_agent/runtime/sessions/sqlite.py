@@ -15,7 +15,9 @@ from ..models import (
     Message,
     ModelResponse,
     SessionMetadata,
-    SessionSearchHit,
+    SessionRecallMessage,
+    SessionRecallResult,
+    SessionRecallView,
     ToolCall,
 )
 from .schema import SCHEMA_STATEMENTS
@@ -391,13 +393,15 @@ class SQLiteSessionStore:
             ).fetchall()
         return [str(row["id"]) for row in rows]
 
-    def search_sessions(
+    def discover_sessions(
         self,
         *,
         query: str,
         user_id: str,
         limit: int = 5,
-    ) -> list[SessionSearchHit]:
+        exclude_session_id: str | None = None,
+        window: int = 2,
+    ) -> list[SessionRecallResult]:
         normalized_query = query.strip()
         if not normalized_query:
             return []
@@ -412,56 +416,75 @@ class SQLiteSessionStore:
                     messages.session_id,
                     messages.id AS message_id,
                     messages.role,
-                    snippet({table}, 0, '', '', ' … ', 32) AS content,
-                    messages.created_at,
+                    messages.content,
+                    messages.created_at AS message_created_at,
+                    highlight({table}, 0, '[[', ']]') AS highlighted_snippet,
                     sessions.source,
-                    sessions.title
+                    sessions.title,
+                    sessions.model,
+                    sessions.updated_at
                 FROM {table}
                 JOIN messages ON messages.id = {table}.rowid
                 JOIN sessions ON sessions.id = messages.session_id
                 WHERE {table} MATCH ?
                   AND sessions.user_id = ?
                   AND messages.active = 1
-                  AND sessions.source != 'subagent'
+                  AND sessions.agent_role != 'subagent'
                 ORDER BY bm25({table}), messages.created_at DESC
                 LIMIT ?
                 """,
-                (match_query, user_id, max(1, min(limit, 20))),
+                (match_query, user_id, max(20, min(limit, 20) * 20)),
             ).fetchall()
-        return [
-            SessionSearchHit(
-                session_id=str(row["session_id"]),
-                message_id=int(row["message_id"]),
-                role=str(row["role"]),
-                content=str(row["content"]),
-                created_at=float(row["created_at"]),
-                source=str(row["source"]),
-                title=row["title"],
+            excluded_lineage = (
+                self._lineage_root(connection, exclude_session_id)
+                if exclude_session_id
+                else None
             )
-            for row in rows
-        ]
+            results = []
+            seen_lineages = set()
+            for row in rows:
+                session_id = str(row["session_id"])
+                lineage_id = self._lineage_root(connection, session_id)
+                if lineage_id == excluded_lineage or lineage_id in seen_lineages:
+                    continue
+                seen_lineages.add(lineage_id)
+                results.append(
+                    self._build_discovery_result(
+                        connection,
+                        row=row,
+                        lineage_id=lineage_id,
+                        window=max(0, min(window, 5)),
+                    )
+                )
+                if len(results) >= max(1, min(limit, 20)):
+                    break
+        return results
 
-    def messages_around(
+    def recall_around(
         self,
         *,
         session_id: str,
         message_id: int,
         user_id: str,
         window: int = 3,
-    ) -> list[dict[str, object]]:
+        exclude_session_id: str | None = None,
+    ) -> SessionRecallView | None:
         bounded_window = max(0, min(window, 10))
         with self._connect() as connection:
+            session_row = self._recallable_session(
+                connection,
+                session_id=session_id,
+                user_id=user_id,
+                exclude_session_id=exclude_session_id,
+            )
+            if session_row is None:
+                return None
             anchor = connection.execute(
-                """
-                SELECT messages.id
-                FROM messages
-                JOIN sessions ON sessions.id = messages.session_id
-                WHERE messages.id = ? AND messages.session_id = ? AND sessions.user_id = ?
-                """,
-                (message_id, session_id, user_id),
+                "SELECT id FROM messages WHERE id = ? AND session_id = ? AND active = 1",
+                (message_id, session_id),
             ).fetchone()
             if anchor is None:
-                return []
+                return None
             before = connection.execute(
                 """
                 SELECT id, role, content, created_at
@@ -482,17 +505,276 @@ class SQLiteSessionStore:
                 """,
                 (session_id, message_id, bounded_window),
             ).fetchall()
-        rows = [*reversed(before), *after]
+            rows = [*reversed(before), *after]
+            first_id = int(rows[0]["id"])
+            last_id = int(rows[-1]["id"])
+            counts = self._message_counts(connection, session_id, first_id, last_id)
+            return self._build_view(
+                session_row,
+                rows,
+                total=counts[0] + len(rows) + counts[1],
+                messages_before=counts[0],
+                messages_after=counts[1],
+                anchor_id=message_id,
+            )
+
+    def read_session(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        limit: int = 40,
+        exclude_session_id: str | None = None,
+    ) -> SessionRecallView | None:
+        bounded_limit = max(1, min(limit, 100))
+        with self._connect() as connection:
+            session_row = self._recallable_session(
+                connection,
+                session_id=session_id,
+                user_id=user_id,
+                exclude_session_id=exclude_session_id,
+            )
+            if session_row is None:
+                return None
+            total = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM messages WHERE session_id = ? AND active = 1",
+                    (session_id,),
+                ).fetchone()[0]
+            )
+            rows = connection.execute(
+                """
+                SELECT id, role, content, created_at
+                FROM messages
+                WHERE session_id = ? AND active = 1
+                ORDER BY id
+                LIMIT ?
+                """,
+                (session_id, bounded_limit),
+            ).fetchall()
+            return self._build_view(
+                session_row,
+                rows,
+                total=total,
+                messages_before=0,
+                messages_after=max(0, total - len(rows)),
+            )
+
+    def _build_discovery_result(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        row: sqlite3.Row,
+        lineage_id: str,
+        window: int,
+    ) -> SessionRecallResult:
+        session_id = str(row["session_id"])
+        message_id = int(row["message_id"])
+        beginning_rows = self._bookend_rows(connection, session_id, beginning=True)
+        ending_rows = self._bookend_rows(connection, session_id, beginning=False)
+        before = connection.execute(
+            """
+            SELECT id, role, content, created_at
+            FROM messages
+            WHERE session_id = ? AND active = 1 AND id <= ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (session_id, message_id, window + 1),
+        ).fetchall()
+        after = connection.execute(
+            """
+            SELECT id, role, content, created_at
+            FROM messages
+            WHERE session_id = ? AND active = 1 AND id > ?
+            ORDER BY id
+            LIMIT ?
+            """,
+            (session_id, message_id, window),
+        ).fetchall()
+        window_rows = [*reversed(before), *after]
+        counts = self._message_counts(
+            connection,
+            session_id,
+            int(window_rows[0]["id"]),
+            int(window_rows[-1]["id"]),
+        )
+        title = str(row["title"] or "").strip() or self._derive_session_title(
+            connection,
+            session_id,
+        )
+        return SessionRecallResult(
+            session_id=session_id,
+            lineage_id=lineage_id,
+            title=title,
+            source=str(row["source"]),
+            model=row["model"],
+            timestamp=float(row["updated_at"]),
+            matched_message=SessionRecallMessage(
+                id=message_id,
+                role=str(row["role"]),
+                content=str(row["content"]),
+                created_at=float(row["message_created_at"]),
+                anchor=True,
+            ),
+            highlighted_snippet=str(row["highlighted_snippet"]),
+            beginning=self._message_records(beginning_rows),
+            window=self._message_records(window_rows, anchor_id=message_id),
+            ending=self._message_records(ending_rows),
+            messages_before=counts[0],
+            messages_after=counts[1],
+        )
+
+    def _recallable_session(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        session_id: str,
+        user_id: str,
+        exclude_session_id: str | None,
+    ) -> sqlite3.Row | None:
+        row = connection.execute(
+            """
+            SELECT id, source, model, title, updated_at
+            FROM sessions
+            WHERE id = ? AND user_id = ? AND agent_role != 'subagent'
+            """,
+            (session_id, user_id),
+        ).fetchone()
+        if row is None:
+            return None
+        if exclude_session_id and self._lineage_root(
+            connection,
+            session_id,
+        ) == self._lineage_root(connection, exclude_session_id):
+            return None
+        return row
+
+    @staticmethod
+    def _lineage_root(connection: sqlite3.Connection, session_id: str) -> str:
+        row = connection.execute(
+            """
+            WITH RECURSIVE lineage(id, parent_session_id, depth) AS (
+                SELECT id, parent_session_id, 0 FROM sessions WHERE id = ?
+                UNION ALL
+                SELECT parent.id, parent.parent_session_id, lineage.depth + 1
+                FROM sessions AS parent
+                JOIN lineage ON parent.id = lineage.parent_session_id
+                WHERE lineage.depth < 100
+            )
+            SELECT id FROM lineage ORDER BY depth DESC LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        return str(row["id"]) if row is not None else session_id
+
+    @staticmethod
+    def _bookend_rows(
+        connection: sqlite3.Connection,
+        session_id: str,
+        *,
+        beginning: bool,
+    ) -> list[sqlite3.Row]:
+        direction = "ASC" if beginning else "DESC"
+        rows = connection.execute(
+            f"""
+            SELECT id, role, content, created_at
+            FROM messages
+            WHERE session_id = ? AND active = 1
+            ORDER BY id {direction}
+            LIMIT 2
+            """,
+            (session_id,),
+        ).fetchall()
+        return list(rows if beginning else reversed(rows))
+
+    @staticmethod
+    def _message_counts(
+        connection: sqlite3.Connection,
+        session_id: str,
+        first_id: int,
+        last_id: int,
+    ) -> tuple[int, int]:
+        row = connection.execute(
+            """
+            SELECT
+                SUM(CASE WHEN id < ? THEN 1 ELSE 0 END),
+                SUM(CASE WHEN id > ? THEN 1 ELSE 0 END)
+            FROM messages
+            WHERE session_id = ? AND active = 1
+            """,
+            (first_id, last_id, session_id),
+        ).fetchone()
+        return int(row[0] or 0), int(row[1] or 0)
+
+    @staticmethod
+    def _message_records(
+        rows: list[sqlite3.Row],
+        *,
+        anchor_id: int | None = None,
+    ) -> list[SessionRecallMessage]:
         return [
-            {
-                "id": int(row["id"]),
-                "role": str(row["role"]),
-                "content": str(row["content"]),
-                "created_at": float(row["created_at"]),
-                "anchor": int(row["id"]) == message_id,
-            }
+            SessionRecallMessage(
+                id=int(row["id"]),
+                role=str(row["role"]),
+                content=str(row["content"]),
+                created_at=float(row["created_at"]),
+                anchor=int(row["id"]) == anchor_id,
+            )
             for row in rows
         ]
+
+    def _build_view(
+        self,
+        session_row: sqlite3.Row,
+        rows: list[sqlite3.Row],
+        *,
+        total: int,
+        messages_before: int,
+        messages_after: int,
+        anchor_id: int | None = None,
+    ) -> SessionRecallView:
+        session_id = str(session_row["id"])
+        title = str(session_row["title"] or "").strip() or self._derive_session_title(
+            None,
+            session_id,
+            rows=rows,
+        )
+        return SessionRecallView(
+            session_id=session_id,
+            title=title,
+            source=str(session_row["source"]),
+            model=session_row["model"],
+            timestamp=float(session_row["updated_at"]),
+            messages=self._message_records(rows, anchor_id=anchor_id),
+            total_message_count=total,
+            messages_before=messages_before,
+            messages_after=messages_after,
+            truncated=messages_before > 0 or messages_after > 0,
+        )
+
+    @staticmethod
+    def _derive_session_title(
+        connection: sqlite3.Connection | None,
+        session_id: str,
+        *,
+        rows: list[sqlite3.Row] | None = None,
+    ) -> str:
+        if rows is None and connection is not None:
+            rows = connection.execute(
+                """
+                SELECT content FROM messages
+                WHERE session_id = ? AND active = 1 AND role = 'user'
+                ORDER BY id LIMIT 1
+                """,
+                (session_id,),
+            ).fetchall()
+        title_row = next(
+            (row for row in rows or [] if "role" not in row.keys() or row["role"] == "user"),
+            (rows or [None])[0],
+        )
+        first = str(title_row["content"]).strip() if title_row is not None else session_id
+        return first[:80] + ("…" if len(first) > 80 else "")
 
     def _initialize(self) -> None:
         with self._connect() as connection:

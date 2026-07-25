@@ -328,22 +328,23 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             store.append(second, Message(role="user", content="我喜欢简洁直接的技术回答"))
             store.append(other_user, Message(role="user", content="debug sqlite lock contention"))
 
-            english_hits = store.search_sessions(query="sqlite lock", user_id="u1")
-            chinese_hits = store.search_sessions(query="简洁直接", user_id="u1")
+            english_hits = store.discover_sessions(query="sqlite lock", user_id="u1")
+            chinese_hits = store.discover_sessions(query="简洁直接", user_id="u1")
 
             self.assertEqual([hit.session_id for hit in english_hits], ["s1"])
             self.assertEqual([hit.session_id for hit in chinese_hits], ["s2"])
-            messages = store.messages_around(
+            view = store.recall_around(
                 session_id="s1",
-                message_id=english_hits[0].message_id,
+                message_id=english_hits[0].matched_message.id,
                 user_id="u1",
                 window=1,
             )
-            self.assertEqual([item["content"] for item in messages], [
+            self.assertIsNotNone(view)
+            self.assertEqual([item.content for item in view.messages], [
                 "debug sqlite lock contention",
                 "use bounded retry",
             ])
-            self.assertTrue(messages[0]["anchor"])
+            self.assertTrue(view.messages[0].anchor)
 
 
 if __name__ == "__main__":
