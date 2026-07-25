@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from navi_agent.memory import MemoryStore, MemoryWriteProvenance
+from navi_agent.memory import MemoryConflictError, MemoryStore, MemoryWriteProvenance
 from navi_agent.tooling import ToolContext, ToolResult
 
 from .base import BaseTool
@@ -35,6 +35,11 @@ class MemoryTool(BaseTool):
                 "target": {"type": "string", "enum": ["memory", "user"]},
                 "kind": {"type": "string", "enum": ["fact", "preference", "task"]},
                 "content": {"type": "string"},
+                "conflict_resolution": {
+                    "type": "string",
+                    "enum": ["retain_both"],
+                },
+                "evidence": {"type": "string"},
             },
             "required": ["action"],
         }
@@ -68,7 +73,11 @@ class MemoryTool(BaseTool):
                     kind=kind,
                     target=target,
                     provenance=provenance,
+                    conflict_resolution=str(kwargs.get("conflict_resolution") or ""),
+                    evidence=str(kwargs.get("evidence") or ""),
                 )
+            except MemoryConflictError as error:
+                return self._conflict_result(error)
             except ValueError as error:
                 return ToolResult.error(name=self.name, content=f"memory_error: {error}")
             return ToolResult.ok(
@@ -124,7 +133,11 @@ class MemoryTool(BaseTool):
                     record_id,
                     content,
                     provenance=provenance,
+                    conflict_resolution=str(kwargs.get("conflict_resolution") or ""),
+                    evidence=str(kwargs.get("evidence") or ""),
                 )
+            except MemoryConflictError as error:
+                return self._conflict_result(error)
             except ValueError as error:
                 return ToolResult.error(name=self.name, content=f"memory_error: {error}")
             if record is None:
@@ -164,4 +177,24 @@ class MemoryTool(BaseTool):
         return ToolResult.error(
             name=self.name,
             content=f"memory_error: unsupported action '{action}'",
+        )
+
+    def _conflict_result(self, error: MemoryConflictError) -> ToolResult:
+        return ToolResult.error(
+            name=self.name,
+            content="memory_conflict: choose update, remove, or retain_both with evidence",
+            structured_content={
+                "action": "conflict",
+                "conflict_candidates": [
+                    {
+                        "record_id": candidate.record_id,
+                        "content": candidate.content,
+                        "kind": candidate.kind,
+                        "target": candidate.target,
+                        "score": candidate.score,
+                        "reasons": list(candidate.reasons),
+                    }
+                    for candidate in error.candidates
+                ],
+            },
         )

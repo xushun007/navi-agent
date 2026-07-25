@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from navi_agent.memory import (
     FileMemoryStore,
     InMemoryMemoryStore,
+    MemoryConflictError,
     MemoryRecord,
     MemoryWriteProvenance,
 )
@@ -88,6 +89,33 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
         self.assertEqual(audit[2].before_content, "New note")
         self.assertTrue(all(item.timestamp for item in audit))
 
+    def test_surfaces_likely_conflict_without_writing(self) -> None:
+        store = InMemoryMemoryStore()
+        existing = store.add_for_user("u1", "Project uses SQLite")
+
+        with self.assertRaises(MemoryConflictError) as raised:
+            store.add_for_user("u1", "Project uses PostgreSQL")
+
+        self.assertEqual(len(store.list_for_user("u1")), 1)
+        self.assertEqual(raised.exception.candidates[0].record_id, existing.id)
+        self.assertIn(
+            "possible_contradiction",
+            raised.exception.candidates[0].reasons,
+        )
+
+    def test_update_surfaces_conflict_with_another_record(self) -> None:
+        store = InMemoryMemoryStore(
+            records=[
+                MemoryRecord("m1", "u1", "fact", "Project uses SQLite"),
+                MemoryRecord("m2", "u1", "fact", "Frontend uses React"),
+            ]
+        )
+
+        with self.assertRaises(MemoryConflictError):
+            store.update_for_user("u1", "m2", "Project uses PostgreSQL")
+
+        self.assertEqual(store.get_for_user("u1", "m2").content, "Frontend uses React")
+
     def test_search_keeps_preferences_and_selects_relevant_facts(self) -> None:
         store = InMemoryMemoryStore()
         preference = store.add_for_user(
@@ -101,20 +129,25 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
         self.assertEqual({record.id for record in records}, {preference.id, python_fact.id})
 
     def test_recall_ranks_exact_overlap_and_recency_with_separate_groups(self) -> None:
-        store = InMemoryMemoryStore()
-        older_profile = store.add_for_user(
-            "u1",
-            "Prefers concise answers",
-            kind="preference",
+        older_profile = MemoryRecord(
+            "p1", "u1", "preference", "Prefers concise answers", target="user"
         )
-        newer_profile = store.add_for_user(
-            "u1",
-            "Prefers Python examples",
-            kind="preference",
+        newer_profile = MemoryRecord(
+            "p2", "u1", "preference", "Prefers Python examples", target="user"
         )
-        store.add_for_user("u1", "Python project uses unittest")
-        recent_fact = store.add_for_user("u1", "Python project uses pytest")
-        exact_fact = store.add_for_user("u1", "Python project")
+        recent_fact = MemoryRecord(
+            "m2", "u1", "fact", "Python project uses pytest"
+        )
+        exact_fact = MemoryRecord("m3", "u1", "fact", "Python project")
+        store = InMemoryMemoryStore(
+            records=[
+                older_profile,
+                newer_profile,
+                MemoryRecord("m1", "u1", "fact", "Python project uses unittest"),
+                recent_fact,
+                exact_fact,
+            ]
+        )
 
         recall = store.recall_for_user(
             "u1",
@@ -246,6 +279,34 @@ class FileMemoryStoreTests(unittest.TestCase):
         self.assertEqual({item.source_session_id for item in audit}, {"source-session"})
         self.assertEqual(audit[2].before_content, "Old note")
         self.assertEqual(audit[2].after_content, "New note")
+
+    def test_retain_both_requires_evidence_and_persists_resolution_audit(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            store = FileMemoryStore(root)
+            store.add_for_user("u1", "项目使用 SQLite")
+
+            with self.assertRaisesRegex(ValueError, "evidence is required"):
+                store.add_for_user(
+                    "u1",
+                    "项目使用 PostgreSQL",
+                    conflict_resolution="retain_both",
+                )
+            retained = store.add_for_user(
+                "u1",
+                "项目使用 PostgreSQL",
+                conflict_resolution="retain_both",
+                evidence="两个项目环境不同，需要同时保留。",
+            )
+            records = FileMemoryStore(root).list_for_user("u1")
+            audit = FileMemoryStore(root).audit_for_user("u1")
+
+        self.assertEqual(retained.content, "项目使用 PostgreSQL")
+        self.assertEqual(len(records), 2)
+        resolution = audit[-1]
+        self.assertEqual(resolution.action, "conflict_resolved")
+        self.assertEqual(resolution.resolution, "retain_both")
+        self.assertEqual(resolution.evidence, "两个项目环境不同，需要同时保留。")
 
     def test_memory_write_does_not_leave_temp_files(self) -> None:
         with TemporaryDirectory() as tmpdir:

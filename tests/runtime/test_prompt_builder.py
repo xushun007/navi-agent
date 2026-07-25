@@ -87,18 +87,25 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertEqual(msgs[1].role, "user")
 
     def test_profile_and_relevant_memory_use_independent_quotas(self) -> None:
-        for index in range(5):
-            self.memory.add_for_user(
-                "u1",
-                f"Preference {index}",
-                kind="preference",
-                target="user",
-            )
-        self.memory.add_for_user("u1", "Backend uses Python and SQLite")
-        self.memory.add_for_user("u1", "Tests use pytest for Python")
-        self.memory.add_for_user("u1", "Frontend uses TypeScript")
+        memory = InMemoryMemoryStore(
+            records=[
+                *[
+                    MemoryRecord(
+                        id=f"p{index}",
+                        user_id="u1",
+                        kind="preference",
+                        content=f"Preference {index}",
+                        target="user",
+                    )
+                    for index in range(5)
+                ],
+                MemoryRecord("m1", "u1", "fact", "Backend uses Python and SQLite"),
+                MemoryRecord("m2", "u1", "fact", "Tests use pytest for Python"),
+                MemoryRecord("m3", "u1", "fact", "Frontend uses TypeScript"),
+            ]
+        )
         builder = PromptBuilder(
-            memory_store=self.memory,
+            memory_store=memory,
             profile_memory_limit=2,
             relevant_memory_limit=2,
         )

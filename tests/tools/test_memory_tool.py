@@ -88,6 +88,54 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual({item.source_trace_id for item in audit}, {"trace-1"})
         self.assertEqual({item.review_run_id for item in audit}, {"review-1"})
 
+    def test_surfaces_structured_conflict_candidates(self) -> None:
+        store = InMemoryMemoryStore()
+        tool = MemoryTool(memory_store=store)
+        context = ToolContext(session_id="s1", user_id="u1", iteration=1)
+        added = tool.invoke(
+            context=context,
+            action="add",
+            content="Project uses SQLite",
+        )
+
+        conflict = tool.invoke(
+            context=context,
+            action="add",
+            content="Project uses PostgreSQL",
+        )
+
+        self.assertEqual(added.status, "success")
+        self.assertEqual(conflict.status, "error")
+        self.assertEqual(conflict.structured_content["action"], "conflict")
+        candidate = conflict.structured_content["conflict_candidates"][0]
+        self.assertEqual(candidate["record_id"], added.structured_content["id"])
+        self.assertIn("possible_contradiction", candidate["reasons"])
+        self.assertEqual(len(store.list_for_user("u1")), 1)
+
+    def test_can_explicitly_retain_conflicting_memories_with_evidence(self) -> None:
+        store = InMemoryMemoryStore()
+        tool = MemoryTool(memory_store=store)
+        context = ToolContext(session_id="s1", user_id="u1", iteration=1)
+        tool.invoke(
+            context=context,
+            action="add",
+            content="Prefers concise answers",
+            kind="preference",
+        )
+
+        result = tool.invoke(
+            context=context,
+            action="add",
+            content="Prefers detailed answers",
+            kind="preference",
+            conflict_resolution="retain_both",
+            evidence="The preference differs by task type.",
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(len(store.list_for_user("u1")), 2)
+        self.assertEqual(store.audit_for_user("u1")[-1].resolution, "retain_both")
+
     def test_rejects_prompt_injection_memory(self) -> None:
         store = InMemoryMemoryStore()
         tool = MemoryTool(memory_store=store)

@@ -172,6 +172,8 @@ Rules:
 - Do not store tool logs, stack traces, command output, or implementation recipes in memory.
 - Store memory in third-person concise form.
 - Prefer updating an existing memory when it contradicts or refines an old memory; do not add duplicates.
+- If memory returns conflict_candidates, choose update, remove, or retry with
+  conflict_resolution=retain_both and concise evidence. Never ignore the conflict.
 - Keep skills class-level, not one-session micro skills.
 - Never create skills named after one session, one error string, one temporary branch, or one user's one-off wording.
 - Do not persist transient setup failures or negative claims like "tool X does not work".

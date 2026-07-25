@@ -11,6 +11,16 @@ class MemoryWriteProvenance:
     review_run_id: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class MemoryConflictCandidate:
+    record_id: str
+    content: str
+    kind: str
+    target: str
+    score: float
+    reasons: tuple[str, ...]
+
+
 @dataclass(slots=True)
 class MemoryRecord:
     id: str
@@ -35,6 +45,8 @@ class MemoryAuditRecord:
     review_run_id: str = ""
     before_content: str = ""
     after_content: str = ""
+    resolution: str = ""
+    evidence: str = ""
 
 
 @dataclass(frozen=True, slots=True)

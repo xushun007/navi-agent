@@ -9,6 +9,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from .conflicts import find_memory_conflicts, require_explicit_conflict_resolution
 from .models import MemoryAuditRecord, MemoryRecall, MemoryRecord, MemoryWriteProvenance
 from .search import recall_memories, search_memories
 from .validation import normalize_memory_content, validate_memory_content
@@ -63,6 +64,8 @@ class FileMemoryStore:
         source_session_id: str = "",
         *,
         provenance: MemoryWriteProvenance | None = None,
+        conflict_resolution: str = "",
+        evidence: str = "",
     ) -> MemoryRecord:
         provenance = provenance or MemoryWriteProvenance(
             source=source,
@@ -91,6 +94,17 @@ class FileMemoryStore:
                         after_content=existing.content,
                     )
                     return existing
+            conflicts = find_memory_conflicts(
+                [record for record in records if record.user_id == user_id],
+                content=content,
+                kind=normalized_kind,
+                target=normalized_target,
+            )
+            retained_conflicts = require_explicit_conflict_resolution(
+                conflicts,
+                resolution=conflict_resolution,
+                evidence=evidence,
+            )
             record = MemoryRecord(
                 id=uuid.uuid4().hex[:12],
                 user_id=user_id,
@@ -108,6 +122,16 @@ class FileMemoryStore:
                 provenance=provenance,
                 after_content=record.content,
             )
+            if retained_conflicts:
+                self._append_audit(
+                    record,
+                    action="conflict_resolved",
+                    provenance=provenance,
+                    before_content="\n".join(item.content for item in conflicts),
+                    after_content=record.content,
+                    resolution="retain_both",
+                    evidence=evidence,
+                )
             return record
 
     def get_for_user(self, user_id: str, record_id: str) -> MemoryRecord | None:
@@ -123,6 +147,8 @@ class FileMemoryStore:
         content: str,
         *,
         provenance: MemoryWriteProvenance | None = None,
+        conflict_resolution: str = "",
+        evidence: str = "",
     ) -> MemoryRecord | None:
         validation_error = validate_memory_content(content)
         if validation_error:
@@ -132,8 +158,21 @@ class FileMemoryStore:
             updated = None
             for record in records:
                 if record.user_id == user_id and record.id == record_id:
+                    normalized_content = normalize_memory_content(content)
+                    conflicts = find_memory_conflicts(
+                        [item for item in records if item.user_id == user_id],
+                        content=normalized_content,
+                        kind=record.kind,
+                        target=record.target,
+                        exclude_record_id=record_id,
+                    )
+                    retained_conflicts = require_explicit_conflict_resolution(
+                        conflicts,
+                        resolution=conflict_resolution,
+                        evidence=evidence,
+                    )
                     before_content = record.content
-                    record.content = normalize_memory_content(content)
+                    record.content = normalized_content
                     updated = record
                     break
             if updated is None:
@@ -146,6 +185,16 @@ class FileMemoryStore:
                 before_content=before_content,
                 after_content=updated.content,
             )
+            if retained_conflicts:
+                self._append_audit(
+                    updated,
+                    action="conflict_resolved",
+                    provenance=provenance or MemoryWriteProvenance(),
+                    before_content="\n".join(item.content for item in conflicts),
+                    after_content=updated.content,
+                    resolution="retain_both",
+                    evidence=evidence,
+                )
             return updated
 
     def remove_for_user(
@@ -240,6 +289,8 @@ class FileMemoryStore:
         provenance: MemoryWriteProvenance,
         before_content: str = "",
         after_content: str = "",
+        resolution: str = "",
+        evidence: str = "",
     ) -> None:
         audit = MemoryAuditRecord(
             id=uuid.uuid4().hex[:12],
@@ -253,6 +304,8 @@ class FileMemoryStore:
             review_run_id=self._single_line(provenance.review_run_id),
             before_content=before_content,
             after_content=after_content,
+            resolution=resolution,
+            evidence=evidence,
         )
         self._audit_path.parent.mkdir(parents=True, exist_ok=True)
         with self._audit_path.open("a", encoding="utf-8") as handle:
