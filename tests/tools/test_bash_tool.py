@@ -149,6 +149,14 @@ class BashToolTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertIn("outside workspace", result.content)
 
+    def test_rejects_sort_input_outside_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir))
+            result = tool.invoke(command="sort /etc/passwd")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("outside workspace", result.content)
+
     def test_rejects_git_path_outside_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tool = BashTool(root=Path(tmpdir))

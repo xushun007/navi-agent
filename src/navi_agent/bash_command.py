@@ -47,6 +47,11 @@ _UNSAFE_FIND_OPTIONS = {
     "-okdir",
 }
 _UNSAFE_RG_OPTIONS = {"--hostname-bin", "--pre", "--search-zip", "-z"}
+_UNSAFE_SORT_OPTIONS = {
+    "--compress-program",
+    "--output",
+    "--random-source",
+}
 _UNSAFE_GIT_OPTIONS = {
     "--exec",
     "--ext-diff",
@@ -137,6 +142,12 @@ def _is_known_read_only(words: tuple[str, ...]) -> bool:
         return not _contains_option(words[1:], _UNSAFE_FIND_OPTIONS)
     if executable == "git":
         return _is_read_only_git(words)
+    if executable == "sort":
+        arguments = words[1:]
+        return not (
+            _contains_option(arguments, _UNSAFE_SORT_OPTIONS)
+            or _contains_short_option(arguments, "o")
+        )
     return False
 
 
@@ -184,6 +195,15 @@ def _is_read_only_git(words: tuple[str, ...]) -> bool:
 def _contains_option(arguments: tuple[str, ...], options: set[str]) -> bool:
     return any(
         argument in options or any(argument.startswith(f"{option}=") for option in options)
+        for argument in arguments
+    )
+
+
+def _contains_short_option(arguments: tuple[str, ...], option: str) -> bool:
+    return any(
+        argument.startswith("-")
+        and not argument.startswith("--")
+        and option in argument[1:]
         for argument in arguments
     )
 

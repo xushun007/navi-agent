@@ -34,6 +34,7 @@ class BashTool(WorkspaceTool):
         "mv",
         "rg",
         "rm",
+        "sort",
         "stat",
         "tail",
         "touch",
