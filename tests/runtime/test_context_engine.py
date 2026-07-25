@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 from navi_agent.runtime import ContextEngine, Message, ToolCall
 
@@ -204,6 +205,67 @@ class ContextEngineTests(unittest.TestCase):
         self.assertFalse(result.compressed)
         self.assertEqual(result.messages, messages)
         self.assertEqual(result.summary_status, "missing_summarizer")
+
+    def test_reuses_valid_compaction_checkpoint_without_resummarizing(self) -> None:
+        summarizer = FakeSummarizer()
+        messages = [
+            Message(role="system", content="system"),
+            Message(role="user", content="initial"),
+            Message(role="assistant", content="ok"),
+            Message(role="assistant", content="large output " + "x" * 800),
+            Message(role="user", content="latest request"),
+            Message(role="assistant", content="latest answer"),
+        ]
+        engine = ContextEngine(
+            context_limit_tokens=400,
+            reserved_output_tokens=20,
+            compression_threshold_ratio=0.5,
+            protect_first_messages=2,
+            tail_budget_ratio=0.15,
+            summarizer=summarizer,
+        )
+        first = engine.build(messages)
+        checkpoint = replace(first.checkpoint, session_id="s1")
+
+        second = engine.build(
+            [*messages, Message(role="user", content="small follow-up")],
+            checkpoint=checkpoint,
+        )
+
+        self.assertEqual(len(summarizer.calls), 1)
+        self.assertEqual(second.summary_status, "checkpoint_reused")
+        self.assertTrue(second.compressed)
+        self.assertIn(checkpoint.summary, [message.content for message in second.messages])
+        self.assertEqual(second.messages[-1].content, "small follow-up")
+
+    def test_invalidates_checkpoint_when_covered_source_changes(self) -> None:
+        summarizer = FakeSummarizer()
+        messages = [
+            Message(role="system", content="system"),
+            Message(role="user", content="initial"),
+            Message(role="assistant", content="ok"),
+            Message(role="assistant", content="large output " + "x" * 800),
+            Message(role="user", content="latest request"),
+            Message(role="assistant", content="latest answer"),
+        ]
+        engine = ContextEngine(
+            context_limit_tokens=180,
+            reserved_output_tokens=20,
+            compression_threshold_ratio=0.5,
+            protect_first_messages=2,
+            tail_budget_ratio=0.15,
+            summarizer=summarizer,
+        )
+        first = engine.build(messages)
+        checkpoint = replace(first.checkpoint, session_id="s1")
+        changed = list(messages)
+        changed[1] = Message(role="user", content="changed initial request")
+
+        second = engine.build(changed, checkpoint=checkpoint)
+
+        self.assertEqual(len(summarizer.calls), 2)
+        self.assertEqual(second.summary_status, "llm")
+        self.assertNotEqual(second.checkpoint.source_hash, checkpoint.source_hash)
 
 
 if __name__ == "__main__":

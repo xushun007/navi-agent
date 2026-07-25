@@ -11,6 +11,7 @@ from .tasks.background import BackgroundTask, BackgroundTaskManager
 from .agent.context import ContextBuildResult, ContextEngine, ContextSummarizer, LLMContextSummarizer
 from .agent.engine import AgentRuntime
 from .models import (
+    ContextCompactionCheckpoint,
     ConversationState,
     Message,
     ModelResponse,
@@ -66,6 +67,7 @@ __all__ = [
     "BashCommandPolicy",
     "CliApprovalProvider",
     "ContextBuildResult",
+    "ContextCompactionCheckpoint",
     "ContextEngine",
     "ContextSummarizer",
     "LLMContextSummarizer",

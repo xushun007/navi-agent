@@ -5,7 +5,13 @@ import time
 import unittest
 from pathlib import Path
 
-from navi_agent.runtime import Message, SessionMetadata, SQLiteSessionStore, ToolCall
+from navi_agent.runtime import (
+    ContextCompactionCheckpoint,
+    Message,
+    SessionMetadata,
+    SQLiteSessionStore,
+    ToolCall,
+)
 from navi_agent.runtime.models import ConversationState
 
 
@@ -76,6 +82,12 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                 message_columns = {
                     row[1] for row in connection.execute("PRAGMA table_info(messages)")
                 }
+                checkpoint_columns = {
+                    row[1]
+                    for row in connection.execute(
+                        "PRAGMA table_info(context_compaction_checkpoints)"
+                    )
+                }
             self.assertTrue(
                 {
                     "source",
@@ -100,6 +112,57 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                     "metadata",
                 }.issubset(message_columns)
             )
+            self.assertTrue(
+                {
+                    "session_id",
+                    "covered_until_message_id",
+                    "covered_message_count",
+                    "protected_head_count",
+                    "source_hash",
+                    "summary",
+                    "model",
+                }.issubset(checkpoint_columns)
+            )
+
+    def test_compaction_checkpoint_round_trip_keeps_raw_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteSessionStore(Path(tmpdir) / "state.db")
+            session = store.load(session_id="s1", user_id="u1")
+            for role, content in [
+                ("system", "system"),
+                ("user", "initial"),
+                ("assistant", "large historical result"),
+                ("user", "latest"),
+            ]:
+                store.append(session, Message(role=role, content=content))
+
+            store.save_compaction_checkpoint(
+                session,
+                ContextCompactionCheckpoint(
+                    session_id="s1",
+                    covered_message_count=3,
+                    protected_head_count=2,
+                    source_hash="source-hash",
+                    summary="[Context Summary]\ncompleted earlier work",
+                    model="test-model",
+                ),
+            )
+
+            checkpoint = store.load_compaction_checkpoint(session)
+            snapshot = store.snapshot(session)
+
+            self.assertIsNotNone(checkpoint)
+            self.assertEqual(checkpoint.covered_message_count, 3)
+            self.assertEqual(checkpoint.protected_head_count, 2)
+            self.assertEqual(checkpoint.summary, "[Context Summary]\ncompleted earlier work")
+            self.assertEqual(checkpoint.model, "test-model")
+            self.assertIsNotNone(checkpoint.covered_until_message_id)
+            self.assertEqual([message.content for message in snapshot], [
+                "system",
+                "initial",
+                "large historical result",
+                "latest",
+            ])
 
     def test_append_waits_for_concurrent_writer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ..models import ConversationState, Message, SessionMetadata
+from ..models import ContextCompactionCheckpoint, ConversationState, Message, SessionMetadata
 
 
 class SessionStore(Protocol):
@@ -16,3 +16,14 @@ class SessionStore(Protocol):
     def append(self, session: ConversationState, message: Message) -> None: ...
 
     def snapshot(self, session: ConversationState) -> list[Message]: ...
+
+    def load_compaction_checkpoint(
+        self,
+        session: ConversationState,
+    ) -> ContextCompactionCheckpoint | None: ...
+
+    def save_compaction_checkpoint(
+        self,
+        session: ConversationState,
+        checkpoint: ContextCompactionCheckpoint,
+    ) -> None: ...

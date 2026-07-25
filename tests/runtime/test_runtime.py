@@ -118,7 +118,7 @@ class EmptyToolResultRenderer:
 
 
 class FailingContextEngine:
-    def build(self, messages):
+    def build(self, messages, checkpoint=None):
         raise TimeoutError("summary timeout")
 
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..models import Message, ToolCall
+from ..models import ContextCompactionCheckpoint, Message, ToolCall
 from ..transports.base import ModelRequest, ModelTransport
 
 
@@ -23,6 +24,7 @@ class ContextBuildResult:
     protected_tail_count: int = 0
     latest_user_anchored: bool = False
     summary_status: str = "not_needed"
+    checkpoint: ContextCompactionCheckpoint | None = None
 
     @property
     def compressed(self) -> bool:
@@ -61,9 +63,31 @@ class ContextEngine:
         self._chars_per_token = chars_per_token
         self._summarizer = summarizer
 
-    def build(self, messages: list[Message]) -> ContextBuildResult:
+    def build(
+        self,
+        messages: list[Message],
+        checkpoint: ContextCompactionCheckpoint | None = None,
+    ) -> ContextBuildResult:
         original = list(messages)
         estimated_before = self.estimate_tokens(original)
+        reusable = self._materialize_checkpoint(original, checkpoint)
+        if reusable is not None:
+            estimated_reused = self.estimate_tokens(reusable)
+            if estimated_reused <= self._threshold_tokens:
+                return ContextBuildResult(
+                    messages=reusable,
+                    original_message_count=len(original),
+                    estimated_tokens_before=estimated_before,
+                    estimated_tokens_after=estimated_reused,
+                    threshold_tokens=self._threshold_tokens,
+                    compressed_message_count=(
+                        checkpoint.covered_message_count - checkpoint.protected_head_count
+                    ),
+                    protected_head_count=checkpoint.protected_head_count,
+                    protected_tail_count=len(original) - checkpoint.covered_message_count,
+                    latest_user_anchored=True,
+                    summary_status="checkpoint_reused",
+                )
         if estimated_before <= self._threshold_tokens:
             return ContextBuildResult(
                 messages=original,
@@ -130,6 +154,63 @@ class ContextEngine:
             protected_tail_count=max(0, len(original) - tail_start),
             latest_user_anchored=latest_user_anchored,
             summary_status="llm",
+            checkpoint=ContextCompactionCheckpoint(
+                session_id="",
+                covered_message_count=tail_start,
+                protected_head_count=compress_start,
+                source_hash=self.source_hash(original[:tail_start]),
+                summary=summary.content,
+            ),
+        )
+
+    @classmethod
+    def source_hash(cls, messages: list[Message]) -> str:
+        payload = [
+            {
+                "role": message.role,
+                "content": message.content,
+                "reasoning_content": message.reasoning_content,
+                "tool_call_id": message.tool_call_id,
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "name": tool_call.name,
+                        "arguments": tool_call.arguments,
+                    }
+                    for tool_call in message.tool_calls
+                ],
+            }
+            for message in messages
+        ]
+        serialized = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _materialize_checkpoint(
+        self,
+        messages: list[Message],
+        checkpoint: ContextCompactionCheckpoint | None,
+    ) -> list[Message] | None:
+        if checkpoint is None:
+            return None
+        if checkpoint.covered_message_count > len(messages):
+            return None
+        if checkpoint.protected_head_count > checkpoint.covered_message_count:
+            return None
+        covered = messages[: checkpoint.covered_message_count]
+        if self.source_hash(covered) != checkpoint.source_hash:
+            return None
+        return self._sanitize_tool_pairs(
+            [
+                *messages[: checkpoint.protected_head_count],
+                Message(role="system", content=checkpoint.summary),
+                *messages[checkpoint.covered_message_count :],
+            ]
         )
 
     def estimate_tokens(self, messages: list[Message]) -> int:
