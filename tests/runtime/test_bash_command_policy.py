@@ -21,6 +21,8 @@ class BashCommandPolicyTests(unittest.TestCase):
             "rg --files | wc -l",
             "git status --short",
             "git log -1 --oneline",
+            "cd /workspace && git log -1 --oneline",
+            "cd src; find . -type f | wc -l",
         ]
 
         for command in commands:
@@ -38,6 +40,12 @@ class BashCommandPolicyTests(unittest.TestCase):
             "echo $(whoami)",
             "cat $HOME/.config",
             "find . -exec cat {} ;",
+            "cd",
+            "cd -",
+            "cd ~",
+            "cd src*",
+            "cd src | pwd",
+            "cd src || pwd",
         ]
 
         for command in commands:

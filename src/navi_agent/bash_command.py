@@ -72,12 +72,14 @@ def assess_bash_command(command: str, *, background: bool = False) -> BashComman
         return BashCommandAssessment("ask", "unparseable bash command requires approval")
 
     commands: list[tuple[str, ...]] = []
+    separators: list[str] = []
     current: list[str] = []
     for token in tokens:
         if token in _SEPARATORS:
             if not current:
                 return BashCommandAssessment("ask", "complex shell syntax requires approval")
             commands.append(tuple(current))
+            separators.append(token)
             current = []
             continue
         if any(character in token for character in "<>&();"):
@@ -91,7 +93,7 @@ def assess_bash_command(command: str, *, background: bool = False) -> BashComman
     commands.append(tuple(current))
     parsed_commands = tuple(commands)
 
-    for words in commands:
+    for index, words in enumerate(commands):
         executable = words[0]
         if "/" in executable:
             return BashCommandAssessment(
@@ -104,6 +106,16 @@ def assess_bash_command(command: str, *, background: bool = False) -> BashComman
         if not _is_known_read_only(words):
             return BashCommandAssessment(
                 "ask", f"bash command requires approval: {executable}", parsed_commands
+            )
+        if (
+            executable == "cd"
+            and index < len(separators)
+            and separators[index] not in {"&&", ";"}
+        ):
+            return BashCommandAssessment(
+                "ask",
+                "conditional or piped directory changes require approval",
+                parsed_commands,
             )
 
     return BashCommandAssessment(
@@ -119,11 +131,25 @@ def _is_known_read_only(words: tuple[str, ...]) -> bool:
         if executable == "rg":
             return not _contains_option(words[1:], _UNSAFE_RG_OPTIONS)
         return True
+    if executable == "cd":
+        return _is_static_directory_change(words)
     if executable == "find":
         return not _contains_option(words[1:], _UNSAFE_FIND_OPTIONS)
     if executable == "git":
         return _is_read_only_git(words)
     return False
+
+
+def _is_static_directory_change(words: tuple[str, ...]) -> bool:
+    if len(words) != 2:
+        return False
+    target = words[1]
+    return (
+        bool(target)
+        and target != "-"
+        and not target.startswith(("-", "~"))
+        and not any(character in target for character in "*?[]{}")
+    )
 
 
 def _is_read_only_git(words: tuple[str, ...]) -> bool:

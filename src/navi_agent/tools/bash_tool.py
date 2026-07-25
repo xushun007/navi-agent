@@ -162,10 +162,13 @@ class BashTool(WorkspaceTool):
             return self._cancelled_result(command, cwd, timeout_seconds, "", "", emit_output)
 
         try:
+            env = os.environ.copy()
+            env.pop("CDPATH", None)
             process = subprocess.Popen(
                 command,
                 shell=True,
                 cwd=cwd,
+                env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -358,15 +361,33 @@ class BashTool(WorkspaceTool):
             )
 
         commands = assessment.commands or (tuple(tokens),)
+        effective_cwd = cwd
         for words in commands:
             command_name = words[0]
             if command_name not in self._WORKSPACE_PATH_COMMANDS:
+                continue
+            if command_name == "cd":
+                target = Path(words[1])
+                if not target.is_absolute():
+                    target = effective_cwd / target
+                try:
+                    effective_cwd = self._resolve_path(str(target))
+                except ValueError as exc:
+                    return ToolResult.error(
+                        name=self.name,
+                        content=str(exc),
+                        structured_content={
+                            "command": command,
+                            "command_name": command_name,
+                            "path": words[1],
+                        },
+                    )
                 continue
             for token in words[1:]:
                 if token.startswith("-") or token in {"!", "(", ")"}:
                     continue
                 try:
-                    self._resolve_command_path(token, cwd)
+                    self._resolve_command_path(token, effective_cwd)
                 except ValueError as exc:
                     return ToolResult.error(
                         name=self.name,

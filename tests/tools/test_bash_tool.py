@@ -157,6 +157,45 @@ class BashToolTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertIn("outside workspace", result.content)
 
+    def test_allows_static_directory_change_within_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            child = root / "src"
+            child.mkdir()
+            tool = BashTool(root=root)
+
+            result = tool.invoke(command="cd src && pwd")
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(
+            Path(result.structured_content["stdout"]).resolve(),
+            child.resolve(),
+        )
+
+    def test_rejects_directory_change_outside_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir))
+
+            result = tool.invoke(command="cd .. && pwd")
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("outside workspace", result.content)
+
+    def test_validates_later_paths_from_effective_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            child = root / "a" / "b"
+            child.mkdir(parents=True)
+            tool = BashTool(root=root)
+
+            result = tool.invoke(
+                command="cd .. && cat ../../outside.txt",
+                cwd=str(child),
+            )
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("outside workspace", result.content)
+
     def test_rejects_command_paths_outside_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
