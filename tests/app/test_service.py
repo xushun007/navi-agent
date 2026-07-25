@@ -9,10 +9,13 @@ from uuid import uuid4
 from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.events import RuntimeEvent
 from navi_agent.evolution import (
+    DefaultSkillDraftEvaluator,
     EvolutionCandidate,
     EvalCase,
     NudgeReviewTriggerPolicy,
-    SkillReviewEvidence,
+    FileSkillStore,
+    SkillGovernanceService,
+    SkillPromotionGate,
 )
 from navi_agent.runtime import JsonPendingInteractionStore, Message, RuntimeResult
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
@@ -212,34 +215,30 @@ class FakeReviewRunStore:
         self.records.append(record)
 
 
-class FakeSkillReviewService:
+class FakeReviewAgentService:
     def __init__(
         self,
-        candidate: EvolutionCandidate | None = None,
         unblock_event: threading.Event | None = None,
+        tool_results: list | None = None,
     ) -> None:
-        self.candidate = candidate
-        self.unblock_event = unblock_event
-        self.reviewed_inputs = []
-
-    def propose_candidate(self, trace):
-        self.reviewed_inputs.append(trace)
-        if self.unblock_event is not None:
-            self.unblock_event.wait(timeout=2)
-        return self.candidate
-
-
-class FakeReviewAgentService:
-    def __init__(self, unblock_event: threading.Event | None = None) -> None:
         self.unblock_event = unblock_event
         self.reviewed_calls = []
+        self.tool_results = tool_results
 
-    def review_and_write(self, evidence, *, review_memory, review_skill):
+    def review_and_write(
+        self,
+        evidence,
+        *,
+        review_memory,
+        review_skill,
+        review_run_id,
+    ):
         self.reviewed_calls.append(
             {
                 "evidence": evidence,
                 "review_memory": review_memory,
                 "review_skill": review_skill,
+                "review_run_id": review_run_id,
             }
         )
         if self.unblock_event is not None:
@@ -248,7 +247,7 @@ class FakeReviewAgentService:
             session_id="review:s1",
             status="success",
             final_response="done",
-            tool_results=[
+            tool_results=self.tool_results or [
                 type(
                     "FakeToolResult",
                     (),
@@ -268,18 +267,15 @@ class FakeReviewAgentService:
 
 
 class FailingReviewAgentService:
-    def review_and_write(self, evidence, *, review_memory, review_skill):
+    def review_and_write(
+        self,
+        evidence,
+        *,
+        review_memory,
+        review_skill,
+        review_run_id,
+    ):
         raise RuntimeError("review failed")
-
-
-class FakeSkillReviewAgentService:
-    def __init__(self, result: RuntimeResult) -> None:
-        self.result = result
-        self.reviewed_evidence = []
-
-    def review_and_write(self, evidence):
-        self.reviewed_evidence.append(evidence)
-        return self.result
 
 
 class ApplicationServiceTests(unittest.TestCase):
@@ -516,7 +512,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(candidate.metadata["trace_id"], "trace-1")
         self.assertEqual(candidate.metadata["session_id"], "s1")
 
-    def test_handle_auto_adds_skill_candidate_from_successful_tool_trace(self) -> None:
+    def test_handle_does_not_use_legacy_skill_candidate_fallback(self) -> None:
         runtime = FakeRuntime()
         runtime.latest_trace = RuntimeTrace(
             session_id="s1",
@@ -545,12 +541,7 @@ class ApplicationServiceTests(unittest.TestCase):
         skill_candidates = [
             candidate for candidate in candidate_store.items if candidate.target == "skill"
         ]
-        self.assertEqual(len(skill_candidates), 1)
-        self.assertEqual(skill_candidates[0].metadata["source_trace_id"], "trace-1")
-        self.assertEqual(
-            skill_candidates[0].metadata["skill_name"],
-            "learned-summarize-readme-and-run-tests",
-        )
+        self.assertEqual(skill_candidates, [])
 
     def test_handle_skips_skill_candidate_when_skill_exists(self) -> None:
         runtime = FakeRuntime()
@@ -588,295 +579,6 @@ class ApplicationServiceTests(unittest.TestCase):
             [candidate.target for candidate in candidate_store.items],
             [],
         )
-
-    def test_handle_runs_skill_review_service_in_background(self) -> None:
-        runtime = FakeRuntime()
-        runtime.latest_trace = RuntimeTrace(
-            session_id="s1",
-            user_id="u1",
-            user_message="Summarize README",
-            final_response="done",
-            status="success",
-            trace_id="trace-1",
-            tool_executions=[
-                ToolExecutionTrace(
-                    iteration=1,
-                    tool_call_id="call-1",
-                    tool_name="read_file",
-                    status="success",
-                )
-            ],
-        )
-        candidate_store = FakeCandidateStore()
-        skill_store = FakeSkillStore()
-        provenance_store = FakeSkillProvenanceStore()
-        usage_store = FakeSkillUsageStore()
-        review_candidate = EvolutionCandidate(
-            target="skill",
-            summary="Create README skill",
-            rationale="Reusable procedure",
-            metadata={
-                "skill_name": "readme-summary",
-                "source_trace_id": "trace-1",
-                "skill_content": "# README Summary\n",
-            },
-        )
-        unblock_review = threading.Event()
-        review_service = FakeSkillReviewService(review_candidate, unblock_event=unblock_review)
-        runtime.result_messages = [
-            Message(role="user", content="Summarize README"),
-            Message(role="assistant", content="done"),
-        ]
-        service = ApplicationService(
-            runtime=runtime,
-            candidate_store=candidate_store,
-            skill_store=skill_store,
-            skill_provenance_store=provenance_store,
-            skill_usage_store=usage_store,
-            skill_review_service=review_service,
-            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
-        )
-
-        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
-
-        self.assertEqual(candidate_store.items, [])
-        submitted_status = service.get_background_review_status()
-        self.assertIsNotNone(submitted_status)
-        self.assertEqual(submitted_status.submitted_count, 1)
-        unblock_review.set()
-        service.wait_for_background_reviews()
-        completed_status = service.get_background_review_status()
-        self.assertIsNotNone(completed_status)
-        self.assertEqual(completed_status.completed_count, 1)
-        self.assertEqual(completed_status.failed_count, 0)
-        self.assertEqual(len(review_service.reviewed_inputs), 1)
-        skill_evidence = review_service.reviewed_inputs[0]
-        self.assertIsInstance(skill_evidence, SkillReviewEvidence)
-        self.assertEqual(skill_evidence.session_id, "s1")
-        self.assertEqual(skill_evidence.trace_id, "trace-1")
-        self.assertEqual(skill_evidence.user_id, "u1")
-        self.assertEqual(skill_evidence.messages_snapshot, runtime.result_messages)
-        self.assertEqual(candidate_store.items, [])
-        self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
-        self.assertEqual(provenance_store.records, [("readme-summary", review_candidate.candidate_id)])
-        self.assertEqual(usage_store.created, ["readme-summary"])
-
-    def test_background_skill_review_uses_raw_messages_snapshot_with_trace_metadata(self) -> None:
-        runtime = FakeRuntime()
-        first_trace = RuntimeTrace(
-            session_id="s1",
-            user_id="u1",
-            user_message="Read README",
-            final_response="read",
-            status="success",
-            trace_id="trace-1",
-            tool_executions=[
-                ToolExecutionTrace(
-                    iteration=1,
-                    tool_call_id="call-1",
-                    tool_name="read_file",
-                    status="success",
-                )
-            ],
-        )
-        latest_trace = RuntimeTrace(
-            session_id="s1",
-            user_id="u1",
-            user_message="Verify README",
-            final_response="done",
-            status="success",
-            trace_id="trace-2",
-            tool_executions=[
-                ToolExecutionTrace(
-                    iteration=1,
-                    tool_call_id="call-2",
-                    tool_name="search_files",
-                    status="success",
-                )
-            ],
-        )
-        runtime.latest_trace = latest_trace
-        runtime.session_traces = [first_trace, latest_trace]
-        runtime.result_messages = [
-            Message(role="user", content="Read README"),
-            Message(role="assistant", content="read"),
-            Message(role="user", content="Verify README"),
-            Message(role="assistant", content="done"),
-        ]
-        review_service = FakeSkillReviewService()
-        service = ApplicationService(
-            runtime=runtime,
-            candidate_store=FakeCandidateStore(),
-            skill_store=FakeSkillStore(),
-            skill_review_service=review_service,
-            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
-        )
-
-        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
-        service.wait_for_background_reviews()
-
-        self.assertEqual(len(review_service.reviewed_inputs), 1)
-        skill_evidence = review_service.reviewed_inputs[0]
-        self.assertIsInstance(skill_evidence, SkillReviewEvidence)
-        self.assertEqual(skill_evidence.session_id, "s1")
-        self.assertEqual(skill_evidence.trace_id, "trace-2")
-        self.assertEqual(skill_evidence.user_id, "u1")
-        self.assertEqual(skill_evidence.messages_snapshot, runtime.result_messages)
-
-    def test_background_skill_review_agent_records_written_skill(self) -> None:
-        runtime = FakeRuntime()
-        runtime.latest_trace = RuntimeTrace(
-            session_id="s1",
-            user_id="u1",
-            user_message="Summarize README",
-            final_response="done",
-            status="success",
-            trace_id="trace-1",
-            tool_executions=[
-                ToolExecutionTrace(
-                    iteration=1,
-                    tool_call_id="call-1",
-                    tool_name="read_file",
-                    status="success",
-                )
-            ],
-        )
-        provenance_store = FakeSkillProvenanceStore()
-        usage_store = FakeSkillUsageStore()
-        review_service = FakeSkillReviewAgentService(
-            RuntimeResult(
-                session_id="review:s1",
-                status="success",
-                final_response="Skill updated.",
-                tool_results=[
-                    type(
-                        "FakeToolResult",
-                        (),
-                        {
-                            "name": "skill_manage",
-                            "status": "success",
-                            "structured_content": {
-                                "action": "create",
-                                "skill_name": "readme-summary",
-                            },
-                        },
-                    )()
-                ],
-            )
-        )
-        service = ApplicationService(
-            runtime=runtime,
-            candidate_store=FakeCandidateStore(),
-            skill_store=FakeSkillStore(),
-            skill_provenance_store=provenance_store,
-            skill_usage_store=usage_store,
-            skill_review_service=review_service,
-            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
-        )
-
-        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
-        service.wait_for_background_reviews()
-
-        self.assertEqual(len(review_service.reviewed_evidence), 1)
-        self.assertEqual(provenance_store.records[0][0], "readme-summary")
-        self.assertEqual(usage_store.created, ["readme-summary"])
-
-    def test_background_skill_review_does_not_overwrite_existing_skill(self) -> None:
-        runtime = FakeRuntime()
-        runtime.latest_trace = RuntimeTrace(
-            session_id="s1",
-            user_id="u1",
-            user_message="Summarize README",
-            final_response="done",
-            status="success",
-            trace_id="trace-1",
-            tool_executions=[
-                ToolExecutionTrace(
-                    iteration=1,
-                    tool_call_id="call-1",
-                    tool_name="read_file",
-                    status="success",
-                )
-            ],
-        )
-        skill_store = FakeSkillStore()
-        usage_store = FakeSkillUsageStore()
-        skill_store.create(name="readme-summary", content="# Existing\n")
-        review_service = FakeSkillReviewService(
-            EvolutionCandidate(
-                target="skill",
-                summary="Create README skill",
-                rationale="Reusable procedure",
-                metadata={
-                    "skill_name": "readme-summary",
-                    "skill_content": "# New\n",
-                },
-            )
-        )
-        service = ApplicationService(
-            runtime=runtime,
-            candidate_store=FakeCandidateStore(),
-            skill_store=skill_store,
-            skill_usage_store=usage_store,
-            skill_review_service=review_service,
-            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
-        )
-
-        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
-        service.wait_for_background_reviews()
-
-        self.assertEqual(skill_store.items["readme-summary"], "# Existing\n")
-
-    def test_background_skill_review_updates_existing_skill(self) -> None:
-        runtime = FakeRuntime()
-        runtime.latest_trace = RuntimeTrace(
-            session_id="s1",
-            user_id="u1",
-            user_message="Summarize README",
-            final_response="done",
-            status="success",
-            trace_id="trace-1",
-            tool_executions=[
-                ToolExecutionTrace(
-                    iteration=1,
-                    tool_call_id="call-1",
-                    tool_name="read_file",
-                    status="success",
-                )
-            ],
-        )
-        skill_store = FakeSkillStore()
-        usage_store = FakeSkillUsageStore()
-        skill_store.create(name="readme-summary", content="# Existing\n")
-        review_service = FakeSkillReviewService(
-            EvolutionCandidate(
-                target="skill",
-                summary="Update README skill",
-                rationale="Reusable procedure changed",
-                metadata={
-                    "operation": "update",
-                    "skill_name": "readme-summary",
-                    "section": "## Procedure",
-                    "append_content": "- Verify README after editing.",
-                },
-            )
-        )
-        service = ApplicationService(
-            runtime=runtime,
-            candidate_store=FakeCandidateStore(),
-            skill_store=skill_store,
-            skill_usage_store=usage_store,
-            skill_review_service=review_service,
-            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
-        )
-
-        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
-        service.wait_for_background_reviews()
-
-        self.assertIn("# Existing", skill_store.items["readme-summary"])
-        self.assertIn("## Procedure", skill_store.items["readme-summary"])
-        self.assertIn("- Verify README after editing.", skill_store.items["readme-summary"])
-        self.assertEqual(usage_store.updated, ["readme-summary"])
 
     def test_handle_runs_memory_review_agent_in_background(self) -> None:
         runtime = FakeRuntime()
@@ -927,6 +629,67 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(review_run.review_session_id, "review:s1")
         self.assertEqual(review_run.memory_writes[0]["target"], "user")
         self.assertEqual(review_run.tool_results[0].name, "memory")
+        self.assertEqual(review_run.review_run_id, call["review_run_id"])
+
+    def test_background_review_records_promoted_skill_draft(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Summarize README",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="read_file",
+                    status="success",
+                )
+            ],
+        )
+        runtime.result_messages = [
+            Message(role="user", content="Summarize README"),
+            Message(role="assistant", content="done"),
+        ]
+        tool_result = type(
+            "FakeToolResult",
+            (),
+            {
+                "name": "skill_manage",
+                "status": "success",
+                "structured_content": {
+                    "action": "draft_create",
+                    "draft_id": "draft-1",
+                    "skill_name": "readme-summary",
+                    "promotion_status": "promoted",
+                },
+            },
+        )()
+        review_agent = FakeReviewAgentService(tool_results=[tool_result])
+        review_run_store = FakeReviewRunStore()
+        provenance_store = FakeSkillProvenanceStore()
+        usage_store = FakeSkillUsageStore()
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            review_agent_service=review_agent,
+            review_run_store=review_run_store,
+            skill_provenance_store=provenance_store,
+            skill_usage_store=usage_store,
+            review_trigger_policy=NudgeReviewTriggerPolicy(skill_tool_interval=1),
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+        service.wait_for_background_reviews()
+
+        self.assertEqual(usage_store.created, ["readme-summary"])
+        self.assertEqual(provenance_store.records[0][0], "readme-summary")
+        self.assertEqual(
+            review_run_store.records[0].skill_writes[0]["promotion_status"],
+            "promoted",
+        )
 
     def test_handle_hydrates_review_trigger_from_session_traces(self) -> None:
         runtime = FakeRuntime()
@@ -1242,35 +1005,54 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(overlay_store.text, f"overlay for {candidate.candidate_id}")
 
     def test_apply_skill_candidate_uses_skill_store(self) -> None:
-        skill_store = FakeSkillStore()
-        provenance_store = FakeSkillProvenanceStore()
-        usage_store = FakeSkillUsageStore()
-        service = ApplicationService(
-            runtime=FakeRuntime(),
-            candidate_store=FakeCandidateStore(),
-            skill_store=skill_store,
-            skill_provenance_store=provenance_store,
-            skill_usage_store=usage_store,
-        )
-        candidate = EvolutionCandidate(
-            target="skill",
-            summary="Create skill",
-            rationale="Reusable procedure",
-            metadata={
-                "skill_name": "readme-summary",
-                "skill_content": "# README Summary\n",
-            },
-        )
-        service.add_candidate(candidate)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_store = FileSkillStore(Path(tmpdir))
+            governance = SkillGovernanceService(
+                skill_store,
+                gate=SkillPromotionGate(
+                    required_suites=("draft_validation", "content_regression"),
+                ),
+            )
+            provenance_store = FakeSkillProvenanceStore()
+            usage_store = FakeSkillUsageStore()
+            service = ApplicationService(
+                runtime=FakeRuntime(),
+                candidate_store=FakeCandidateStore(),
+                skill_store=skill_store,
+                skill_governance=governance,
+                skill_evaluator=DefaultSkillDraftEvaluator(),
+                skill_provenance_store=provenance_store,
+                skill_usage_store=usage_store,
+            )
+            candidate = EvolutionCandidate(
+                target="skill",
+                summary="Create skill",
+                rationale="Reusable procedure",
+                metadata={
+                    "skill_name": "readme-summary",
+                    "skill_content": (
+                        "---\nname: readme-summary\n"
+                        "description: Summarize README files.\n"
+                        "category: coding\n---\n\n"
+                        "# README Summary\n\n"
+                        "## When To Use\n\nUse for README tasks.\n\n"
+                        "## Procedure\n\n- Read README.\n"
+                    ),
+                },
+            )
+            service.add_candidate(candidate)
 
-        updated = service.apply_candidate(candidate.candidate_id)
+            updated = service.apply_candidate(candidate.candidate_id)
 
-        self.assertIsNotNone(updated)
-        self.assertEqual(updated.status, "applied")
-        self.assertEqual(updated.review_note, "applied skill readme-summary")
-        self.assertEqual(skill_store.items["readme-summary"], "# README Summary\n")
-        self.assertEqual(provenance_store.records, [("readme-summary", candidate.candidate_id)])
-        self.assertEqual(usage_store.created, ["readme-summary"])
+            self.assertIsNotNone(updated)
+            self.assertEqual(updated.status, "applied")
+            self.assertEqual(updated.review_note, "applied skill readme-summary")
+            self.assertIsNotNone(skill_store.get("readme-summary"))
+            self.assertEqual(
+                provenance_store.records,
+                [("readme-summary", candidate.candidate_id)],
+            )
+            self.assertEqual(usage_store.created, ["readme-summary"])
 
     def test_apply_unsupported_candidate_is_rejected(self) -> None:
         overlay_store = FakePromptOverlayStore()
@@ -1292,36 +1074,55 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertIsNone(overlay_store.text)
 
     def test_rollback_skill_candidate_removes_skill_and_provenance(self) -> None:
-        skill_store = FakeSkillStore()
-        provenance_store = FakeSkillProvenanceStore()
-        usage_store = FakeSkillUsageStore()
-        service = ApplicationService(
-            runtime=FakeRuntime(),
-            candidate_store=FakeCandidateStore(),
-            skill_store=skill_store,
-            skill_provenance_store=provenance_store,
-            skill_usage_store=usage_store,
-        )
-        candidate = EvolutionCandidate(
-            target="skill",
-            summary="Create skill",
-            rationale="Reusable procedure",
-            metadata={
-                "skill_name": "readme-summary",
-                "skill_content": "# README Summary\n",
-            },
-        )
-        service.add_candidate(candidate)
-        service.apply_candidate(candidate.candidate_id)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_store = FileSkillStore(Path(tmpdir))
+            governance = SkillGovernanceService(
+                skill_store,
+                gate=SkillPromotionGate(
+                    required_suites=("draft_validation", "content_regression"),
+                ),
+            )
+            provenance_store = FakeSkillProvenanceStore()
+            usage_store = FakeSkillUsageStore()
+            service = ApplicationService(
+                runtime=FakeRuntime(),
+                candidate_store=FakeCandidateStore(),
+                skill_store=skill_store,
+                skill_governance=governance,
+                skill_evaluator=DefaultSkillDraftEvaluator(),
+                skill_provenance_store=provenance_store,
+                skill_usage_store=usage_store,
+            )
+            candidate = EvolutionCandidate(
+                target="skill",
+                summary="Create skill",
+                rationale="Reusable procedure",
+                metadata={
+                    "skill_name": "readme-summary",
+                    "skill_content": (
+                        "---\nname: readme-summary\n"
+                        "description: Summarize README files.\n"
+                        "category: coding\n---\n\n"
+                        "# README Summary\n\n"
+                        "## When To Use\n\nUse for README tasks.\n\n"
+                        "## Procedure\n\n- Read README.\n"
+                    ),
+                },
+            )
+            service.add_candidate(candidate)
+            service.apply_candidate(candidate.candidate_id)
 
-        updated = service.rollback_candidate(candidate.candidate_id, review_note="gate failed")
+            updated = service.rollback_candidate(
+                candidate.candidate_id,
+                review_note="gate failed",
+            )
 
-        self.assertIsNotNone(updated)
-        self.assertEqual(updated.status, "regressed_after_apply")
-        self.assertEqual(updated.review_note, "gate failed")
-        self.assertNotIn("readme-summary", skill_store.items)
-        self.assertEqual(provenance_store.removed, ["readme-summary"])
-        self.assertEqual(usage_store.archived, ["readme-summary"])
+            self.assertIsNotNone(updated)
+            self.assertEqual(updated.status, "regressed_after_apply")
+            self.assertEqual(updated.review_note, "gate failed")
+            self.assertIsNone(skill_store.get("readme-summary"))
+            self.assertEqual(provenance_store.removed, ["readme-summary"])
+            self.assertEqual(usage_store.archived, ["readme-summary"])
 
     def test_add_and_list_eval_cases_use_store(self) -> None:
         service = ApplicationService(

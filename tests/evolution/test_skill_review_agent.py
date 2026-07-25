@@ -75,14 +75,24 @@ def test_skill_review_agent_creates_skill_via_tool(tmp_path: Path) -> None:
     assert record is not None
     assert "Verify the result" in record.content
     assert [item.name for item in result.tool_results] == ["skill_manage", "skill_manage"]
-    assert result.tool_results[1].structured_content["action"] == "create"
+    assert result.tool_results[1].structured_content["action"] == "draft_create"
+    assert result.tool_results[1].structured_content["promotion_status"] == "promoted"
 
 
 def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
     store.create(
         name="readme-verification",
-        content="# README Verification\n\n## Procedure\n\n- Read README.",
+        content=(
+            "---\n"
+            "name: readme-verification\n"
+            "description: Verify README changes.\n"
+            "category: coding\n"
+            "---\n\n"
+            "# README Verification\n\n"
+            "## When To Use\n\nUse for README checks.\n\n"
+            "## Procedure\n\n- Read README."
+        ),
     )
     transport = ScriptedTransport(
         [
@@ -142,7 +152,8 @@ def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> N
     assert record is not None
     assert "- Read README." in record.content
     assert "- Verify the result before replying." in record.content
-    assert result.tool_results[-1].structured_content["action"] == "append"
+    assert result.tool_results[-1].structured_content["action"] == "draft_append"
+    assert result.tool_results[-1].structured_content["promotion_status"] == "promoted"
 
 
 def test_skill_review_agent_prompt_contains_arguments_and_error_tail(tmp_path: Path) -> None:
@@ -232,6 +243,10 @@ def test_review_agent_stores_memory_via_tool(tmp_path: Path) -> None:
     assert records[0].target == "user"
     assert records[0].content == "用户喜欢简洁直接的技术回答。"
     assert [item.name for item in result.tool_results] == ["memory", "memory"]
+    audit = memory_store.audit_for_user("user-1")
+    assert audit[0].source_session_id == "session-1"
+    assert audit[0].source_trace_id == "trace-1"
+    assert audit[0].review_run_id
 
 
 def test_review_agent_prompt_defines_memory_skill_boundary(tmp_path: Path) -> None:

@@ -10,20 +10,21 @@ from navi_agent.evolution import (
     BackgroundSkillReviewWorker,
     CandidateStore,
     EvolutionCandidate,
-    EvolutionEngine,
     NudgeReviewTriggerPolicy,
     SimpleEvaluator,
     PromptOverlayStore,
     EvalCase,
     EvalCaseStore,
     FileSkillStore,
+    SkillDraftEvaluator,
+    SkillDraftProvenance,
+    SkillGovernanceService,
     JsonlReviewRunStore,
     SkillProvenanceStore,
     ReviewAgentService,
     ReviewRunRecord,
     ReviewToolResultRecord,
     SkillReviewEvidence,
-    SkillReviewService,
     SkillUsageStore,
     ReviewTriggerPolicy,
 )
@@ -69,12 +70,13 @@ class ApplicationService:
         eval_case_store: EvalCaseStore | None = None,
         prompt_overlay_store: PromptOverlayStore | None = None,
         skill_store: FileSkillStore | None = None,
+        skill_governance: SkillGovernanceService | None = None,
+        skill_evaluator: SkillDraftEvaluator | None = None,
         skill_provenance_store: SkillProvenanceStore | None = None,
         skill_usage_store: SkillUsageStore | None = None,
         memory_store: MemoryStore | None = None,
         review_agent_service: ReviewAgentService | None = None,
         review_run_store: JsonlReviewRunStore | None = None,
-        skill_review_service: SkillReviewService | None = None,
         review_trigger_policy: ReviewTriggerPolicy | None = None,
         interaction_store: JsonPendingInteractionStore | None = None,
     ) -> None:
@@ -86,19 +88,19 @@ class ApplicationService:
         self._eval_case_store = eval_case_store
         self._prompt_overlay_store = prompt_overlay_store
         self._skill_store = skill_store
+        self._skill_governance = skill_governance
+        self._skill_evaluator = skill_evaluator
         self._skill_provenance_store = skill_provenance_store
         self._skill_usage_store = skill_usage_store
         self._memory_store = memory_store
         self._review_agent_service = review_agent_service
         self._review_run_store = review_run_store
-        self._skill_review_service = skill_review_service
         self._review_trigger_policy = review_trigger_policy or NudgeReviewTriggerPolicy()
         self._interaction_store = interaction_store
         self._evaluator = SimpleEvaluator()
-        self._evolution_engine = EvolutionEngine()
         self._background_skill_review = (
             BackgroundSkillReviewWorker(review_trace=self._run_background_review_task)
-            if skill_review_service is not None or review_agent_service is not None
+            if review_agent_service is not None
             else None
         )
 
@@ -327,13 +329,44 @@ class ApplicationService:
             self._prompt_overlay_store.append_candidate(candidate)
             note = review_note or "applied prompt overlay"
         elif candidate.target == "skill":
-            if self._skill_store is None:
+            if self._skill_governance is None or self._skill_evaluator is None:
                 return None
-            candidate.status = "accepted"
-            skill = self._evolution_engine.apply_skill_candidate(
-                candidate,
-                skill_store=self._skill_store,
+            metadata = candidate.metadata or {}
+            skill_name = str(metadata.get("skill_name") or "").strip()
+            provenance = SkillDraftProvenance(
+                review_run_id=candidate.candidate_id,
+                source_session_id=str(metadata.get("source_session_id") or ""),
+                source_trace_id=str(metadata.get("source_trace_id") or candidate.candidate_id),
+                evidence_ids=(candidate.candidate_id,),
             )
+            operation = str(metadata.get("operation") or "create").strip()
+            try:
+                if operation == "update":
+                    draft = self._skill_governance.append_draft(
+                        skill_name=skill_name,
+                        section=str(metadata.get("section") or ""),
+                        content=str(metadata.get("append_content") or ""),
+                        provenance=provenance,
+                    )
+                else:
+                    draft = self._skill_governance.create_draft(
+                        skill_name=skill_name,
+                        content=str(metadata.get("skill_content") or ""),
+                        provenance=provenance,
+                    )
+                decision = self._skill_governance.evaluate_and_promote(
+                    draft.draft_id,
+                    evaluator=self._skill_evaluator,
+                )
+            except ValueError:
+                return None
+            if decision.status != "promoted":
+                return self.update_candidate_status(
+                    candidate_id,
+                    decision.status,
+                    review_note=decision.decision_reason,
+                )
+            skill = self._skill_store.get(skill_name) if self._skill_store is not None else None
             if skill is None:
                 return None
             if self._skill_provenance_store is not None:
@@ -363,13 +396,16 @@ class ApplicationService:
             return None
         if candidate.target != "skill":
             return None
-        if self._skill_store is None:
+        if self._skill_store is None or self._skill_governance is None:
             return None
         skill_name = (candidate.metadata or {}).get("skill_name")
         if not isinstance(skill_name, str) or not skill_name.strip():
             return None
-        self._skill_store.remove(skill_name)
-        if self._skill_provenance_store is not None:
+        try:
+            self._skill_governance.rollback(skill_name)
+        except ValueError:
+            return None
+        if self._skill_provenance_store is not None and self._skill_store.get(skill_name) is None:
             self._skill_provenance_store.remove(skill_name)
         if self._skill_usage_store is not None:
             self._skill_usage_store.record_archive(skill_name)
@@ -426,46 +462,21 @@ class ApplicationService:
             decision = self._review_trigger_policy.decide(
                 trace,
                 memory_available=self._review_agent_service is not None,
-                skill_available=self._review_agent_service is not None
-                or self._skill_review_service is not None,
+                skill_available=self._review_agent_service is not None,
             )
             if self._background_skill_review is not None and (
                 (decision.review_memory and self._review_agent_service is not None)
-                or (
-                    decision.review_skill
-                    and (
-                        self._review_agent_service is not None
-                        or self._skill_review_service is not None
-                    )
-                )
+                or (decision.review_skill and self._review_agent_service is not None)
             ):
-                review_with_agent = (
-                    self._review_agent_service is not None
-                    and (
-                        (decision.review_memory and self._review_agent_service is not None)
-                        or (decision.review_skill and self._review_agent_service is not None)
-                    )
-                )
                 self._background_skill_review.submit(
                     trace,
-                    review_evidence=(
-                        self._build_skill_review_evidence(
-                            trace,
-                            result=result,
-                        )
-                        if review_with_agent
-                        or (decision.review_skill and self._skill_review_service is not None)
-                        else None
+                    review_evidence=self._build_skill_review_evidence(
+                        trace,
+                        result=result,
                     ),
                     review_memory=decision.review_memory and self._review_agent_service is not None,
-                    review_skill=decision.review_skill
-                    and (
-                        self._review_agent_service is not None
-                        or self._skill_review_service is not None
-                    ),
+                    review_skill=decision.review_skill and self._review_agent_service is not None,
                 )
-            elif self._background_skill_review is None:
-                self._propose_and_add_skill_candidate(trace)
 
     def _hydrate_review_trigger(self, *, session_id: str, user_id: str) -> None:
         hydrate = getattr(self._review_trigger_policy, "hydrate", None)
@@ -475,8 +486,7 @@ class ApplicationService:
         hydrate(
             traces,
             memory_available=self._review_agent_service is not None,
-            skill_available=self._review_agent_service is not None
-            or self._skill_review_service is not None,
+            skill_available=self._review_agent_service is not None,
         )
 
     def wait_for_background_reviews(self) -> None:
@@ -488,40 +498,6 @@ class ApplicationService:
         if self._background_skill_review is None:
             return None
         return self._background_skill_review.status()
-
-    def _propose_and_add_skill_candidate(
-        self,
-        trace: RuntimeTrace | SkillReviewEvidence,
-    ) -> None:
-        if self._skill_review_service is not None:
-            candidate = self._skill_review_service.propose_candidate(trace)
-            if candidate is not None:
-                self._apply_background_skill_candidate(candidate)
-            return
-        else:
-            candidate = self._evolution_engine.propose_skill_candidate(trace)
-        if candidate is not None and not self._skill_exists(candidate):
-            self.add_candidate(candidate)
-
-    def _apply_background_skill_candidate(self, candidate: EvolutionCandidate) -> None:
-        if self._skill_store is None:
-            return
-        operation = str((candidate.metadata or {}).get("operation") or "create").strip()
-        if operation != "update" and self._skill_exists(candidate):
-            return
-        candidate.status = "accepted"
-        skill = self._evolution_engine.apply_skill_candidate(
-            candidate,
-            skill_store=self._skill_store,
-        )
-        if skill is None:
-            return
-        if self._skill_provenance_store is not None:
-            self._skill_provenance_store.mark_agent_created(
-                skill_name=skill.name,
-                candidate=candidate,
-            )
-        self._record_skill_usage(skill.name, candidate=candidate)
 
     def _record_skill_usage(self, skill_name: str, *, candidate: EvolutionCandidate) -> None:
         if self._skill_usage_store is None:
@@ -536,28 +512,29 @@ class ApplicationService:
         if self._review_agent_service is not None:
             if task.review_evidence is None:
                 return
+            review_run_id = uuid4().hex[:12]
             try:
                 result = self._review_agent_service.review_and_write(
                     task.review_evidence,
                     review_memory=task.review_memory,
                     review_skill=task.review_skill,
+                    review_run_id=review_run_id,
                 )
             except Exception as error:
-                self._record_review_run(task, status="error", error=str(error))
+                self._record_review_run(
+                    task,
+                    status="error",
+                    review_run_id=review_run_id,
+                    error=str(error),
+                )
                 raise
-            self._record_review_run(task, status=result.status, result=result)
+            self._record_review_run(
+                task,
+                status=result.status,
+                review_run_id=review_run_id,
+                result=result,
+            )
             self._record_review_agent_skill_actions(result)
-            return
-        if task.review_skill:
-            if task.review_evidence is None:
-                return
-            evidence = task.review_evidence
-            review_and_write = getattr(self._skill_review_service, "review_and_write", None)
-            if callable(review_and_write):
-                result = review_and_write(evidence)
-                self._record_review_agent_skill_actions(result)
-            else:
-                self._propose_and_add_skill_candidate(evidence)
 
     def _build_skill_review_evidence(
         self,
@@ -580,7 +557,12 @@ class ApplicationService:
             skill_name = str(tool_result.structured_content.get("skill_name") or "").strip()
             if not action or not skill_name:
                 continue
-            if action == "create":
+            promotion_status = str(
+                tool_result.structured_content.get("promotion_status") or ""
+            )
+            if promotion_status != "promoted":
+                continue
+            if action == "draft_create":
                 if self._skill_provenance_store is not None:
                     self._skill_provenance_store.mark_agent_created(
                         skill_name=skill_name,
@@ -594,7 +576,7 @@ class ApplicationService:
                     )
                 if self._skill_usage_store is not None:
                     self._skill_usage_store.record_create(skill_name)
-            elif action == "append":
+            elif action == "draft_append":
                 if self._skill_usage_store is not None:
                     self._skill_usage_store.record_update(skill_name)
 
@@ -603,6 +585,7 @@ class ApplicationService:
         task: BackgroundReviewTask,
         *,
         status: str,
+        review_run_id: str,
         result: RuntimeResult | None = None,
         error: str = "",
     ) -> None:
@@ -626,9 +609,9 @@ class ApplicationService:
             if tool_result.name == "memory" and action in {"add", "update", "remove"}:
                 memory_writes.append(dict(tool_result.structured_content))
             if tool_result.name == "skill_manage" and action in {
-                "create",
-                "append",
-                "write_attachment",
+                "draft_create",
+                "draft_append",
+                "draft_attachment",
             }:
                 skill_writes.append(dict(tool_result.structured_content))
         self._review_run_store.add(
@@ -639,6 +622,7 @@ class ApplicationService:
                 review_memory=task.review_memory,
                 review_skill=task.review_skill,
                 status=status,
+                review_run_id=review_run_id,
                 review_session_id=result.session_id if result is not None else "",
                 tool_results=tool_results,
                 memory_writes=memory_writes,
@@ -709,14 +693,6 @@ class ApplicationService:
         if not isinstance(task_name, str) or not task_name.strip():
             return None
         return workflow_name, task_name
-
-    def _skill_exists(self, candidate: EvolutionCandidate) -> bool:
-        if self._skill_store is None:
-            return False
-        skill_name = (candidate.metadata or {}).get("skill_name")
-        if not isinstance(skill_name, str) or not skill_name.strip():
-            return False
-        return self._skill_store.get(skill_name) is not None
 
     @staticmethod
     def _new_session_id() -> str:
