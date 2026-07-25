@@ -12,6 +12,8 @@ logger = logging.getLogger("navi_agent.events")
 
 @dataclass(frozen=True, slots=True)
 class RuntimeEvent:
+    """Authoritative immutable fact emitted by one runtime execution."""
+
     session_id: str
     user_id: str
     run_id: str
@@ -37,24 +39,89 @@ class RuntimeEventSubscriber(Protocol):
     def handle(self, event: RuntimeEvent) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeEventDeliveryFailure:
+    subscriber: str
+    event_name: str
+    event_id: str
+    critical: bool
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeEventPublisherHealth:
+    critical_failure_count: int
+    optional_failure_count: int
+    last_failure: RuntimeEventDeliveryFailure | None
+
+    @property
+    def healthy(self) -> bool:
+        return self.critical_failure_count == 0
+
+
+@dataclass(frozen=True, slots=True)
+class _SubscriberRegistration:
+    subscriber: RuntimeEventSubscriber
+    critical: bool = False
+
+
 class RuntimeEventPublisher:
     def __init__(self, subscribers: Iterable[RuntimeEventSubscriber] = ()) -> None:
-        self._subscribers = list(subscribers)
+        self._subscribers = [
+            _SubscriberRegistration(subscriber=subscriber)
+            for subscriber in subscribers
+        ]
+        self._critical_failure_count = 0
+        self._optional_failure_count = 0
+        self._last_failure: RuntimeEventDeliveryFailure | None = None
 
-    def subscribe(self, subscriber: RuntimeEventSubscriber) -> None:
-        self._subscribers.append(subscriber)
+    def subscribe(
+        self,
+        subscriber: RuntimeEventSubscriber,
+        *,
+        critical: bool = False,
+    ) -> None:
+        self._subscribers.append(
+            _SubscriberRegistration(
+                subscriber=subscriber,
+                critical=critical,
+            )
+        )
 
-    def publish(self, event: RuntimeEvent) -> None:
-        for subscriber in self._subscribers:
+    def publish(self, event: RuntimeEvent) -> list[RuntimeEventDeliveryFailure]:
+        failures: list[RuntimeEventDeliveryFailure] = []
+        for registration in self._subscribers:
             try:
-                subscriber.handle(event)
-            except Exception:
+                registration.subscriber.handle(event)
+            except Exception as error:
+                failure = RuntimeEventDeliveryFailure(
+                    subscriber=type(registration.subscriber).__name__,
+                    event_name=event.name,
+                    event_id=event.event_id,
+                    critical=registration.critical,
+                    error=str(error),
+                )
+                failures.append(failure)
+                self._last_failure = failure
+                if registration.critical:
+                    self._critical_failure_count += 1
+                else:
+                    self._optional_failure_count += 1
                 logger.exception(
-                    "Runtime event subscriber failed: subscriber=%s event=%s event_id=%s",
-                    type(subscriber).__name__,
+                    "Runtime event subscriber failed: subscriber=%s critical=%s event=%s event_id=%s",
+                    failure.subscriber,
+                    failure.critical,
                     event.name,
                     event.event_id,
                 )
+        return failures
+
+    def health(self) -> RuntimeEventPublisherHealth:
+        return RuntimeEventPublisherHealth(
+            critical_failure_count=self._critical_failure_count,
+            optional_failure_count=self._optional_failure_count,
+            last_failure=self._last_failure,
+        )
 
 
 class RuntimeEventRecorder(Protocol):

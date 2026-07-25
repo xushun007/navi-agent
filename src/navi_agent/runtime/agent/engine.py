@@ -28,7 +28,13 @@ from navi_agent.telemetry import (
     TraceBuilder,
     TraceStore,
 )
-from navi_agent.events import EventStoreWriter, RuntimeEvent, RuntimeEventPublisher, RuntimeEventSubscriber
+from navi_agent.events import (
+    EventStoreWriter,
+    RuntimeEvent,
+    RuntimeEventPublisher,
+    RuntimeEventPublisherHealth,
+    RuntimeEventSubscriber,
+)
 
 logger = logging.getLogger("navi_agent.runtime")
 
@@ -166,7 +172,10 @@ class AgentRuntime:
         if trace_store is not None:
             self._event_publisher.subscribe(TraceBuilder(trace_store))
         if event_store is not None:
-            self._event_publisher.subscribe(EventStoreWriter(event_store))
+            self._event_publisher.subscribe(
+                EventStoreWriter(event_store),
+                critical=True,
+            )
         self._background_task_manager = background_task_manager
         self._max_iterations = max_iterations
         self._agent_role = agent_role
@@ -179,6 +188,9 @@ class AgentRuntime:
             return False
         self._background_task_manager.add_completion_listener(listener)
         return True
+
+    def event_delivery_health(self) -> RuntimeEventPublisherHealth:
+        return self._event_publisher.health()
 
     def publish_runtime_event(
         self,
@@ -230,6 +242,7 @@ class AgentRuntime:
         event_sequence = 0
         event_publish_lock = Lock()
         request_publisher = RuntimeEventPublisher(event_subscribers or ())
+        critical_event_failures = []
 
         def publish_event(
             *,
@@ -255,7 +268,10 @@ class AgentRuntime:
                     item_id=item_id,
                     metadata=dict(payload or {}),
                 )
-                self._event_publisher.publish(event)
+                delivery_failures = self._event_publisher.publish(event)
+                critical_event_failures.extend(
+                    failure for failure in delivery_failures if failure.critical
+                )
                 request_publisher.publish(event)
 
         logger.info("Starting runtime conversation: session_id=%s user_id=%s", session_id, user_id)
@@ -354,8 +370,32 @@ class AgentRuntime:
                 "attempt_count": attempt_count,
                 "completed_at": _utc_now_iso(),
                 "duration_ms": _duration_ms(run_started_perf),
+                "trajectory_complete": not critical_event_failures,
+                "trajectory_failure_count": len(critical_event_failures),
                 **(error_info or {}),
             }
+
+        def apply_trajectory_health(result: RuntimeResult) -> None:
+            if not critical_event_failures:
+                return
+            result.trajectory_complete = False
+            latest = critical_event_failures[-1]
+            result.trajectory_error = (
+                f"{latest.subscriber} failed while recording {latest.event_name}: "
+                f"{latest.error}"
+            )
+            logger.error(
+                "Runtime trajectory incomplete: session_id=%s failures=%s last_subscriber=%s last_event=%s",
+                session_id,
+                len(critical_event_failures),
+                latest.subscriber,
+                latest.event_name,
+            )
+
+        def finalization_reason(result: RuntimeResult, default: str | None = None) -> str:
+            if not result.trajectory_complete:
+                return "trajectory_incomplete"
+            return default or result.status
 
         def finish_cancelled(iteration: int) -> RuntimeResult:
             reason = cancellation_token.reason or "user_requested"
@@ -396,10 +436,11 @@ class AgentRuntime:
                     error_info=error_info,
                 ),
             )
+            apply_trajectory_health(result)
             self._session_store.finalize(
                 session,
                 status=result.status,
-                end_reason=reason,
+                end_reason=finalization_reason(result, reason),
             )
             return result
 
@@ -435,7 +476,12 @@ class AgentRuntime:
                 iteration=iteration,
                 payload=completion_payload(result, attempt_count=iteration),
             )
-            self._session_store.finalize(session, status=result.status)
+            apply_trajectory_health(result)
+            self._session_store.finalize(
+                session,
+                status=result.status,
+                end_reason=finalization_reason(result),
+            )
             return result
 
         def record_tool_result(
@@ -691,10 +737,14 @@ class AgentRuntime:
                         error_info=error_info,
                     ),
                 )
+                apply_trajectory_health(result)
                 self._session_store.finalize(
                     session,
                     status=result.status,
-                    end_reason=str(error_info["error_type"]),
+                    end_reason=finalization_reason(
+                        result,
+                        str(error_info["error_type"]),
+                    ),
                 )
                 return result
             model_payload = {
@@ -782,7 +832,12 @@ class AgentRuntime:
                     iteration=iteration_number,
                     payload=completion_payload(result, attempt_count=iteration_number),
                 )
-                self._session_store.finalize(session, status=result.status)
+                apply_trajectory_health(result)
+                self._session_store.finalize(
+                    session,
+                    status=result.status,
+                    end_reason=finalization_reason(result),
+                )
                 return result
 
             def emit_tool_output(payload: dict[str, object]) -> None:
@@ -883,10 +938,14 @@ class AgentRuntime:
                 error_info=error_info,
             ),
         )
+        apply_trajectory_health(result)
         self._session_store.finalize(
             session,
             status=result.status,
-            end_reason=str(error_info["error_type"]),
+            end_reason=finalization_reason(
+                result,
+                str(error_info["error_type"]),
+            ),
         )
         return result
 

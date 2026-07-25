@@ -12,6 +12,8 @@ from ..models import (
 
 
 class SessionStore(Protocol):
+    """Authoritative conversation history and searchable session state."""
+
     def load(
         self,
         session_id: str,

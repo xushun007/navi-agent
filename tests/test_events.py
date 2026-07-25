@@ -44,6 +44,21 @@ def test_publisher_isolates_subscriber_failures() -> None:
     publisher.publish(_event())
 
     assert [event.name for event in recording.events] == ["runtime.started"]
+    assert publisher.health().healthy
+    assert publisher.health().optional_failure_count == 1
+
+
+def test_publisher_tracks_critical_subscriber_failures() -> None:
+    publisher = RuntimeEventPublisher()
+    publisher.subscribe(FailingSubscriber(), critical=True)
+
+    failures = publisher.publish(_event())
+
+    assert len(failures) == 1
+    assert failures[0].critical
+    assert not publisher.health().healthy
+    assert publisher.health().critical_failure_count == 1
+    assert publisher.health().last_failure == failures[0]
 
 
 def test_event_store_writer_skips_ephemeral_deltas() -> None:

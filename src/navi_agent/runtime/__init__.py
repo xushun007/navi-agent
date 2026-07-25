@@ -29,7 +29,9 @@ from .events.observers import RuntimeObserver
 from navi_agent.events import (
     CallableEventSubscriber,
     EventStoreWriter,
+    RuntimeEventDeliveryFailure,
     RuntimeEventPublisher,
+    RuntimeEventPublisherHealth,
     RuntimeEventSubscriber,
 )
 from .agent.prompt import PromptBuilder
@@ -88,7 +90,9 @@ __all__ = [
     "PromptBuilder",
     "PendingInteraction",
     "RuntimeEvent",
+    "RuntimeEventDeliveryFailure",
     "RuntimeEventPublisher",
+    "RuntimeEventPublisherHealth",
     "RuntimeEventSubscriber",
     "RuntimeResult",
     "RunCancellationToken",
