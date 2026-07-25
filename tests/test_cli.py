@@ -1117,6 +1117,43 @@ class CliTests(unittest.TestCase):
         self.assertEqual(app.calls, [])
         self.assertIn("Unknown command: /stats", stdout.getvalue())
 
+    def test_run_interactive_starts_new_session(self) -> None:
+        app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("builtins.input", side_effect=["/new", "hello", "/exit"]):
+            with patch("navi_agent.cli.main.uuid4", return_value=SimpleNamespace(hex="s2")):
+                with redirect_stdout(stdout):
+                    exit_code = _run_interactive(
+                        app=app,
+                        user_id="u1",
+                        session_id="s1",
+                        system_prompt=None,
+                    )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(app.calls[0].session_id, "s2")
+        self.assertIn("New session · s2", stdout.getvalue())
+
+    def test_run_interactive_shows_help_and_status_locally(self) -> None:
+        app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch("builtins.input", side_effect=["/help", "/status", "/exit"]):
+            with redirect_stdout(stdout):
+                exit_code = _run_interactive(
+                    app=app,
+                    user_id="u1",
+                    session_id="s1",
+                    system_prompt=None,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(app.calls, [])
+        self.assertIn("/steer <message>", stdout.getvalue())
+        self.assertIn("Session   · s1", stdout.getvalue())
+        self.assertIn("Status    · idle", stdout.getvalue())
+
     def test_persistent_interactive_steers_active_run(self) -> None:
         from threading import Event
 
@@ -1263,6 +1300,60 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(app.cancel_calls, [("s1", "user_stop")])
         self.assertIn("Stopping current task…", prompt.notices)
+
+    def test_persistent_interactive_starts_new_session_while_idle(self) -> None:
+        from threading import Event
+
+        completed = Event()
+
+        class App(FakeApp):
+            def handle(self, request, *, event_subscribers=None):
+                self.calls.append(request)
+                completed.set()
+                return RuntimeResult(
+                    session_id=request.session_id,
+                    status="success",
+                    final_response="done",
+                )
+
+        class Prompt:
+            def __init__(self) -> None:
+                self.notices = []
+
+            def run(self, submit, *, on_approval=None, first_message=None):
+                submit("/new")
+                submit("hello")
+                assert completed.wait(timeout=2)
+
+            def set_busy(self, _busy):
+                pass
+
+            def handle(self, _event):
+                pass
+
+            def complete_response(self, _response):
+                pass
+
+            def show_notice(self, text):
+                self.notices.append(text)
+
+            def exit(self):
+                pass
+
+        app = App()
+        prompt = Prompt()
+        with patch("navi_agent.cli.main.uuid4", return_value=SimpleNamespace(hex="s2")):
+            _run_persistent_interactive(
+                app=app,
+                prompt_session=prompt,
+                user_id="u1",
+                session_id="s1",
+                system_prompt=None,
+                first_message=None,
+            )
+
+        self.assertEqual(app.calls[0].session_id, "s2")
+        self.assertIn("New session · s2", prompt.notices)
 
     def test_persistent_interactive_resolves_selected_approval(self) -> None:
         from threading import Event
