@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from .conflicts import find_memory_conflicts, require_explicit_conflict_resolution
 from .models import MemoryAuditRecord, MemoryRecall, MemoryRecord, MemoryWriteProvenance
 from .search import recall_memories, search_memories
 from .validation import normalize_memory_content, validate_memory_content
@@ -44,6 +45,8 @@ class InMemoryMemoryStore:
         source_session_id: str = "",
         *,
         provenance: MemoryWriteProvenance | None = None,
+        conflict_resolution: str = "",
+        evidence: str = "",
     ) -> MemoryRecord:
         provenance = provenance or MemoryWriteProvenance(
             source=source,
@@ -69,6 +72,17 @@ class InMemoryMemoryStore:
                     after_content=record.content,
                 )
                 return record
+        conflicts = find_memory_conflicts(
+            self.list_for_user(user_id),
+            content=content,
+            kind=kind,
+            target=target,
+        )
+        retained_conflicts = require_explicit_conflict_resolution(
+            conflicts,
+            resolution=conflict_resolution,
+            evidence=evidence,
+        )
         record = MemoryRecord(
             id=uuid.uuid4().hex[:12],
             user_id=user_id,
@@ -85,6 +99,16 @@ class InMemoryMemoryStore:
             provenance=provenance,
             after_content=record.content,
         )
+        if retained_conflicts:
+            self._record_audit(
+                record,
+                action="conflict_resolved",
+                provenance=provenance,
+                before_content="\n".join(item.content for item in conflicts),
+                after_content=record.content,
+                resolution="retain_both",
+                evidence=evidence,
+            )
         return record
 
     def get_for_user(self, user_id: str, record_id: str) -> MemoryRecord | None:
@@ -100,6 +124,8 @@ class InMemoryMemoryStore:
         content: str,
         *,
         provenance: MemoryWriteProvenance | None = None,
+        conflict_resolution: str = "",
+        evidence: str = "",
     ) -> MemoryRecord | None:
         record = self.get_for_user(user_id, record_id)
         if record is None:
@@ -107,8 +133,21 @@ class InMemoryMemoryStore:
         validation_error = validate_memory_content(content)
         if validation_error:
             raise ValueError(validation_error)
+        normalized_content = normalize_memory_content(content)
+        conflicts = find_memory_conflicts(
+            self.list_for_user(user_id),
+            content=normalized_content,
+            kind=record.kind,
+            target=record.target,
+            exclude_record_id=record_id,
+        )
+        retained_conflicts = require_explicit_conflict_resolution(
+            conflicts,
+            resolution=conflict_resolution,
+            evidence=evidence,
+        )
         before_content = record.content
-        record.content = normalize_memory_content(content)
+        record.content = normalized_content
         self._record_audit(
             record,
             action="update",
@@ -116,6 +155,16 @@ class InMemoryMemoryStore:
             before_content=before_content,
             after_content=record.content,
         )
+        if retained_conflicts:
+            self._record_audit(
+                record,
+                action="conflict_resolved",
+                provenance=provenance or MemoryWriteProvenance(),
+                before_content="\n".join(item.content for item in conflicts),
+                after_content=record.content,
+                resolution="retain_both",
+                evidence=evidence,
+            )
         return record
 
     def remove_for_user(
@@ -148,6 +197,8 @@ class InMemoryMemoryStore:
         provenance: MemoryWriteProvenance,
         before_content: str = "",
         after_content: str = "",
+        resolution: str = "",
+        evidence: str = "",
     ) -> None:
         self._audit_records.append(
             MemoryAuditRecord(
@@ -162,5 +213,7 @@ class InMemoryMemoryStore:
                 review_run_id=provenance.review_run_id,
                 before_content=before_content,
                 after_content=after_content,
+                resolution=resolution,
+                evidence=evidence,
             )
         )

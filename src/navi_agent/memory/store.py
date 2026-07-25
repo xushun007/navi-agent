@@ -26,6 +26,8 @@ class MemoryStore(Protocol):
         source_session_id: str = "",
         *,
         provenance: MemoryWriteProvenance | None = None,
+        conflict_resolution: str = "",
+        evidence: str = "",
     ) -> MemoryRecord: ...
     def get_for_user(self, user_id: str, record_id: str) -> MemoryRecord | None: ...
     def update_for_user(
@@ -35,6 +37,8 @@ class MemoryStore(Protocol):
         content: str,
         *,
         provenance: MemoryWriteProvenance | None = None,
+        conflict_resolution: str = "",
+        evidence: str = "",
     ) -> MemoryRecord | None: ...
     def remove_for_user(
         self,
