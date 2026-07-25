@@ -76,6 +76,12 @@ def test_draft_is_isolated_until_configured_gate_passes(tmp_path: Path) -> None:
     assert promoted.status == "promoted"
     assert store.get("readme-review") is not None
     assert service.get_draft(draft.draft_id).active_version_id == draft.draft_id
+    version = service.get_version("readme-review", draft.draft_id)
+    assert version is not None
+    assert version.status == "active"
+    assert version.parent_version_id == ""
+    assert version.provenance == _provenance()
+    assert len(version.content_hash) == 64
 
 
 def test_missing_or_failed_evaluation_preserves_active_skill(tmp_path: Path) -> None:
@@ -162,6 +168,14 @@ def test_promoted_skill_can_rollback_with_attachments(tmp_path: Path) -> None:
     )
 
     assert promoted.previous_version_id.startswith("baseline-")
+    baseline = service.get_version("readme-review", promoted.previous_version_id)
+    active = service.get_version("readme-review", promoted.draft_id)
+    assert baseline is not None
+    assert baseline.status == "deprecated"
+    assert baseline.operation == "baseline"
+    assert active is not None
+    assert active.status == "active"
+    assert active.parent_version_id == baseline.version_id
     assert store.read_attachment(
         name="readme-review",
         relative_path="templates/report.md",
@@ -170,6 +184,8 @@ def test_promoted_skill_can_rollback_with_attachments(tmp_path: Path) -> None:
     rolled_back = service.rollback("readme-review")
 
     assert rolled_back.status == "rolled_back"
+    assert service.get_version("readme-review", promoted.draft_id).status == "deprecated"
+    assert service.get_version("readme-review", promoted.previous_version_id).status == "active"
     assert store.get("readme-review").content == original
     assert store.read_attachment(
         name="readme-review",
