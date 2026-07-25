@@ -593,11 +593,22 @@ class AgentRuntimeTests(unittest.TestCase):
             session_store.append(session, Message(role="assistant", content=f"old assistant {index}"))
         transport = FakeTransport(
             [
-                ModelResponse(content="[Context Summary]\nold turns summarized by llm"),
-                ModelResponse(content="done"),
+                ModelResponse(
+                    content="[Context Summary]\nold turns summarized by llm",
+                    provider="openai-compatible",
+                    model="summary-model",
+                    usage=ModelUsage(input_tokens=50, output_tokens=10, cost_usd=0.001),
+                ),
+                ModelResponse(
+                    content="done",
+                    provider="openai-compatible",
+                    model="agent-model",
+                    usage=ModelUsage(input_tokens=20, output_tokens=5, cost_usd=0.002),
+                ),
             ]
         )
         observer = RecordingObserver()
+        trace_store = InMemoryTraceStore()
         runtime = AgentRuntime(
             transport=transport,
             session_store=session_store,
@@ -610,6 +621,7 @@ class AgentRuntimeTests(unittest.TestCase):
                 summarizer=LLMContextSummarizer(transport),
             ),
             event_subscribers=[observer],
+            trace_store=trace_store,
         )
 
         result = runtime.run_conversation(
@@ -630,6 +642,18 @@ class AgentRuntimeTests(unittest.TestCase):
         compression_events = [event for event in observer.events if event.name == "context.compressed"]
         self.assertIn("estimated_tokens_before", compression_events[0].metadata)
         self.assertEqual(compression_events[0].metadata["summary_status"], "llm")
+        trace = trace_store.traces[0]
+        self.assertEqual(
+            [model_call.purpose for model_call in trace.model_calls],
+            ["context_summary", "agent"],
+        )
+        self.assertEqual(trace.total_iterations, 1)
+        run = session_store.get_run(result.run_id)
+        self.assertIsNotNone(run)
+        assert run is not None
+        self.assertEqual(run.input_tokens, 70)
+        self.assertEqual(run.output_tokens, 15)
+        self.assertAlmostEqual(run.estimated_cost_usd or 0, 0.003)
 
     def test_runtime_continues_when_context_build_fails(self) -> None:
         transport = FakeTransport([ModelResponse(content="done")])

@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import replace
 
-from navi_agent.runtime import ContextEngine, Message, ToolCall
+from navi_agent.runtime import ContextEngine, ContextSummaryCall, Message, ModelResponse, ToolCall
 
 
 class FakeSummarizer:
@@ -11,7 +11,12 @@ class FakeSummarizer:
 
     def summarize(self, *, middle, latest_user_message):
         self.calls.append({"middle": middle, "latest_user_message": latest_user_message})
-        return self.summary
+        return ContextSummaryCall(
+            response=ModelResponse(content=self.summary),
+            started_at="2026-01-01T00:00:00.000+00:00",
+            completed_at="2026-01-01T00:00:00.001+00:00",
+            duration_ms=1,
+        )
 
 
 class ContextEngineTests(unittest.TestCase):

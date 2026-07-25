@@ -3,13 +3,23 @@ from __future__ import annotations
 import json
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from time import perf_counter
 from typing import Protocol
 
-from ..models import ContextCompactionCheckpoint, Message, ToolCall
+from ..models import ContextCompactionCheckpoint, Message, ModelResponse, ToolCall
 from ..transports.base import ModelRequest, ModelTransport
 
 
 SUMMARY_PREFIX = "[Context Summary]"
+
+
+@dataclass(frozen=True, slots=True)
+class ContextSummaryCall:
+    response: ModelResponse
+    started_at: str
+    completed_at: str
+    duration_ms: int
 
 
 @dataclass(slots=True)
@@ -25,6 +35,7 @@ class ContextBuildResult:
     latest_user_anchored: bool = False
     summary_status: str = "not_needed"
     checkpoint: ContextCompactionCheckpoint | None = None
+    summary_call: ContextSummaryCall | None = None
 
     @property
     def compressed(self) -> bool:
@@ -128,13 +139,13 @@ class ContextEngine:
             )
 
         middle = original[compress_start:tail_start]
-        summary_text = self._summarizer.summarize(
+        summary_call = self._summarizer.summarize(
             middle=middle,
             latest_user_message=self._latest_user_message(original, start=head_end),
         )
         summary = Message(
             role="system",
-            content=self._normalize_summary(summary_text),
+            content=self._normalize_summary(summary_call.response.content),
         )
         compacted = [
             *original[:compress_start],
@@ -154,6 +165,7 @@ class ContextEngine:
             protected_tail_count=max(0, len(original) - tail_start),
             latest_user_anchored=latest_user_anchored,
             summary_status="llm",
+            summary_call=summary_call,
             checkpoint=ContextCompactionCheckpoint(
                 session_id="",
                 covered_message_count=tail_start,
@@ -332,15 +344,28 @@ class ContextEngine:
                         )
         return result
 
+
 class ContextSummarizer(Protocol):
-    def summarize(self, *, middle: list[Message], latest_user_message: Message | None) -> str: ...
+    def summarize(
+        self,
+        *,
+        middle: list[Message],
+        latest_user_message: Message | None,
+    ) -> ContextSummaryCall: ...
 
 
 class LLMContextSummarizer:
     def __init__(self, transport: ModelTransport) -> None:
         self._transport = transport
 
-    def summarize(self, *, middle: list[Message], latest_user_message: Message | None) -> str:
+    def summarize(
+        self,
+        *,
+        middle: list[Message],
+        latest_user_message: Message | None,
+    ) -> ContextSummaryCall:
+        started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        started_perf = perf_counter()
         response = self._transport.generate(
             ModelRequest(
                 messages=[
@@ -359,7 +384,12 @@ class LLMContextSummarizer:
         summary = response.content.strip()
         if not summary:
             raise RuntimeError("context summarizer returned an empty summary")
-        return summary
+        return ContextSummaryCall(
+            response=response,
+            started_at=started_at,
+            completed_at=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            duration_ms=int((perf_counter() - started_perf) * 1000),
+        )
 
     @staticmethod
     def _system_prompt() -> str:

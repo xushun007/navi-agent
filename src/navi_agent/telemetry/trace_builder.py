@@ -70,6 +70,7 @@ def _model_call(event: RuntimeEvent) -> ModelCallTrace:
     return ModelCallTrace(
         iteration=event.iteration or 0,
         response_content=_string(event.metadata.get("content")) or "",
+        purpose=_string(event.metadata.get("purpose")) or "agent",
         tool_call_names=tool_call_names,
         reasoning_content=_string(event.metadata.get("reasoning_content")),
         started_at=_string(event.metadata.get("started_at")),
@@ -114,7 +115,7 @@ def _complete_trace(trace: RuntimeTrace, event: RuntimeEvent) -> None:
     trace.final_response = _string(event.metadata.get("final_response")) or ""
     trace.status = _string(event.metadata.get("status")) or "failed"
     trace.tool_names = [item.tool_name for item in trace.tool_executions]
-    trace.total_iterations = len(trace.model_calls)
+    trace.total_iterations = _integer(event.metadata.get("attempt_count"))
     trace.approval_count = sum(1 for item in trace.tool_executions if item.approval_required)
     trace.error_count = sum(1 for item in trace.tool_executions if item.status == "error")
     trace.error_category = _string(event.metadata.get("error_category"))

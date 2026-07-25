@@ -14,7 +14,14 @@ from navi_agent.tooling import ToolContext, ToolResult
 from ..tasks.background import BackgroundTask, BackgroundTaskManager
 from .context import ContextBuildResult, ContextEngine, LLMContextSummarizer
 from ..tools.interactions import PendingInteraction
-from ..models import ContextCompactionCheckpoint, Message, RuntimeResult, SessionMetadata, ToolCall
+from ..models import (
+    ContextCompactionCheckpoint,
+    Message,
+    ModelResponse,
+    RuntimeResult,
+    SessionMetadata,
+    ToolCall,
+)
 from .prompt import PromptBuilder
 from .control import RunCancellationToken, RunCancelledError
 from ..sessions.memory import InMemorySessionStore
@@ -48,6 +55,42 @@ def _utc_now_iso() -> str:
 
 def _duration_ms(started_perf: float) -> int:
     return int((perf_counter() - started_perf) * 1000)
+
+
+def _model_response_payload(
+    response: ModelResponse,
+    *,
+    purpose: str,
+    started_at: str,
+    completed_at: str,
+    duration_ms: int,
+) -> dict[str, object]:
+    return {
+        "purpose": purpose,
+        "content": response.content,
+        "reasoning_content": response.reasoning_content,
+        "provider": response.provider,
+        "model": response.model,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "duration_ms": duration_ms,
+        "usage": {
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+            "cache_read_tokens": response.usage.cache_read_tokens,
+            "cache_write_tokens": response.usage.cache_write_tokens,
+            "reasoning_tokens": response.usage.reasoning_tokens,
+            "cost_usd": response.usage.cost_usd,
+        },
+        "tool_calls": [
+            {
+                "id": tool_call.id,
+                "name": tool_call.name,
+                "arguments": dict(tool_call.arguments),
+            }
+            for tool_call in response.tool_calls
+        ],
+    }
 
 
 def _pop_trace_timing(metadata: dict[str, object]) -> tuple[dict[str, object], str | None, str | None, int]:
@@ -640,8 +683,6 @@ class AgentRuntime:
                 iteration=iteration_number,
             )
             inject_background_notifications(iteration_number)
-            model_started_at = _utc_now_iso()
-            model_started_perf = perf_counter()
             session_snapshot = self._session_store.snapshot(session)
             checkpoint = self._session_store.load_compaction_checkpoint(session)
             try:
@@ -670,6 +711,27 @@ class AgentRuntime:
                     name="context.failed",
                     iteration=iteration_number,
                     payload=error_info,
+                )
+            if context_result.summary_call is not None:
+                summary_call = context_result.summary_call
+                self._session_store.record_model_response(
+                    session,
+                    run_id,
+                    summary_call.response,
+                )
+                publish_event(
+                    kind="action",
+                    source="context",
+                    name="model.response",
+                    iteration=iteration_number,
+                    item_id=f"context-summary:{iteration_number}",
+                    payload=_model_response_payload(
+                        summary_call.response,
+                        purpose="context_summary",
+                        started_at=summary_call.started_at,
+                        completed_at=summary_call.completed_at,
+                        duration_ms=summary_call.duration_ms,
+                    ),
                 )
             if context_result.compressed:
                 logger.info(
@@ -714,6 +776,8 @@ class AgentRuntime:
                 )
             try:
                 model_item_id = f"model:{iteration_number}"
+                model_started_at = _utc_now_iso()
+                model_started_perf = perf_counter()
                 model_request = ModelRequest(
                     messages=context_result.messages,
                     tools=self._tool_registry.schemas(
@@ -767,31 +831,13 @@ class AgentRuntime:
                     end_reason=str(error_info["error_type"]),
                     failure_reason=str(error_info["error_message"]),
                 )
-            model_payload = {
-                "content": response.content,
-                "reasoning_content": response.reasoning_content,
-                "provider": response.provider,
-                "model": response.model,
-                "started_at": model_started_at,
-                "completed_at": _utc_now_iso(),
-                "duration_ms": _duration_ms(model_started_perf),
-                "usage": {
-                    "input_tokens": response.usage.input_tokens,
-                    "output_tokens": response.usage.output_tokens,
-                    "cache_read_tokens": response.usage.cache_read_tokens,
-                    "cache_write_tokens": response.usage.cache_write_tokens,
-                    "reasoning_tokens": response.usage.reasoning_tokens,
-                    "cost_usd": response.usage.cost_usd,
-                },
-                "tool_calls": [
-                    {
-                        "id": tool_call.id,
-                        "name": tool_call.name,
-                        "arguments": dict(tool_call.arguments),
-                    }
-                    for tool_call in response.tool_calls
-                ],
-            }
+            model_payload = _model_response_payload(
+                response,
+                purpose="agent",
+                started_at=model_started_at,
+                completed_at=_utc_now_iso(),
+                duration_ms=_duration_ms(model_started_perf),
+            )
             self._session_store.record_model_response(session, run_id, response)
             if cancellation_token.is_cancelled:
                 publish_event(

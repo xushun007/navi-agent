@@ -12,6 +12,7 @@ from navi_agent.paths import get_eval_seed_path, get_smoke_reports_dir
 from navi_agent.runtime import (
     AgentRuntime,
     ContextEngine,
+    ContextSummaryCall,
     DemoTransport,
     InMemorySessionStore,
     Message,
@@ -149,10 +150,18 @@ class SmokeWorkflowService:
     def _context_compression_check(self) -> SmokeCheckResult:
         class SmokeSummarizer:
             def summarize(self, *, middle, latest_user_message):
-                return (
-                    "[Context Summary]\n"
-                    "middle conversation was compacted\n"
-                    f"latest user: {latest_user_message.content if latest_user_message else 'none'}"
+                return ContextSummaryCall(
+                    response=ModelResponse(
+                        content=(
+                            "[Context Summary]\n"
+                            "middle conversation was compacted\n"
+                            f"latest user: "
+                            f"{latest_user_message.content if latest_user_message else 'none'}"
+                        )
+                    ),
+                    started_at="2026-01-01T00:00:00.000+00:00",
+                    completed_at="2026-01-01T00:00:00.001+00:00",
+                    duration_ms=1,
                 )
 
         messages = [
