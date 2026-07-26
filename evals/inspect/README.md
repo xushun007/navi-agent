@@ -43,7 +43,8 @@ trusted model configuration.
 across 12 repositories. It reuses the Inspect Evals dataset setup, pre-built
 Docker images, and upstream SWE-bench scorer. Navi's evaluation-only bash and
 file tools execute inside each sample sandbox, while runtime trace and usage
-metadata follow the same format as the other suites.
+metadata follow the same format as the other suites. Reports retain the official
+task scorer and add the common Navi Runtime success scorer.
 
 Install the optional dependency and authenticate to the image registry before
 running SWE-bench:
