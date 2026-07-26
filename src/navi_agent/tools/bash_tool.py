@@ -7,6 +7,7 @@ import signal
 import subprocess
 import threading
 import time
+from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,11 +22,42 @@ if TYPE_CHECKING:
     from navi_agent.runtime.tasks.background import BackgroundTaskManager
 
 
+class _BoundedTextBuffer:
+    def __init__(self, max_chars: int) -> None:
+        self._max_chars = max(1, max_chars)
+        self._chunks: deque[str] = deque()
+        self._char_count = 0
+        self._truncated = False
+        self._lock = threading.Lock()
+
+    def append(self, text: str) -> None:
+        with self._lock:
+            self._chunks.append(text)
+            self._char_count += len(text)
+            while self._char_count > self._max_chars:
+                overflow = self._char_count - self._max_chars
+                first = self._chunks.popleft()
+                if len(first) > overflow:
+                    self._chunks.appendleft(first[overflow:])
+                    self._char_count -= overflow
+                else:
+                    self._char_count -= len(first)
+                self._truncated = True
+
+    def render(self) -> tuple[str, bool]:
+        with self._lock:
+            text = "".join(self._chunks).strip()
+            truncated = self._truncated
+        if truncated:
+            text = f"...<truncated>\n{text}"
+        return text, truncated
+
+
 @dataclass(slots=True)
 class _RunningCommand:
     process: subprocess.Popen
-    stdout_chunks: list[str]
-    stderr_chunks: list[str]
+    stdout_buffer: _BoundedTextBuffer
+    stderr_buffer: _BoundedTextBuffer
     stdout_thread: threading.Thread
     stderr_thread: threading.Thread
     emit_output: list[Any]
@@ -56,7 +88,7 @@ class BashTool(WorkspaceTool):
     def __init__(
         self,
         root=None,
-        default_timeout_seconds: int | None = None,
+        default_timeout_seconds: int | None = 60,
         max_timeout_seconds: int = 60,
         default_yield_time_ms: int = 10_000,
         max_yield_time_ms: int = 30_000,
@@ -142,17 +174,23 @@ class BashTool(WorkspaceTool):
                     content="Background execution is not available",
                     structured_content={"command": command, "background": True},
                 )
+            cancel_event = threading.Event()
+            cancellation_requested = self._combine_cancellation(
+                context.cancellation_requested,
+                cancel_event.is_set,
+            )
             try:
                 task = self._background_task_manager.submit(
                     session_id=context.session_id,
                     user_id=context.user_id,
                     description=command,
+                    cancel_callback=cancel_event.set,
                     runner=lambda: self._execute(
                         command=command,
                         cwd=cwd,
                         timeout_seconds=timeout_seconds,
                         emit_output=None,
-                        cancellation_requested=None,
+                        cancellation_requested=cancellation_requested,
                     ),
                 )
             except RuntimeError as exc:
@@ -244,7 +282,12 @@ class BashTool(WorkspaceTool):
         timeout_seconds: int | None,
         yield_time_ms: int,
     ) -> ToolResult:
-        if context.cancellation_requested is not None and context.cancellation_requested():
+        cancel_event = threading.Event()
+        cancellation_requested = self._combine_cancellation(
+            context.cancellation_requested,
+            cancel_event.is_set,
+        )
+        if cancellation_requested():
             return self._cancelled_result(
                 command,
                 cwd,
@@ -257,7 +300,7 @@ class BashTool(WorkspaceTool):
         outcome = self._wait_for_process(
             running,
             timeout_seconds=timeout_seconds,
-            cancellation_requested=context.cancellation_requested,
+            cancellation_requested=cancellation_requested,
             yield_time_ms=yield_time_ms,
         )
         if outcome != "yielded":
@@ -275,18 +318,20 @@ class BashTool(WorkspaceTool):
                 session_id=context.session_id,
                 user_id=context.user_id,
                 description=command,
+                cancel_callback=cancel_event.set,
                 runner=lambda: self._resume_process(
                     running,
                     command=command,
                     cwd=cwd,
                     timeout_seconds=timeout_seconds,
+                    cancellation_requested=cancellation_requested,
                 ),
             )
         except RuntimeError:
             outcome = self._wait_for_process(
                 running,
                 timeout_seconds=timeout_seconds,
-                cancellation_requested=context.cancellation_requested,
+                cancellation_requested=cancellation_requested,
             )
             return self._finish_process(
                 running,
@@ -327,11 +372,12 @@ class BashTool(WorkspaceTool):
         command: str,
         cwd,
         timeout_seconds: int | None,
+        cancellation_requested,
     ) -> ToolResult:
         outcome = self._wait_for_process(
             running,
             timeout_seconds=timeout_seconds,
-            cancellation_requested=None,
+            cancellation_requested=cancellation_requested,
         )
         return self._finish_process(
             running,
@@ -342,8 +388,8 @@ class BashTool(WorkspaceTool):
         )
 
     def _start_process(self, command: str, cwd, emit_output) -> _RunningCommand:
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
+        stdout_buffer = _BoundedTextBuffer(self._max_output_chars)
+        stderr_buffer = _BoundedTextBuffer(self._max_output_chars)
         emit_output_holder = [emit_output]
         env = os.environ.copy()
         env.pop("CDPATH", None)
@@ -360,18 +406,18 @@ class BashTool(WorkspaceTool):
         )
         stdout_thread = threading.Thread(
             target=self._consume_stream,
-            args=(process.stdout, "stdout", stdout_chunks, emit_output_holder),
+            args=(process.stdout, "stdout", stdout_buffer, emit_output_holder),
             daemon=True,
         )
         stderr_thread = threading.Thread(
             target=self._consume_stream,
-            args=(process.stderr, "stderr", stderr_chunks, emit_output_holder),
+            args=(process.stderr, "stderr", stderr_buffer, emit_output_holder),
             daemon=True,
         )
         running = _RunningCommand(
             process=process,
-            stdout_chunks=stdout_chunks,
-            stderr_chunks=stderr_chunks,
+            stdout_buffer=stdout_buffer,
+            stderr_buffer=stderr_buffer,
             stdout_thread=stdout_thread,
             stderr_thread=stderr_thread,
             emit_output=emit_output_holder,
@@ -418,8 +464,9 @@ class BashTool(WorkspaceTool):
         if outcome in {"timed_out", "cancelled"}:
             self._terminate_process(running.process)
         self._join_streams(running)
-        stdout = "".join(running.stdout_chunks).strip()
-        stderr = "".join(running.stderr_chunks).strip()
+        stdout, stdout_truncated = running.stdout_buffer.render()
+        stderr, stderr_truncated = running.stderr_buffer.render()
+        truncated = stdout_truncated or stderr_truncated
         emit_output = running.emit_output[0]
 
         if outcome == "timed_out":
@@ -430,6 +477,7 @@ class BashTool(WorkspaceTool):
                     "exit_code": None,
                     "stdout": stdout,
                     "stderr": stderr,
+                    "truncated": truncated,
                     "timed_out": True,
                     "command": command,
                     "streaming": emit_output is not None,
@@ -448,15 +496,9 @@ class BashTool(WorkspaceTool):
                 stdout,
                 stderr,
                 emit_output,
+                truncated=truncated,
             )
 
-        truncated = False
-        if len(stdout) > self._max_output_chars:
-            stdout = stdout[: self._max_output_chars] + "\n...<truncated>"
-            truncated = True
-        if len(stderr) > self._max_output_chars:
-            stderr = stderr[: self._max_output_chars] + "\n...<truncated>"
-            truncated = True
         parts = [f"exit_code: {running.process.returncode}"]
         if stdout:
             parts.append(f"stdout:\n{stdout}")
@@ -487,6 +529,8 @@ class BashTool(WorkspaceTool):
         stdout: str,
         stderr: str,
         emit_output,
+        *,
+        truncated: bool = False,
     ) -> ToolResult:
         return ToolResult.error(
             name=self.name,
@@ -495,6 +539,7 @@ class BashTool(WorkspaceTool):
                 "exit_code": None,
                 "stdout": stdout,
                 "stderr": stderr,
+                "truncated": truncated,
                 "cancelled": True,
                 "timed_out": False,
                 "command": command,
@@ -524,14 +569,14 @@ class BashTool(WorkspaceTool):
         self,
         stream,
         stream_name: str,
-        chunks: list[str],
+        buffer: _BoundedTextBuffer,
         emit_output_holder: list[Any],
     ) -> None:
         if stream is None:
             return
         try:
             for line in stream:
-                chunks.append(line)
+                buffer.append(line)
                 emit_output = emit_output_holder[0]
                 if emit_output is not None:
                     emit_output(
@@ -549,6 +594,11 @@ class BashTool(WorkspaceTool):
         deadline = time.monotonic() + 1
         for thread in (running.stdout_thread, running.stderr_thread):
             thread.join(timeout=max(0, deadline - time.monotonic()))
+
+    @staticmethod
+    def _combine_cancellation(*callbacks):
+        active_callbacks = tuple(callback for callback in callbacks if callback is not None)
+        return lambda: any(callback() for callback in active_callbacks)
 
     def _inspect_command(self, command: str, cwd) -> ToolResult | None:
         if re.search(r"(^|[;&|])\s*[^&]*&\s*$", command):

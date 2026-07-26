@@ -28,6 +28,8 @@ class BackgroundTask:
     completed_at: str | None = None
     result: ToolResult | None = None
     notification_delivered: bool = False
+    cancel_requested: bool = False
+    cancel_callback: Callable[[], None] | None = None
 
 
 class BackgroundTaskManager:
@@ -53,6 +55,7 @@ class BackgroundTaskManager:
         user_id: str,
         description: str,
         runner: Callable[[], ToolResult],
+        cancel_callback: Callable[[], None] | None = None,
     ) -> BackgroundTask:
         with self._lock:
             active_count = sum(
@@ -66,6 +69,7 @@ class BackgroundTaskManager:
                 user_id=user_id,
                 description=description,
                 submitted_at=_utc_now_iso(),
+                cancel_callback=cancel_callback,
             )
             self._tasks[task.task_id] = task
             snapshot = replace(task)
@@ -78,6 +82,22 @@ class BackgroundTaskManager:
         )
         thread.start()
         return snapshot
+
+    def cancel(self, task_id: str, *, session_id: str, user_id: str) -> bool:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if (
+                task is None
+                or task.session_id != session_id
+                or task.user_id != user_id
+                or task.status not in {"queued", "running"}
+                or task.cancel_callback is None
+            ):
+                return False
+            task.cancel_requested = True
+            cancel_callback = task.cancel_callback
+        cancel_callback()
+        return True
 
     def get(self, task_id: str, *, session_id: str, user_id: str) -> BackgroundTask | None:
         with self._lock:

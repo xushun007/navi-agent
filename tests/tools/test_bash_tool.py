@@ -138,6 +138,56 @@ class BashToolTests(unittest.TestCase):
         self.assertEqual(task.status, "failed")
         self.assertTrue(task.result.structured_content["timed_out"])
 
+    def test_cancels_yielded_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = BackgroundTaskManager()
+            tool = BashTool(
+                root=Path(tmpdir),
+                default_timeout_seconds=10,
+                background_task_manager=manager,
+            )
+            result = tool.invoke(
+                context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+                command="python -c 'import time; time.sleep(10)'",
+                yield_time_ms=50,
+            )
+            task_id = result.structured_content["task_id"]
+            started = time.monotonic()
+
+            self.assertTrue(manager.cancel(task_id, session_id="s1", user_id="u1"))
+            deadline = time.monotonic() + 2
+            while manager.get(task_id, session_id="s1", user_id="u1").status not in {
+                "succeeded",
+                "failed",
+            }:
+                if time.monotonic() >= deadline:
+                    self.fail("cancelled command did not finish")
+                time.sleep(0.01)
+            task = manager.get(task_id, session_id="s1", user_id="u1")
+
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(task.status, "failed")
+        self.assertTrue(task.cancel_requested)
+        self.assertTrue(task.result.structured_content["cancelled"])
+
+    def test_retains_only_bounded_output_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(
+                root=Path(tmpdir),
+                default_timeout_seconds=5,
+                max_output_chars=100,
+            )
+            result = tool.invoke(
+                command="python -c 'print(\"x\" * 1000); print(\"END\")'",
+            )
+
+        stdout = result.structured_content["stdout"]
+        self.assertEqual(result.status, "success")
+        self.assertTrue(result.structured_content["truncated"])
+        self.assertTrue(stdout.startswith("...<truncated>\n"))
+        self.assertTrue(stdout.endswith("END"))
+        self.assertLessEqual(len(stdout), 115)
+
     def test_streams_output_chunks(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             events = []
