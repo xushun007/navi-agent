@@ -21,6 +21,12 @@ navi-agent eval run general-qa --sample-id simpleqa-8
 # Run 10 curated HumanEval coding problems
 navi-agent eval run human-eval
 navi-agent eval run human-eval --sample-id HumanEval/0
+
+# Run the 15-instance SWE-bench Verified suite
+uv sync --extra swe-bench
+navi-agent eval run swe-bench-verified
+navi-agent eval run swe-bench-verified \
+  --sample-id astropy__astropy-12907
 ```
 
 The command reads the normal Navi configuration from

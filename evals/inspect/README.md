@@ -11,6 +11,7 @@ navi-agent eval run general-qa
 navi-agent eval run human-eval
 navi-agent eval run bfcl
 navi-agent eval run agentbench-os
+navi-agent eval run swe-bench-verified
 ```
 
 `human-eval` executes generated Python and the official tests inside an Inspect
@@ -31,6 +32,29 @@ The suite uses host-side disposable directories so Navi's production tools run
 unchanged. It is not a process-security sandbox and should only be run with a
 trusted model configuration.
 
+`swe-bench-verified` runs 15 fixed instances from the official Verified dataset
+across 12 repositories. It reuses the Inspect Evals dataset setup, pre-built
+Docker images, and upstream SWE-bench scorer. Navi's evaluation-only bash and
+file tools execute inside each sample sandbox, while runtime trace and usage
+metadata follow the same format as the other suites.
+
+Install the optional dependency and authenticate to the image registry before
+running SWE-bench:
+
+```bash
+uv sync --extra swe-bench
+gh auth token | docker login ghcr.io -u USERNAME --password-stdin
+```
+
+The official images require Docker and are primarily supported on `x86_64`;
+`arm64` support is experimental. Start with one instance because image downloads
+and repository tests are resource intensive:
+
+```bash
+navi-agent eval run swe-bench-verified \
+  --sample-id astropy__astropy-12907
+```
+
 For trusted local development only, Docker can be bypassed explicitly:
 
 ```bash
@@ -44,6 +68,7 @@ Run a subset:
 ```bash
 navi-agent eval run general-qa --limit 5
 navi-agent eval run general-qa --sample-id simpleqa-8
+navi-agent eval run swe-bench-verified --limit 3
 ```
 
 Inspect logs contain answer scores plus Navi runtime status, trace ID, iterations,
