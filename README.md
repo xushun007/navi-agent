@@ -121,6 +121,7 @@ Inspect evaluations run through the production Navi runtime and write replayable
 results under `~/.navi-agent/evals/inspect/`.
 
 ```bash
+uv sync --extra eval
 navi-agent eval run general-qa
 navi-agent eval run human-eval
 navi-agent eval run bfcl

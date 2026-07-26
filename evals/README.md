@@ -6,9 +6,17 @@ configuration and runtime execution.
 
 ## Inspect
 
-The current Inspect suite runs samples through the production Navi
-`ApplicationService`, including Prompt, Tools, Memory, Skills, Session, and Trace
-assembly.
+Inspect is an optional evaluation dependency. Install the base evaluation
+environment before running the lightweight suites:
+
+```bash
+uv sync --extra eval
+```
+
+The suites use Navi's configured model and real Runtime/Trace contract.
+General QA and HumanEval use the production application assembly. Tool-heavy
+suites use isolated stores and suite-specific tools so benchmark side effects
+remain inside their evaluation environments.
 
 ```bash
 # Run all 10 general QA samples

@@ -9,7 +9,6 @@ description = "A self-improving agent inspired by Hermes Agent."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "inspect-ai>=0.3.249",
     "langfuse>=2.60.8",
     "openai>=2.45.0",
     "prompt-toolkit>=3.0.0",
@@ -20,12 +19,17 @@ dependencies = [
 navi-agent = "navi_agent.cli.main:main"
 
 [project.optional-dependencies]
+eval = [
+    "inspect-ai>=0.3.249",
+]
 swe-bench = [
+    "inspect-ai>=0.3.249",
     "inspect-evals[swe-bench]>=0.16.0",
 ]
 
 [dependency-groups]
 dev = [
+    "inspect-ai>=0.3.249",
     "pytest>=8.0.0",
 ]
 

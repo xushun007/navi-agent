@@ -1,8 +1,15 @@
 # Inspect Evaluations
 
-Inspect runs the production Navi Agent runtime and reads the model, API key, base
-URL, tools, memory, skills, sessions, and telemetry settings from the normal Navi
-configuration.
+Inspect is optional. Install the base evaluation environment with:
+
+```bash
+uv sync --extra eval
+```
+
+All suites read Navi's model and API configuration and run through the real
+Runtime/Trace contract. General QA and HumanEval use the production application
+assembly. Tool-heavy suites intentionally provide benchmark-specific tools and
+isolated state.
 
 Run the 10-sample general QA evaluation:
 

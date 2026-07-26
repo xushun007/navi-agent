@@ -206,17 +206,24 @@ def main() -> int:
     if args.message == "eval":
         if args.subcommand != "run" or not args.command_target:
             parser.error("eval command requires a suite: navi-agent eval run general-qa")
-        from navi_agent.cli.eval import SUPPORTED_INSPECT_SUITES, run_inspect_eval
+        from navi_agent.cli.eval import (
+            SUPPORTED_INSPECT_SUITES,
+            EvaluationDependencyError,
+            run_inspect_eval,
+        )
 
         if args.command_target not in SUPPORTED_INSPECT_SUITES:
             parser.error(f"unknown evaluation suite: {args.command_target}")
 
-        return run_inspect_eval(
-            args.command_target,
-            limit=args.limit,
-            sample_ids=args.sample_id,
-            log_dir=args.log_dir,
-        )
+        try:
+            return run_inspect_eval(
+                args.command_target,
+                limit=args.limit,
+                sample_ids=args.sample_id,
+                log_dir=args.log_dir,
+            )
+        except EvaluationDependencyError as exc:
+            parser.error(str(exc))
     if args.message == "cron":
         if args.subcommand == "run":
             return _run_cron_once(args)

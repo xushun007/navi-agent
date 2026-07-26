@@ -1743,7 +1743,6 @@ name = "navi-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "inspect-ai" },
     { name = "langfuse" },
     { name = "openai" },
     { name = "prompt-toolkit" },
@@ -1751,28 +1750,37 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+eval = [
+    { name = "inspect-ai" },
+]
 swe-bench = [
+    { name = "inspect-ai" },
     { name = "inspect-evals", extra = ["swe-bench"] },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "inspect-ai" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "inspect-ai", specifier = ">=0.3.249" },
+    { name = "inspect-ai", marker = "extra == 'eval'", specifier = ">=0.3.249" },
+    { name = "inspect-ai", marker = "extra == 'swe-bench'", specifier = ">=0.3.249" },
     { name = "inspect-evals", extras = ["swe-bench"], marker = "extra == 'swe-bench'", specifier = ">=0.16.0" },
     { name = "langfuse", specifier = ">=2.60.8" },
     { name = "openai", specifier = ">=2.45.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },
 ]
-provides-extras = ["swe-bench"]
+provides-extras = ["eval", "swe-bench"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0.0" }]
+dev = [
+    { name = "inspect-ai", specifier = ">=0.3.249" },
+    { name = "pytest", specifier = ">=8.0.0" },
+]
 
 [[package]]
 name = "nest-asyncio2"
