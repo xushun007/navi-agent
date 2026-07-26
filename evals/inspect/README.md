@@ -89,3 +89,22 @@ Run on 2026-07-26 with `deepseek-v4-pro` and the 10 curated samples:
 Simple, multiple-choice, parallel-call, and irrelevant-tool cases all execute
 through sample-specific deterministic tools. The failed case passed `x^2` where
 the BFCL ground truth requires a canonical executable expression such as `x**2`.
+
+## Current AgentBench OS Baseline
+
+Run on 2026-07-26 with `deepseek-v4-pro` and the 10 curated dev samples:
+
+| Metric | Result |
+| --- | ---: |
+| Task and workspace success | 10/10 |
+| Runtime success | 10/10 |
+| Navi model calls / tool calls | 32 / 22 |
+| Tool errors | 3 |
+| Input / output tokens | 54,409 / 4,194 |
+| P50 / P90 runtime latency | 9.5s / 29.7s |
+| End-to-end duration | 2m08s |
+
+All three tool errors were recoverable attempts on the zero-permission script
+task; the agent corrected its approach and passed the final workspace checks.
+This is a curated Navi regression baseline using adapted workspace paths, not an
+official full AgentBench score.
