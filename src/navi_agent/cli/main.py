@@ -104,7 +104,7 @@ DEFAULT_CONFIG_TEMPLATE = """model:
   context_limit_tokens: 128000
 
 runtime:
-  max_iterations: 8
+  max_iterations: 30
 
 gateway:
   weixin:

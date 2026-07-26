@@ -146,6 +146,11 @@ def ok_result(name: str, content: str, **kwargs) -> ToolResult:
 
 
 class AgentRuntimeTests(unittest.TestCase):
+    def test_runtime_defaults_to_thirty_iterations(self) -> None:
+        runtime = AgentRuntime(transport=FakeTransport([]))
+
+        self.assertEqual(runtime._max_iterations, 30)
+
     def test_runtime_reads_existing_session_messages_for_owner(self) -> None:
         session_store = InMemorySessionStore()
         session = session_store.load("s1", "u1")

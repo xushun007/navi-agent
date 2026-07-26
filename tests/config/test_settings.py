@@ -88,6 +88,12 @@ runtime:
 
         self.assertEqual(settings.max_iterations, 12)
 
+    def test_runtime_settings_defaults_to_thirty_iterations(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = RuntimeSettings.from_sources({})
+
+        self.assertEqual(settings.max_iterations, 30)
+
     def test_runtime_settings_reads_from_config_file_values(self) -> None:
         config = {
             "runtime": {

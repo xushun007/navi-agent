@@ -58,7 +58,7 @@ class ModelSettings:
 
 @dataclass(slots=True)
 class RuntimeSettings:
-    max_iterations: int = 8
+    max_iterations: int = 30
 
     @classmethod
     def from_sources(cls, config: dict | None = None) -> "RuntimeSettings":
@@ -66,7 +66,7 @@ class RuntimeSettings:
         runtime_cfg = config.get("runtime") or {}
         raw_value = os.getenv(
             "NAVI_MAX_ITERATIONS",
-            str(runtime_cfg.get("max_iterations", "8")),
+            str(runtime_cfg.get("max_iterations", "30")),
         )
         return cls(max_iterations=int(raw_value))
 

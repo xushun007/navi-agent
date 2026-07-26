@@ -198,7 +198,7 @@ class AgentRuntime:
         disabled_toolsets: list[str] | None = None,
         event_store: RuntimeEventStore | None = None,
         background_task_manager: BackgroundTaskManager | None = None,
-        max_iterations: int = 8,
+        max_iterations: int = 30,
         agent_role: str = "primary",
         parent_session_id: str | None = None,
         model: str | None = None,
