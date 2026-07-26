@@ -131,3 +131,5 @@ The current curated HumanEval baseline passes 10/10 functional tests. Tools are
 disabled for this suite, so it measures single-turn code generation through the
 Navi prompt and runtime rather than autonomous coding. See `evals/README.md` for
 the evaluation entry points and `evals/inspect/README.md` for baseline details.
+The curated AgentBench OS baseline passes 10/10 file and terminal tasks through
+Navi's native tools.
