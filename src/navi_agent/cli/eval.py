@@ -11,6 +11,7 @@ SUPPORTED_INSPECT_SUITES = (
     "human-eval",
     "bfcl",
     "agentbench-os",
+    "swe-bench-verified",
 )
 
 
@@ -28,12 +29,14 @@ def run_inspect_eval(
     from evals.inspect.human_eval import navi_human_eval
     from evals.inspect.bfcl import navi_bfcl
     from evals.inspect.agent_bench_os import navi_agent_bench_os
+    from evals.inspect.swe_bench import navi_swe_bench_verified
 
     tasks = {
         "general-qa": navi_general_qa,
         "human-eval": navi_human_eval,
         "bfcl": navi_bfcl,
         "agentbench-os": navi_agent_bench_os,
+        "swe-bench-verified": navi_swe_bench_verified,
     }
     task_factory = tasks.get(suite)
     if task_factory is None:
