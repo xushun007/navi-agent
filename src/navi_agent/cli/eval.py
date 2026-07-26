@@ -6,7 +6,12 @@ from navi_agent.config import ModelSettings, load_config
 from navi_agent.paths import get_navi_home
 
 
-SUPPORTED_INSPECT_SUITES = ("general-qa", "human-eval", "bfcl")
+SUPPORTED_INSPECT_SUITES = (
+    "general-qa",
+    "human-eval",
+    "bfcl",
+    "agentbench-os",
+)
 
 
 def run_inspect_eval(
@@ -22,11 +27,13 @@ def run_inspect_eval(
     from evals.inspect.general_qa import navi_general_qa
     from evals.inspect.human_eval import navi_human_eval
     from evals.inspect.bfcl import navi_bfcl
+    from evals.inspect.agent_bench_os import navi_agent_bench_os
 
     tasks = {
         "general-qa": navi_general_qa,
         "human-eval": navi_human_eval,
         "bfcl": navi_bfcl,
+        "agentbench-os": navi_agent_bench_os,
     }
     task_factory = tasks.get(suite)
     if task_factory is None:

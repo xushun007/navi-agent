@@ -124,6 +124,7 @@ results under `~/.navi-agent/evals/inspect/`.
 navi-agent eval run general-qa
 navi-agent eval run human-eval
 navi-agent eval run bfcl
+navi-agent eval run agentbench-os
 ```
 
 The current curated HumanEval baseline passes 10/10 functional tests. Tools are
