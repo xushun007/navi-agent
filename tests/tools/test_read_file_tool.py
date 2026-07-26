@@ -52,6 +52,21 @@ class ReadFileToolTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertIn("binary file", result.content)
 
+    def test_returns_tool_error_for_unreadable_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            path = root / "secret.txt"
+            path.write_text("secret", encoding="utf-8")
+            path.chmod(0)
+            try:
+                result = ReadFileTool(root=root).invoke(path="secret.txt")
+            finally:
+                path.chmod(0o600)
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("Cannot read file: secret.txt", result.content)
+        self.assertEqual(result.metadata["error_type"], "PermissionError")
+
     def test_reads_file_from_added_directory(self) -> None:
         with tempfile.TemporaryDirectory() as workspace, tempfile.TemporaryDirectory() as added:
             added_file = Path(added) / "external.txt"
