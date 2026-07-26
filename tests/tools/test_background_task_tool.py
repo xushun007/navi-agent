@@ -1,3 +1,4 @@
+import threading
 import time
 
 from navi_agent.runtime import BackgroundTaskManager, ToolContext
@@ -51,3 +52,55 @@ def test_does_not_expose_tasks_from_another_session() -> None:
 
     assert result.status == "error"
     assert "not found" in result.content
+
+
+def test_cancels_task_for_current_session() -> None:
+    manager = BackgroundTaskManager()
+    cancelled = threading.Event()
+    task = manager.submit(
+        session_id="s1",
+        user_id="u1",
+        description="slow command",
+        runner=lambda: (
+            cancelled.wait(timeout=2),
+            ToolResult.error(name="bash", content="Command cancelled"),
+        )[1],
+        cancel_callback=cancelled.set,
+    )
+    tool = BackgroundTaskTool(manager)
+
+    result = tool.invoke(
+        context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+        action="cancel",
+        task_id=task.task_id,
+    )
+
+    assert result.status == "success"
+    assert result.structured_content["cancel_requested"]
+    assert cancelled.wait(timeout=1)
+
+
+def test_cannot_cancel_task_from_another_session() -> None:
+    manager = BackgroundTaskManager()
+    release = threading.Event()
+    task = manager.submit(
+        session_id="s1",
+        user_id="u1",
+        description="private",
+        runner=lambda: (
+            release.wait(timeout=2),
+            ToolResult.ok(name="bash", content="done"),
+        )[1],
+        cancel_callback=release.set,
+    )
+    tool = BackgroundTaskTool(manager)
+
+    result = tool.invoke(
+        context=ToolContext(session_id="s2", user_id="u1", iteration=1),
+        action="cancel",
+        task_id=task.task_id,
+    )
+    release.set()
+
+    assert result.status == "error"
+    assert "cannot be cancelled" in result.content

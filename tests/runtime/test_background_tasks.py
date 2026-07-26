@@ -76,3 +76,32 @@ def test_completion_listeners_are_notified_and_fail_open() -> None:
     assert notified.wait(timeout=2)
     assert received[0].task_id == task.task_id
     assert received[0].status == "succeeded"
+
+
+def test_cancel_requests_are_scoped_and_forwarded_to_runner() -> None:
+    manager = BackgroundTaskManager()
+    cancelled = threading.Event()
+
+    def run_until_cancelled() -> ToolResult:
+        cancelled.wait(timeout=2)
+        return ToolResult.error(
+            name="bash",
+            content="Command cancelled",
+            structured_content={"cancelled": cancelled.is_set()},
+        )
+
+    task = manager.submit(
+        session_id="s1",
+        user_id="u1",
+        description="slow command",
+        runner=run_until_cancelled,
+        cancel_callback=cancelled.set,
+    )
+
+    assert not manager.cancel(task.task_id, session_id="s2", user_id="u1")
+    assert manager.cancel(task.task_id, session_id="s1", user_id="u1")
+    completed = _wait_for_terminal(manager, task.task_id)
+    assert completed.status == "failed"
+    assert completed.cancel_requested
+    assert completed.result is not None
+    assert completed.result.structured_content["cancelled"]

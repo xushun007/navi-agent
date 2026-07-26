@@ -53,6 +53,7 @@ def build_default_tool_registry(
                 "terminal",
                 BashTool(
                     root=workspace_root,
+                    default_timeout_seconds=3600,
                     max_timeout_seconds=3600,
                     background_task_manager=background_task_manager,
                     additional_roots=added_roots,

@@ -20,13 +20,13 @@ class BackgroundTaskTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Inspect background command tasks for the current conversation."
+        return "Inspect or cancel background command tasks for the current conversation."
 
     def schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["status", "list"]},
+                "action": {"type": "string", "enum": ["status", "list", "cancel"]},
                 "task_id": {"type": "string"},
             },
             "required": ["action"],
@@ -65,6 +65,28 @@ class BackgroundTaskTool(BaseTool):
                 content=content,
                 structured_content={"tasks": [self._serialize_task(task) for task in tasks]},
             )
+        if action == "cancel":
+            task_id = str(kwargs.get("task_id") or "").strip()
+            if not task_id:
+                return ToolResult.error(name=self.name, content="task_id is required for cancel")
+            cancelled = self._manager.cancel(
+                task_id,
+                session_id=context.session_id,
+                user_id=context.user_id,
+            )
+            if not cancelled:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"Background task cannot be cancelled: {task_id}",
+                )
+            return ToolResult.ok(
+                name=self.name,
+                content=f"Cancellation requested for background task: {task_id}",
+                structured_content={
+                    "task_id": task_id,
+                    "cancel_requested": True,
+                },
+            )
         return ToolResult.error(name=self.name, content=f"Unsupported action: {action or '-'}")
 
     @staticmethod
@@ -76,6 +98,7 @@ class BackgroundTaskTool(BaseTool):
             "submitted_at": task.submitted_at,
             "started_at": task.started_at,
             "completed_at": task.completed_at,
+            "cancel_requested": task.cancel_requested,
         }
         if task.result is not None:
             payload["result"] = {
