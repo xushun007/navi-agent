@@ -15,6 +15,14 @@ navi-agent eval run human-eval
 Docker sandbox. Docker must be running. The 10 static samples are selected from
 OpenAI's MIT-licensed `openai/human-eval` test set.
 
+For trusted local development only, Docker can be bypassed explicitly:
+
+```bash
+NAVI_EVAL_SANDBOX=local navi-agent eval run human-eval --limit 3
+```
+
+Local mode executes model-generated code on the host and is not isolated.
+
 Run a subset:
 
 ```bash

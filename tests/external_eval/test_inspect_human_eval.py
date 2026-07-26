@@ -10,6 +10,7 @@ from evals.inspect.human_eval import (
     human_eval_functional_correctness,
     load_human_eval_samples,
     navi_human_eval,
+    resolve_human_eval_sandbox,
 )
 from tests.external_eval.test_inspect_general_qa import build_fake_runner
 
@@ -36,12 +37,30 @@ def test_preserves_unfenced_python_code() -> None:
 
 
 def test_builds_human_eval_task_with_docker_sandbox() -> None:
-    task = navi_human_eval(runner=build_fake_runner())
+    with patch.dict("os.environ", {"NAVI_EVAL_SANDBOX": "docker"}):
+        task = navi_human_eval(runner=build_fake_runner())
 
     assert len(task.dataset) == 10
     assert len(task.scorer) == 2
     assert task.sandbox.type == "docker"
     assert task.metadata["dataset"] == "openai/human-eval"
+
+
+def test_supports_explicit_local_sandbox() -> None:
+    with patch.dict("os.environ", {"NAVI_EVAL_SANDBOX": "local"}):
+        task = navi_human_eval(runner=build_fake_runner())
+
+    assert task.sandbox.type == "local"
+
+
+def test_rejects_unknown_sandbox() -> None:
+    with patch.dict("os.environ", {"NAVI_EVAL_SANDBOX": "host"}):
+        try:
+            resolve_human_eval_sandbox()
+        except ValueError as exc:
+            assert str(exc) == "NAVI_EVAL_SANDBOX must be 'docker' or 'local'"
+        else:
+            raise AssertionError("expected unknown sandbox to fail")
 
 
 def test_scores_generated_code_with_official_tests() -> None:

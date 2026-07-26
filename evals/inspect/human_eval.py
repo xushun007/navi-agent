@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -36,6 +37,15 @@ def extract_python_code(completion: str) -> str:
     if fenced_blocks:
         return max(fenced_blocks, key=len).strip()
     return completion.strip()
+
+
+def resolve_human_eval_sandbox() -> str | tuple[str, str]:
+    sandbox_name = os.getenv("NAVI_EVAL_SANDBOX", "docker").strip().lower()
+    if sandbox_name == "local":
+        return "local"
+    if sandbox_name == "docker":
+        return ("docker", str(SANDBOX_DOCKERFILE))
+    raise ValueError("NAVI_EVAL_SANDBOX must be 'docker' or 'local'")
 
 
 @scorer(metrics=[accuracy()])
@@ -77,7 +87,7 @@ def navi_human_eval(runner: NaviInspectRunner | None = None) -> Task:
             human_eval_functional_correctness(),
             navi_runtime_success(),
         ],
-        sandbox=("docker", str(SANDBOX_DOCKERFILE)),
+        sandbox=resolve_human_eval_sandbox(),
         metadata={
             "agent": "navi-agent",
             "dataset": "openai/human-eval",
