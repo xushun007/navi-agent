@@ -51,6 +51,7 @@ class DefaultsTest(unittest.TestCase):
                 "cron",
                 "delegate_task",
                 "web_fetch",
+                "web_search",
             },
         )
 
@@ -71,7 +72,7 @@ class DefaultsTest(unittest.TestCase):
         delegation_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["delegation"])}
         self.assertEqual(delegation_tools, {"delegate_task"})
         web_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["web"])}
-        self.assertEqual(web_tools, {"web_fetch"})
+        self.assertEqual(web_tools, {"web_search", "web_fetch"})
 
     def test_web_search_is_registered_when_configured(self) -> None:
         schemas = build_default_tool_registry(
