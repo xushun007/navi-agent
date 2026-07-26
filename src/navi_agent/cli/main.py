@@ -125,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="navi-agent")
     parser.add_argument("message", nargs="?")
     parser.add_argument("subcommand", nargs="?")
+    parser.add_argument("command_target", nargs="?")
     parser.add_argument("--user-id", default="local-user")
     parser.add_argument("--session-id")
     parser.add_argument("--system-prompt")
@@ -180,6 +181,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-import-tool-use-case", action="store_true")
     parser.add_argument("--runtime-run-id")
     parser.add_argument("--cron-poll-interval", type=float, default=60.0)
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--sample-id", action="append")
+    parser.add_argument("--log-dir", type=Path)
     return parser
 
 
@@ -199,6 +203,19 @@ def main() -> int:
     if args.message == "gateway" and args.subcommand == "start":
         args.gateway = "weixin"
         return _run_gateway(args)
+    if args.message == "eval":
+        if args.subcommand != "run" or not args.command_target:
+            parser.error("eval command requires a suite: navi-agent eval run general-qa")
+        if args.command_target != "general-qa":
+            parser.error(f"unknown evaluation suite: {args.command_target}")
+        from navi_agent.cli.eval import run_inspect_eval
+
+        return run_inspect_eval(
+            args.command_target,
+            limit=args.limit,
+            sample_ids=args.sample_id,
+            log_dir=args.log_dir,
+        )
     if args.message == "cron":
         if args.subcommand == "run":
             return _run_cron_once(args)
@@ -209,7 +226,7 @@ def main() -> int:
         parser.error("gateway command requires `start`: navi-agent gateway start")
     if args.message == "start":
         parser.error("use `navi-agent gateway start`")
-    if args.subcommand:
+    if args.subcommand or args.command_target:
         parser.error("message must be quoted when it contains spaces")
     if args.banner:
         print(render_banner())
