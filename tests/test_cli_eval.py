@@ -56,3 +56,24 @@ def test_rejects_unknown_inspect_suite() -> None:
         assert str(exc) == "Unknown evaluation suite: missing"
     else:
         raise AssertionError("expected unknown suite to fail")
+
+
+def test_runs_human_eval_task() -> None:
+    fake_task = object()
+    fake_grader = object()
+    fake_log = SimpleNamespace(status="success", location="/tmp/human-eval.eval")
+
+    with patch(
+        "navi_agent.cli.eval.ModelSettings.from_sources",
+        return_value=ModelSettings(model="test-model", api_key="token"),
+    ):
+        with patch("inspect_ai.model.get_model", return_value=fake_grader):
+            with patch(
+                "evals.inspect.human_eval.navi_human_eval",
+                return_value=fake_task,
+            ):
+                with patch("inspect_ai.eval", return_value=[fake_log]) as inspect_eval:
+                    exit_code = run_inspect_eval("human-eval", limit=1)
+
+    assert exit_code == 0
+    assert inspect_eval.call_args.args == (fake_task,)

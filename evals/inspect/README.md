@@ -8,7 +8,12 @@ Run the 10-sample general QA evaluation:
 
 ```bash
 navi-agent eval run general-qa
+navi-agent eval run human-eval
 ```
+
+`human-eval` executes generated Python and the official tests inside an Inspect
+Docker sandbox. Docker must be running. The 10 static samples are selected from
+OpenAI's MIT-licensed `openai/human-eval` test set.
 
 Run a subset:
 
