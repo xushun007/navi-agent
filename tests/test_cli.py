@@ -608,6 +608,25 @@ class CliTests(unittest.TestCase):
             log_dir=Path("/tmp/eval-logs"),
         )
 
+    def test_main_runs_human_eval_suite(self) -> None:
+        with patch(
+            "navi_agent.cli.eval.run_inspect_eval",
+            return_value=0,
+        ) as run_eval:
+            with patch(
+                "sys.argv",
+                ["navi-agent", "eval", "run", "human-eval", "--limit", "1"],
+            ):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        run_eval.assert_called_once_with(
+            "human-eval",
+            limit=1,
+            sample_ids=None,
+            log_dir=None,
+        )
+
     def test_main_rejects_unknown_eval_suite(self) -> None:
         stderr = io.StringIO()
 

@@ -50,6 +50,7 @@ def test_loads_ten_diverse_simpleqa_samples() -> None:
 def test_runs_native_navi_runtime_and_exposes_trace_metadata() -> None:
     result = build_fake_runner().run(
         "Who was the former Icelandic prime minister?",
+        suite="general-qa",
         sample_id="sample-1",
     )
 
@@ -79,7 +80,7 @@ def test_builds_runner_from_production_application() -> None:
     )
 
     with patch("evals.inspect.adapter.build_application", return_value=app) as build_app:
-        runner = build_navi_inspect_runner()
+        runner = build_navi_inspect_runner(disabled_toolsets=["core"])
 
     assert isinstance(runner, NaviInspectRunner)
     build_app.assert_called_once()
@@ -87,3 +88,4 @@ def test_builds_runner_from_production_application() -> None:
         build_app.call_args.kwargs["approval_provider"],
         DenyAllApprovalProvider,
     )
+    assert build_app.call_args.kwargs["disabled_toolsets"] == ["core"]

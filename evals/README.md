@@ -17,6 +17,10 @@ navi-agent eval run general-qa
 # Run a subset
 navi-agent eval run general-qa --limit 5
 navi-agent eval run general-qa --sample-id simpleqa-8
+
+# Run 10 curated HumanEval coding problems
+navi-agent eval run human-eval
+navi-agent eval run human-eval --sample-id HumanEval/0
 ```
 
 The command reads the normal Navi configuration from

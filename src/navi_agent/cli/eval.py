@@ -6,6 +6,9 @@ from navi_agent.config import ModelSettings, load_config
 from navi_agent.paths import get_navi_home
 
 
+SUPPORTED_INSPECT_SUITES = ("general-qa", "human-eval")
+
+
 def run_inspect_eval(
     suite: str,
     *,
@@ -17,8 +20,14 @@ def run_inspect_eval(
     from inspect_ai.model import get_model
 
     from evals.inspect.general_qa import navi_general_qa
+    from evals.inspect.human_eval import navi_human_eval
 
-    if suite != "general-qa":
+    tasks = {
+        "general-qa": navi_general_qa,
+        "human-eval": navi_human_eval,
+    }
+    task_factory = tasks.get(suite)
+    if task_factory is None:
         raise ValueError(f"Unknown evaluation suite: {suite}")
 
     settings = ModelSettings.from_sources(load_config())
@@ -33,7 +42,7 @@ def run_inspect_eval(
     )
     resolved_log_dir = log_dir or get_navi_home() / "evals" / "inspect"
     logs = inspect_eval(
-        navi_general_qa(),
+        task_factory(),
         model=grader,
         model_roles={"grader": grader},
         display="plain",
