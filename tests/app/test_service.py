@@ -280,6 +280,11 @@ class FailingReviewAgentService:
         raise RuntimeError("review failed")
 
 
+class RejectingBackgroundReviewWorker:
+    def submit(self, *args, **kwargs):
+        return False
+
+
 class ApplicationServiceTests(unittest.TestCase):
     def test_run_state_is_queryable_while_request_is_active(self) -> None:
         started = Event()
@@ -659,6 +664,80 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(review_run.memory_writes[0]["target"], "user")
         self.assertEqual(review_run.tool_results[0].name, "memory")
         self.assertEqual(review_run.review_run_id, call["review_run_id"])
+
+    def test_successful_review_enqueue_acknowledges_skill_watermark(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Inspect README",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="skill_view",
+                    status="success",
+                )
+            ],
+        )
+        runtime.result_messages = [
+            Message(role="user", content="Inspect README"),
+            Message(role="assistant", content="done"),
+        ]
+        unblock_review = threading.Event()
+        policy = NudgeReviewTriggerPolicy(
+            memory_turn_interval=0,
+            skill_tool_interval=1,
+        )
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            review_agent_service=FakeReviewAgentService(unblock_event=unblock_review),
+            review_trigger_policy=policy,
+        )
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+
+        self.assertEqual(policy.tool_executions_since_skill, 0)
+        unblock_review.set()
+        service.wait_for_background_reviews()
+
+    def test_failed_review_enqueue_preserves_skill_watermark(self) -> None:
+        runtime = FakeRuntime()
+        runtime.latest_trace = RuntimeTrace(
+            session_id="s1",
+            user_id="u1",
+            user_message="Inspect README",
+            final_response="done",
+            status="success",
+            trace_id="trace-1",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="skill_view",
+                    status="success",
+                )
+            ],
+        )
+        policy = NudgeReviewTriggerPolicy(
+            memory_turn_interval=0,
+            skill_tool_interval=1,
+        )
+        service = ApplicationService(
+            runtime=runtime,
+            candidate_store=FakeCandidateStore(),
+            review_agent_service=FakeReviewAgentService(),
+            review_trigger_policy=policy,
+        )
+        service._background_skill_review = RejectingBackgroundReviewWorker()
+
+        service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
+
+        self.assertEqual(policy.tool_executions_since_skill, 1)
 
     def test_background_review_records_promoted_skill_draft(self) -> None:
         runtime = FakeRuntime()

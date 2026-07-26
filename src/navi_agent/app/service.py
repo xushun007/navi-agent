@@ -489,7 +489,7 @@ class ApplicationService:
             (decision.review_memory and self._review_agent_service is not None)
             or (decision.review_skill and self._review_agent_service is not None)
         ):
-            self._background_skill_review.submit(
+            submitted = self._background_skill_review.submit(
                 trace,
                 review_evidence=self._build_skill_review_evidence(
                     trace,
@@ -498,6 +498,8 @@ class ApplicationService:
                 review_memory=decision.review_memory and self._review_agent_service is not None,
                 review_skill=decision.review_skill and self._review_agent_service is not None,
             )
+            if submitted:
+                self._review_trigger_policy.acknowledge(trace, decision)
 
     def _hydrate_review_trigger(self, *, session_id: str, user_id: str) -> None:
         hydrate = getattr(self._review_trigger_policy, "hydrate", None)
@@ -506,6 +508,8 @@ class ApplicationService:
         traces = self._runtime.get_session_traces(session_id, user_id=user_id)
         hydrate(
             traces,
+            session_id=session_id,
+            user_id=user_id,
             memory_available=self._review_agent_service is not None,
             skill_available=self._review_agent_service is not None,
         )
@@ -556,6 +560,8 @@ class ApplicationService:
                 result=result,
             )
             self._record_review_agent_skill_actions(result)
+            if task.review_skill and self._has_promoted_skill_write(result):
+                self._review_trigger_policy.reset_skill(task.trace)
 
     def _build_skill_review_evidence(
         self,
@@ -600,6 +606,17 @@ class ApplicationService:
             elif action == "draft_append":
                 if self._skill_usage_store is not None:
                     self._skill_usage_store.record_update(skill_name)
+
+    @staticmethod
+    def _has_promoted_skill_write(result: RuntimeResult) -> bool:
+        return any(
+            tool_result.name == "skill_manage"
+            and tool_result.status == "success"
+            and tool_result.structured_content.get("promotion_status") == "promoted"
+            and tool_result.structured_content.get("action")
+            in {"draft_create", "draft_append", "draft_attachment"}
+            for tool_result in result.tool_results
+        )
 
     def _record_review_run(
         self,

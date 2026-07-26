@@ -51,16 +51,25 @@ class BackgroundSkillReviewWorker:
         review_evidence: SkillReviewEvidence | None = None,
         review_memory: bool = False,
         review_skill: bool = False,
-    ) -> None:
+    ) -> bool:
         if not review_memory and not review_skill:
-            return
-        self._ensure_started()
+            return False
         task = BackgroundReviewTask(
             trace=trace,
             review_evidence=review_evidence,
             review_memory=review_memory,
             review_skill=review_skill,
         )
+        try:
+            self._ensure_started()
+            self._queue.put_nowait(task)
+        except Exception:
+            logger.exception(
+                "Failed to enqueue background review: trace_id=%s session_id=%s",
+                trace.trace_id,
+                trace.session_id,
+            )
+            return False
         with self._lock:
             self._submitted_count += 1
         logger.info(
@@ -70,9 +79,9 @@ class BackgroundSkillReviewWorker:
             review_memory,
             review_skill,
             len(review_evidence.messages_snapshot) if review_evidence is not None else 0,
-            self._queue.qsize() + 1,
+            self._queue.qsize(),
         )
-        self._queue.put(task)
+        return True
 
     def drain(self) -> None:
         self._queue.join()
