@@ -13,7 +13,7 @@ def test_background_skill_review_worker_runs_submitted_trace() -> None:
         status="success",
     )
 
-    worker.submit(trace, review_memory=True, review_skill=True)
+    assert worker.submit(trace, review_memory=True, review_skill=True)
     submitted = worker.status()
     assert submitted.submitted_count == 1
     assert submitted.pending_count >= 0
@@ -66,3 +66,28 @@ def test_background_skill_review_worker_survives_review_error() -> None:
     assert status.completed_count == 1
     assert status.failed_count == 1
     assert status.pending_count == 0
+
+
+def test_background_skill_review_worker_reports_enqueue_failure() -> None:
+    worker = BackgroundSkillReviewWorker(review_trace=lambda task: None)
+    trace = RuntimeTrace(
+        session_id="s1",
+        user_id="u1",
+        user_message="hello",
+        final_response="ok",
+        status="success",
+        trace_id="trace-1",
+    )
+
+    class FailingQueue:
+        def put_nowait(self, task):
+            raise RuntimeError("queue unavailable")
+
+        def qsize(self):
+            return 0
+
+    worker._queue = FailingQueue()
+    worker._ensure_started = lambda: None
+
+    assert not worker.submit(trace, review_skill=True)
+    assert worker.status().submitted_count == 0
