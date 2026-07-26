@@ -50,6 +50,12 @@ class WebSearchTool(BaseTool):
         return bool(self._api_key)
 
     def invoke(self, context: ToolContext | None = None, **kwargs: Any) -> ToolResult:
+        if not self._api_key:
+            return ToolResult.error(
+                name=self.name,
+                content="web search is not configured",
+                metadata={"error_category": "not_configured"},
+            )
         query = str(kwargs.get("query") or "").strip()
         if not query:
             return ToolResult.error(
@@ -92,7 +98,16 @@ class WebSearchTool(BaseTool):
                 metadata={"error_category": "invalid_response"},
             )
 
-        raw_results = payload.get("web", {}).get("results", [])
+        if not isinstance(payload, dict):
+            return ToolResult.error(
+                name=self.name,
+                content="search provider returned an invalid response",
+                metadata={"error_category": "invalid_response"},
+            )
+        web_payload = payload.get("web")
+        raw_results = web_payload.get("results", []) if isinstance(web_payload, dict) else []
+        if not isinstance(raw_results, list):
+            raw_results = []
         results = [
             {
                 "title": _clean_text(item.get("title")),

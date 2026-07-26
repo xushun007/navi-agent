@@ -130,3 +130,12 @@ def test_redirect_handler_revalidates_target() -> None:
         assert exc.category == "unsafe_url"
     else:
         raise AssertionError("redirect target should be validated")
+
+
+def test_validate_public_url_rejects_non_http_redirects() -> None:
+    try:
+        validate_public_url("file:///etc/passwd")
+    except WebRequestError as exc:
+        assert exc.category == "invalid_url"
+    else:
+        raise AssertionError("non-HTTP redirect should be rejected")
