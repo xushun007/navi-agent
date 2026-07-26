@@ -54,14 +54,23 @@ class ReadFileTool(WorkspaceTool):
                 content=f"Path is a directory, not a file: {requested_path}",
                 metadata={"path": requested_path},
             )
-        if self._is_binary_file(resolved):
+        try:
+            if self._is_binary_file(resolved):
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"Cannot read binary file: {requested_path}",
+                    metadata={"path": requested_path},
+                )
+            lines = resolved.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
             return ToolResult.error(
                 name=self.name,
-                content=f"Cannot read binary file: {requested_path}",
-                metadata={"path": requested_path},
+                content=f"Cannot read file: {requested_path}: {exc.strerror or exc}",
+                metadata={
+                    "path": requested_path,
+                    "error_type": type(exc).__name__,
+                },
             )
-
-        lines = resolved.read_text(encoding="utf-8").splitlines()
         start_line = max(1, int(kwargs.get("start_line", 1)))
         requested_line_count = int(kwargs.get("line_count", self._default_line_count))
         line_count = max(1, min(requested_line_count, self._max_line_count))
