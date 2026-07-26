@@ -4,7 +4,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from navi_agent.config import ModelSettings, RuntimeSettings, WeixinGatewaySettings, load_config
+from navi_agent.config import (
+    ModelSettings,
+    RuntimeSettings,
+    WebSettings,
+    WeixinGatewaySettings,
+    load_config,
+)
 
 
 class SettingsTests(unittest.TestCase):
@@ -105,6 +111,29 @@ runtime:
             settings = RuntimeSettings.from_sources(config)
 
         self.assertEqual(settings.max_iterations, 15)
+
+    def test_web_settings_reads_search_key_from_config(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = WebSettings.from_sources(
+                {"web": {"search_api_key": "config-key"}}
+            )
+
+        self.assertEqual(settings.search_api_key, "config-key")
+
+    def test_web_settings_prefers_navi_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "NAVI_WEB_SEARCH_API_KEY": "navi-key",
+                "BRAVE_SEARCH_API_KEY": "brave-key",
+            },
+            clear=True,
+        ):
+            settings = WebSettings.from_sources(
+                {"web": {"search_api_key": "config-key"}}
+            )
+
+        self.assertEqual(settings.search_api_key, "navi-key")
 
     def test_weixin_gateway_settings_reads_from_config_file_values(self) -> None:
         config = {

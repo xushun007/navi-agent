@@ -31,6 +31,7 @@ from .skill_view_tool import SkillListTool, SkillViewTool
 from .todo_tool import TodoTool
 from .write_file_tool import WriteFileTool
 from .web_fetch_tool import WebFetchTool
+from .web_search_tool import WebSearchTool
 
 
 def build_default_tool_registry(
@@ -43,6 +44,7 @@ def build_default_tool_registry(
     session_store=None,
     additional_roots: Iterable[Path] | None = None,
     interaction_store: JsonPendingInteractionStore | None = None,
+    web_search_api_key: str | None = None,
 ) -> ToolRegistry:
     workspace_root = root or Path.cwd()
     added_roots = tuple(additional_roots or ())
@@ -88,6 +90,7 @@ def build_default_tool_registry(
             ),
             ("todo", TodoTool()),
             ("web", WebFetchTool()),
+            ("web", WebSearchTool(api_key=web_search_api_key)),
             *(
                 [("interaction", AskUserTool(interaction_store))]
                 if interaction_store is not None
@@ -107,7 +110,7 @@ def build_default_tool_registry(
             ToolsetDefinition(name="delegation", tools=["delegate_task"]),
             ToolsetDefinition(name="skills", tools=["skill_list", "skill_view"]),
             ToolsetDefinition(name="todo", tools=["todo"]),
-            ToolsetDefinition(name="web", tools=["web_fetch"]),
+            ToolsetDefinition(name="web", tools=["web_search", "web_fetch"]),
             ToolsetDefinition(name="interaction", tools=["ask_user"]),
             ToolsetDefinition(
                 name="core",

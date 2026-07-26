@@ -72,3 +72,13 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(delegation_tools, {"delegate_task"})
         web_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["web"])}
         self.assertEqual(web_tools, {"web_fetch"})
+
+    def test_web_search_is_registered_when_configured(self) -> None:
+        schemas = build_default_tool_registry(
+            web_search_api_key="search-key",
+        ).schemas(enabled_toolsets=["web"])
+
+        self.assertEqual(
+            {schema["name"] for schema in schemas},
+            {"web_search", "web_fetch"},
+        )

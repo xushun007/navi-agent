@@ -5,7 +5,13 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from navi_agent.app import ApplicationService
-from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings, load_config
+from navi_agent.config import (
+    LangfuseSettings,
+    ModelSettings,
+    RuntimeSettings,
+    WebSettings,
+    load_config,
+)
 from navi_agent.evolution import (
     DefaultSkillDraftEvaluator,
     FileSkillStore,
@@ -72,6 +78,7 @@ def build_runtime(
     config = load_config()
     model_settings = model_settings or ModelSettings.from_sources(config)
     runtime_settings = runtime_settings or RuntimeSettings.from_sources(config)
+    web_settings = WebSettings.from_sources(config)
 
     setup_logging(
         level="INFO",
@@ -128,6 +135,7 @@ def build_runtime(
                 root=resolved_workspace_root,
                 additional_roots=added_roots,
                 interaction_store=interaction_store if include_delegation else None,
+                web_search_api_key=web_settings.search_api_key,
             ),
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
