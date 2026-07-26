@@ -117,6 +117,15 @@ uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-na
 
 ## Evaluation
 
-- Online sessions go through the runtime; offline evaluation only uses stable samples
-- IFEval runs scoring through the unified workflow and writes reports
-- New samples are manually confirmed first, then added to the `data/eval/` regression set
+Inspect evaluations run through the production Navi runtime and write replayable
+results under `~/.navi-agent/evals/inspect/`.
+
+```bash
+navi-agent eval run general-qa
+navi-agent eval run human-eval
+```
+
+The current curated HumanEval baseline passes 10/10 functional tests. Tools are
+disabled for this suite, so it measures single-turn code generation through the
+Navi prompt and runtime rather than autonomous coding. See `evals/README.md` for
+the evaluation entry points and `evals/inspect/README.md` for baseline details.
