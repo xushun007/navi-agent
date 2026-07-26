@@ -76,6 +76,27 @@ class RuntimeSettings:
 
 
 @dataclass(slots=True)
+class WebSettings:
+    search_api_key: str | None = None
+
+    @classmethod
+    def from_sources(cls, config: dict | None = None) -> "WebSettings":
+        config = config or {}
+        web_cfg = config.get("web") or {}
+        return cls(
+            search_api_key=(
+                os.getenv("NAVI_WEB_SEARCH_API_KEY")
+                or os.getenv("BRAVE_SEARCH_API_KEY")
+                or _optional_str(web_cfg.get("search_api_key"))
+            )
+        )
+
+    @classmethod
+    def from_env(cls) -> "WebSettings":
+        return cls.from_sources()
+
+
+@dataclass(slots=True)
 class WeixinGatewaySettings:
     token: str | None = None
     account_id: str | None = None

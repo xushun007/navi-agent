@@ -12,6 +12,7 @@ from .search_files_tool import SearchFilesTool
 from .todo_tool import TodoTool, TodoItem, TodoStore
 from .write_file_tool import WriteFileTool
 from .web_fetch_tool import WebFetchTool
+from .web_search_tool import WebSearchTool
 
 __all__ = [
     "BaseTool",
@@ -31,4 +32,5 @@ __all__ = [
     "TodoTool",
     "WriteFileTool",
     "WebFetchTool",
+    "WebSearchTool",
 ]

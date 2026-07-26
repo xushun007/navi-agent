@@ -106,6 +106,9 @@ DEFAULT_CONFIG_TEMPLATE = """model:
 runtime:
   max_iterations: 30
 
+web:
+  search_api_key:
+
 gateway:
   weixin:
     token: replace-with-your-weixin-token
