@@ -38,11 +38,30 @@ class _Opener:
         return self.response
 
 
-def test_web_search_is_unavailable_without_api_key() -> None:
-    tool = WebSearchTool(api_key=None)
+def test_web_search_uses_ddgs_without_api_key() -> None:
+    class _Ddgs:
+        def __init__(self, **kwargs) -> None:
+            assert kwargs["timeout"] == 30
 
-    assert tool.is_available() is False
-    assert tool.invoke(query="navi").metadata["error_category"] == "not_configured"
+        def text(self, query: str, **kwargs):
+            assert query == "navi"
+            assert kwargs == {"max_results": 5, "safesearch": "moderate"}
+            return [
+                {
+                    "title": "Navi Agent",
+                    "href": "https://example.com/navi",
+                    "body": "Personal agent",
+                }
+            ]
+
+    tool = WebSearchTool(api_key=None, ddgs_factory=_Ddgs)
+
+    result = tool.invoke(query="navi")
+
+    assert tool.is_available() is True
+    assert result.status == "success"
+    assert result.structured_content["provider"] == "ddgs"
+    assert result.structured_content["results"][0]["url"] == "https://example.com/navi"
 
 
 def test_web_search_returns_clean_structured_results() -> None:
@@ -68,6 +87,7 @@ def test_web_search_returns_clean_structured_results() -> None:
 
     assert result.status == "success"
     assert result.structured_content["result_count"] == 1
+    assert result.structured_content["provider"] == "brave"
     assert result.structured_content["results"][0] == {
         "title": "Navi Agent",
         "url": "https://example.com/navi",

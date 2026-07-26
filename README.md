@@ -104,8 +104,8 @@ For now, only the minimal closed loop of text messages and DM authorization is k
 
 ## Web Tools
 
-`web_fetch` is available by default for public HTTP(S) pages. Enable `web_search`
-with a Brave Search API key:
+`web_fetch` is available by default for public HTTP(S) pages. `web_search` uses
+DDGS without configuration and prefers Brave Search when an API key is configured:
 
 ```yaml
 web:
