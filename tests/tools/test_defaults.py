@@ -50,6 +50,7 @@ class DefaultsTest(unittest.TestCase):
                 "todo",
                 "cron",
                 "delegate_task",
+                "web_fetch",
             },
         )
 
@@ -69,3 +70,5 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(scheduler_tools, {"cron"})
         delegation_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["delegation"])}
         self.assertEqual(delegation_tools, {"delegate_task"})
+        web_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["web"])}
+        self.assertEqual(web_tools, {"web_fetch"})
