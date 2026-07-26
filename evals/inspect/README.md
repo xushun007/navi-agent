@@ -62,3 +62,20 @@ tool calls.
 
 This is an L0 code-generation baseline, not a full HumanEval pass@1 result or an
 autonomous coding-agent benchmark. The subset is public and intentionally small.
+
+## Current BFCL Baseline
+
+Run on 2026-07-26 with `deepseek-v4-pro` and the 10 curated samples:
+
+| Metric | Result |
+| --- | ---: |
+| Tool-call correctness | 9/10 |
+| Runtime success | 10/10 |
+| Navi model calls / tool calls | 18 / 10 |
+| Input / output tokens | 15,781 / 3,140 |
+| P50 / P90 runtime latency | 7.2s / 8.8s |
+| End-to-end duration | 1m14s |
+
+Simple, multiple-choice, parallel-call, and irrelevant-tool cases all execute
+through sample-specific deterministic tools. The failed case passed `x^2` where
+the BFCL ground truth requires a canonical executable expression such as `x**2`.
