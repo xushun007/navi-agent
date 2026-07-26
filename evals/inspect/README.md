@@ -9,11 +9,17 @@ Run the 10-sample general QA evaluation:
 ```bash
 navi-agent eval run general-qa
 navi-agent eval run human-eval
+navi-agent eval run bfcl
 ```
 
 `human-eval` executes generated Python and the official tests inside an Inspect
 Docker sandbox. Docker must be running. The 10 static samples are selected from
 OpenAI's MIT-licensed `openai/human-eval` test set.
+
+`bfcl` runs ten curated BFCL v4 function-calling cases through the real Navi
+runtime. Each sample exposes only its benchmark functions as deterministic
+tools. Scoring reads the resulting Navi tool trace and checks tool selection,
+arguments, parallel calls, and irrelevant-tool refusal.
 
 For trusted local development only, Docker can be bypassed explicitly:
 

@@ -26,6 +26,7 @@ class NaviInspectResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float
+    tool_calls: tuple[dict[str, object], ...] = ()
 
     def metadata(self) -> dict[str, object]:
         return {
@@ -38,6 +39,7 @@ class NaviInspectResult:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cost_usd": self.cost_usd,
+            "tool_calls": list(self.tool_calls),
         }
 
 
@@ -79,6 +81,14 @@ class NaviInspectRunner:
             input_tokens=sum(call.input_tokens for call in trace.model_calls),
             output_tokens=sum(call.output_tokens for call in trace.model_calls),
             cost_usd=sum(call.cost_usd or 0.0 for call in trace.model_calls),
+            tool_calls=tuple(
+                {
+                    "name": execution.tool_name,
+                    "arguments": execution.arguments,
+                    "status": execution.status,
+                }
+                for execution in trace.tool_executions
+            ),
         )
 
 
