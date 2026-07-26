@@ -10,6 +10,7 @@ Run the 10-sample general QA evaluation:
 navi-agent eval run general-qa
 navi-agent eval run human-eval
 navi-agent eval run bfcl
+navi-agent eval run agentbench-os
 ```
 
 `human-eval` executes generated Python and the official tests inside an Inspect
@@ -20,6 +21,15 @@ OpenAI's MIT-licensed `openai/human-eval` test set.
 runtime. Each sample exposes only its benchmark functions as deterministic
 tools. Scoring reads the resulting Navi tool trace and checks tool selection,
 arguments, parallel calls, and irrelevant-tool refusal.
+
+`agentbench-os` runs ten public-answer AgentBench OS dev tasks through Navi's
+native file and terminal tools. Every sample gets a disposable workspace.
+Answer tasks use exact matching; state-changing tasks additionally execute
+deterministic checks against the final workspace.
+
+The suite uses host-side disposable directories so Navi's production tools run
+unchanged. It is not a process-security sandbox and should only be run with a
+trusted model configuration.
 
 For trusted local development only, Docker can be bypassed explicitly:
 
