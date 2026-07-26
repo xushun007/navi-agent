@@ -156,7 +156,7 @@ def normalize_http_url(url: str) -> str:
 
 
 def validate_public_url(url: str) -> None:
-    parsed = urlsplit(url)
+    parsed = urlsplit(normalize_http_url(url))
     hostname = parsed.hostname
     if not hostname:
         raise WebRequestError("URL must include a hostname", category="invalid_url")

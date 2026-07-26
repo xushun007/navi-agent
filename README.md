@@ -102,6 +102,18 @@ uv run navi-agent --approve-gateway-pairing 123456
 
 For now, only the minimal closed loop of text messages and DM authorization is kept; other capabilities will be added later.
 
+## Web Tools
+
+`web_fetch` is available by default for public HTTP(S) pages. Enable `web_search`
+with a Brave Search API key:
+
+```yaml
+web:
+  search_api_key: your-brave-search-api-key
+```
+
+You can also set `NAVI_WEB_SEARCH_API_KEY` or `BRAVE_SEARCH_API_KEY`.
+
 ## One-Line Definition
 
 Navi Agent = a minimal agent kernel that starts from WeChat and aims for continuous evolution.

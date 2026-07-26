@@ -39,7 +39,10 @@ class _Opener:
 
 
 def test_web_search_is_unavailable_without_api_key() -> None:
-    assert WebSearchTool(api_key=None).is_available() is False
+    tool = WebSearchTool(api_key=None)
+
+    assert tool.is_available() is False
+    assert tool.invoke(query="navi").metadata["error_category"] == "not_configured"
 
 
 def test_web_search_returns_clean_structured_results() -> None:
