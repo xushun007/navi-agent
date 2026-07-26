@@ -15,6 +15,10 @@ SUPPORTED_INSPECT_SUITES = (
 )
 
 
+class EvaluationDependencyError(RuntimeError):
+    pass
+
+
 def run_inspect_eval(
     suite: str,
     *,
@@ -22,8 +26,16 @@ def run_inspect_eval(
     sample_ids: list[str] | None = None,
     log_dir: Path | None = None,
 ) -> int:
-    from inspect_ai import eval as inspect_eval
-    from inspect_ai.model import get_model
+    try:
+        from inspect_ai import eval as inspect_eval
+        from inspect_ai.model import get_model
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("inspect_ai"):
+            raise EvaluationDependencyError(
+                "Inspect evaluations are optional; install them with "
+                "`uv sync --extra eval`."
+            ) from exc
+        raise
 
     from evals.inspect.general_qa import navi_general_qa
     from evals.inspect.human_eval import navi_human_eval
