@@ -12,7 +12,7 @@ from inspect_ai.model import ChatMessageAssistant
 from inspect_ai.solver import TaskState, solver
 from inspect_ai.util import SandboxEnvironment, sandbox
 
-from evals.inspect.adapter import NaviInspectResult
+from evals.inspect.adapter import NaviInspectResult, navi_runtime_success
 from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.config import ModelSettings, RuntimeSettings, load_config
 from navi_agent.runtime import (
@@ -411,6 +411,10 @@ def navi_swe_bench_verified(
         location=SWE_BENCH_DATASET,
     )
     benchmark.solver = swe_bench_solver(runner or build_swe_bench_runner())
+    benchmark.scorer = [
+        *(list(benchmark.scorer) if benchmark.scorer else []),
+        navi_runtime_success(),
+    ]
     benchmark.metadata = {
         **(benchmark.metadata or {}),
         "agent": "navi-agent",

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from inspect_ai import Task
 from inspect_ai.dataset import Sample
 
+from evals.inspect.adapter import navi_runtime_success
 from evals.inspect.swe_bench import (
     SWE_BENCH_DATASET,
     SWE_BENCH_SAMPLE_IDS,
@@ -89,7 +90,7 @@ def _official_task_with_selected_samples() -> Task:
             )
             for sample_id in reversed(SWE_BENCH_SAMPLE_IDS)
         ],
-        scorer=[],
+        scorer=[navi_runtime_success()],
         sandbox="local",
         metadata={"upstream": True},
     )
@@ -167,6 +168,7 @@ def test_builds_task_from_official_inspect_eval_components() -> None:
     assert len(task.dataset) == 15
     assert [str(sample.id) for sample in task.dataset] == list(SWE_BENCH_SAMPLE_IDS)
     assert task.sandbox.type == "local"
+    assert len(task.scorer) == 2
     assert task.metadata["upstream"] is True
     assert task.metadata["dataset"] == SWE_BENCH_DATASET
     assert task.metadata["sample_count"] == 15
