@@ -248,6 +248,30 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.workflow_case_id, ["tooluse_l0_file_read_001"])
         self.assertEqual(args.workflow_level, ["L0"])
 
+    def test_build_parser_parses_eval_run_command(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(
+            [
+                "eval",
+                "run",
+                "general-qa",
+                "--limit",
+                "5",
+                "--sample-id",
+                "simpleqa-8",
+                "--log-dir",
+                "/tmp/eval-logs",
+            ]
+        )
+
+        self.assertEqual(args.message, "eval")
+        self.assertEqual(args.subcommand, "run")
+        self.assertEqual(args.command_target, "general-qa")
+        self.assertEqual(args.limit, 5)
+        self.assertEqual(args.sample_id, ["simpleqa-8"])
+        self.assertEqual(args.log_dir, Path("/tmp/eval-logs"))
+
     def test_build_parser_parses_gateway_flags(self) -> None:
         parser = build_parser()
 
@@ -553,6 +577,47 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("navi-agent gateway start", stderr.getvalue())
+
+    def test_main_runs_inspect_eval_suite(self) -> None:
+        with patch(
+            "navi_agent.cli.eval.run_inspect_eval",
+            return_value=0,
+        ) as run_eval:
+            with patch(
+                "sys.argv",
+                [
+                    "navi-agent",
+                    "eval",
+                    "run",
+                    "general-qa",
+                    "--limit",
+                    "3",
+                    "--sample-id",
+                    "simpleqa-8",
+                    "--log-dir",
+                    "/tmp/eval-logs",
+                ],
+            ):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        run_eval.assert_called_once_with(
+            "general-qa",
+            limit=3,
+            sample_ids=["simpleqa-8"],
+            log_dir=Path("/tmp/eval-logs"),
+        )
+
+    def test_main_rejects_unknown_eval_suite(self) -> None:
+        stderr = io.StringIO()
+
+        with patch("sys.argv", ["navi-agent", "eval", "run", "missing"]):
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("unknown evaluation suite: missing", stderr.getvalue())
 
     def test_main_requires_weixin_token_for_gateway_mode(self) -> None:
         stdout = io.StringIO()

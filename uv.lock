@@ -1252,6 +1252,7 @@ name = "navi-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "inspect-ai" },
     { name = "langfuse" },
     { name = "openai" },
     { name = "prompt-toolkit" },
@@ -1260,12 +1261,12 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "inspect-ai" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "inspect-ai", specifier = ">=0.3.249" },
     { name = "langfuse", specifier = ">=2.60.8" },
     { name = "openai", specifier = ">=2.45.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
@@ -1273,10 +1274,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "inspect-ai", specifier = ">=0.3.249" },
-    { name = "pytest", specifier = ">=8.0.0" },
-]
+dev = [{ name = "pytest", specifier = ">=8.0.0" }]
 
 [[package]]
 name = "nest-asyncio2"

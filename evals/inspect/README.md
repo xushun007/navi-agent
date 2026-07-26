@@ -1,24 +1,23 @@
 # Inspect Evaluations
 
-Inspect runs Navi Agent through its native `AgentRuntime`. The Agent Bridge routes
-model requests to the model selected by Inspect while Navi keeps ownership of the
-runtime loop and trace metadata.
+Inspect runs the production Navi Agent runtime and reads the model, API key, base
+URL, tools, memory, skills, sessions, and telemetry settings from the normal Navi
+configuration.
 
 Run the 10-sample general QA evaluation:
 
 ```bash
-uv run python -m inspect_ai eval evals/inspect/general_qa.py \
-  --model openai/<agent-model> \
-  --model-role grader=openai/<grader-model>
+navi-agent eval run general-qa
 ```
 
-Use `mockllm/model` for a dependency-free pipeline smoke test:
+Run a subset:
 
 ```bash
-uv run python -m inspect_ai eval evals/inspect/general_qa.py \
-  --model mockllm/model \
-  --model-role grader=mockllm/model
+navi-agent eval run general-qa --limit 5
+navi-agent eval run general-qa --sample-id simpleqa-8
 ```
 
 Inspect logs contain answer scores plus Navi runtime status, trace ID, iterations,
-latency, token usage, and cost metadata for each sample.
+latency, token usage, and cost metadata for each sample. By default logs are
+written to `~/.navi-agent/evals/inspect/`. The configured Navi model is also used
+as the default grader.
