@@ -40,7 +40,7 @@ def test_skill_nudge_counts_every_tool_execution_until_acknowledged() -> None:
 
 
 def test_retrying_same_trace_does_not_double_count_unacknowledged_work() -> None:
-    policy = NudgeReviewTriggerPolicy(memory_turn_interval=0, skill_tool_interval=1)
+    policy = NudgeReviewTriggerPolicy(memory_turn_interval=2, skill_tool_interval=1)
     trace = _trace(trace_id="trace-1", tool_count=1)
 
     first = policy.decide(trace)
@@ -48,6 +48,7 @@ def test_retrying_same_trace_does_not_double_count_unacknowledged_work() -> None
 
     assert first.review_skill
     assert retry.review_skill
+    assert policy.turns_since_memory == 1
     assert policy.tool_executions_since_skill == 1
 
 
@@ -79,10 +80,14 @@ def test_unavailable_capabilities_do_not_increment_nudges() -> None:
 
 def test_successful_memory_write_resets_memory_nudge() -> None:
     policy = NudgeReviewTriggerPolicy(memory_turn_interval=2, skill_tool_interval=0)
-    policy.decide(_trace(trace_id="trace-1"))
+    policy.decide(_trace(trace_id="trace-1", session_id="s1"))
 
     decision = policy.decide(
-        _trace(trace_id="trace-2", tool_executions=[_execution("memory")])
+        _trace(
+            trace_id="trace-2",
+            session_id="s2",
+            tool_executions=[_execution("memory")],
+        )
     )
 
     assert not decision.should_review
