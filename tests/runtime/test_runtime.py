@@ -32,7 +32,7 @@ from navi_agent.runtime import (
 )
 from navi_agent.runtime.tools.policy import SensitiveToolPolicy
 from navi_agent.runtime.agent.control import RunCancelledError
-from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
+from navi_agent.memory import FileMemoryStore, InMemoryMemoryStore, MemoryRecord
 from navi_agent.logging import setup_logging
 from navi_agent.tools import BashTool, MemoryTool
 from navi_agent.telemetry import InMemoryRuntimeEventStore, InMemoryTraceStore
@@ -1218,34 +1218,61 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         self.assertEqual(seen[0].session_id, "s1")
 
-    def test_memory_tool_updates_prompt_builder_memory_store(self) -> None:
-        memory_store = InMemoryMemoryStore()
-        transport = FakeTransport(
-            [
-                ModelResponse(tool_calls=[ToolCall(id="tc1", name="memory", arguments={"action": "add", "content": "Prefers terse replies"})]),
-                ModelResponse(content="stored"),
-                ModelResponse(content="next"),
-            ]
-        )
-        runtime = AgentRuntime(
-            transport=transport,
-            prompt_builder=PromptBuilder(memory_store=memory_store),
-            tool_registry=ToolRegistry(
-                registered_tools=[("memory", MemoryTool(memory_store=memory_store))]
-            ),
-        )
+    def test_memory_persists_and_is_recalled_across_runtime_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            memory_root = Path(tmpdir) / "memories"
+            first_store = FileMemoryStore(memory_root)
+            first_runtime = AgentRuntime(
+                transport=FakeTransport(
+                    [
+                        ModelResponse(
+                            tool_calls=[
+                                ToolCall(
+                                    id="tc1",
+                                    name="memory",
+                                    arguments={
+                                        "action": "add",
+                                        "kind": "preference",
+                                        "content": "Prefers terse replies",
+                                    },
+                                )
+                            ]
+                        ),
+                        ModelResponse(content="stored"),
+                    ]
+                ),
+                prompt_builder=PromptBuilder(memory_store=first_store),
+                tool_registry=ToolRegistry(
+                    registered_tools=[("memory", MemoryTool(memory_store=first_store))]
+                ),
+            )
+            first_runtime.run_conversation(
+                session_id="memory-write",
+                user_id="u1",
+                user_message="remember this",
+            )
 
-        runtime.run_conversation(session_id="s1", user_id="u1", user_message="remember this")
-        runtime.run_conversation(
-            session_id="s2",
-            user_id="u1",
-            user_message="How terse should replies be?",
-            system_prompt="system",
-        )
+            reloaded_store = FileMemoryStore(memory_root)
+            second_transport = FakeTransport([ModelResponse(content="next")])
+            second_runtime = AgentRuntime(
+                transport=second_transport,
+                prompt_builder=PromptBuilder(memory_store=reloaded_store),
+                tool_registry=ToolRegistry(
+                    registered_tools=[("memory", MemoryTool(memory_store=reloaded_store))]
+                ),
+            )
+            second_runtime.run_conversation(
+                session_id="memory-recall",
+                user_id="u1",
+                user_message="How terse should replies be?",
+            )
 
-        request = transport.calls[-1]
+            request = second_transport.calls[-1]
+            records = reloaded_store.list_for_user("u1")
+
         self.assertIn("[Memory]", request.messages[0].content)
         self.assertIn("Prefers terse replies", request.messages[0].content)
+        self.assertEqual(records[0].source_session_id, "memory-write")
 
     def test_runtime_uses_tool_result_renderer_boundary(self) -> None:
         transport = FakeTransport(
