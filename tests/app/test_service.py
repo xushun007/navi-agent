@@ -66,6 +66,13 @@ class FakeRuntime:
     def get_session_traces(self, session_id, user_id=None):
         return self.session_traces
 
+    def get_user_traces(self, user_id):
+        return [
+            trace
+            for trace in self.session_traces
+            if trace.user_id == user_id
+        ]
+
 
 class FakeCandidateStore:
     def __init__(self) -> None:
@@ -799,11 +806,11 @@ class ApplicationServiceTests(unittest.TestCase):
             "promoted",
         )
 
-    def test_handle_hydrates_review_trigger_from_session_traces(self) -> None:
+    def test_handle_hydrates_memory_trigger_from_user_traces(self) -> None:
         runtime = FakeRuntime()
         runtime.session_traces = [
             RuntimeTrace(
-                session_id="s1",
+                session_id="previous-session",
                 user_id="u1",
                 user_message="previous",
                 final_response="done",
