@@ -54,20 +54,6 @@ navi-agent --gateway-pairings weixin
 navi-agent --approve-gateway-pairing 123456
 ```
 
-After the gateway receives a message, send to the most recent user from the
-console:
-
-```bash
-navi-agent gateway send "Daily report is ready"
-navi-agent gateway send "Hello" --to-user-id USER_ID
-```
-
-## Web Tools
-
-`web_fetch` works with public HTTP(S) pages. `web_search` uses DDGS by default
-and prefers Brave Search when `web.search_api_key`, `NAVI_WEB_SEARCH_API_KEY`,
-or `BRAVE_SEARCH_API_KEY` is configured.
-
 ## Evaluation
 
 Inspect evaluations use the production Navi runtime and write replayable results

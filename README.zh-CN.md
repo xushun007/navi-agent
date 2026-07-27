@@ -51,19 +51,6 @@ navi-agent --gateway-pairings weixin
 navi-agent --approve-gateway-pairing 123456
 ```
 
-网关收到消息并记录路由后，可以从控制台向最近联系的用户发送消息：
-
-```bash
-navi-agent gateway send "日报已生成"
-navi-agent gateway send "你好" --to-user-id USER_ID
-```
-
-## Web 工具
-
-`web_fetch` 可读取公开 HTTP(S) 页面。`web_search` 默认使用 DDGS；配置
-`web.search_api_key`、`NAVI_WEB_SEARCH_API_KEY` 或 `BRAVE_SEARCH_API_KEY` 后优先使用
-Brave Search。
-
 ## 评测
 
 Inspect 评测复用生产环境的 Navi Runtime，结果写入
