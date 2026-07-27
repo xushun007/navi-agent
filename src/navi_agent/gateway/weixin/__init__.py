@@ -1,6 +1,7 @@
 from .ilink import ILinkClient, ILinkMessage, ILinkSendResult
 from .local import ILinkGateway
 from .pairing import PairingRequest, WeixinPairingStore
+from .routes import WeixinRoute, WeixinRouteStore
 
 __all__ = [
     "ILinkClient",
@@ -9,4 +10,6 @@ __all__ = [
     "ILinkSendResult",
     "PairingRequest",
     "WeixinPairingStore",
+    "WeixinRoute",
+    "WeixinRouteStore",
 ]

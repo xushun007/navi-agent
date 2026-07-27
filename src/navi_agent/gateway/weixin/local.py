@@ -12,6 +12,7 @@ from navi_agent.ui_events import UiEvent, UiEventEmitter
 
 from .ilink import ILinkClient, ILinkMessage, load_sync_buf, save_sync_buf
 from .pairing import WeixinPairingStore
+from .routes import WeixinRoute, WeixinRouteStore
 
 logger = logging.getLogger("navi_agent.gateway.weixin.local")
 
@@ -107,6 +108,7 @@ class ILinkGateway:
     dm_policy: str = "open"
     allowed_users: set[str] | None = None
     pairing_store: WeixinPairingStore | None = None
+    route_store: WeixinRouteStore | None = None
     error_backoff_seconds: float = 5.0
     progress_interval_seconds: float = 3.0
     max_concurrent_requests: int = 4
@@ -237,6 +239,13 @@ class ILinkGateway:
         )
         if not self._is_allowed(message):
             return False
+        if message.context_token and self.route_store is not None:
+            self.route_store.remember(
+                WeixinRoute(
+                    user_id=message.from_user_id,
+                    context_token=message.context_token,
+                )
+            )
         return True
 
     def _handle_accepted_message_safely(self, message: ILinkMessage) -> None:

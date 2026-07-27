@@ -10,6 +10,7 @@ from unittest.mock import patch
 from navi_agent.gateway.weixin import ILinkClient, ILinkGateway
 from navi_agent.gateway.weixin.ilink import ILinkMessage, ILinkSendResult
 from navi_agent.gateway.weixin.pairing import WeixinPairingStore
+from navi_agent.gateway.weixin.routes import WeixinRoute, WeixinRouteStore
 from navi_agent.events import RuntimeEvent
 from navi_agent.runtime import BackgroundTask, RuntimeResult, ToolResult
 
@@ -152,6 +153,48 @@ class FakeClient:
 
 
 class WeixinILinkTests(unittest.TestCase):
+    def test_route_store_remembers_latest_user(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "routes.json"
+            store = WeixinRouteStore("account-1", path)
+
+            store.remember(WeixinRoute(user_id="user-1", context_token="ctx-1"))
+            store.remember(WeixinRoute(user_id="user-2", context_token="ctx-2"))
+
+            self.assertEqual(store.get(), WeixinRoute("user-2", "ctx-2"))
+            self.assertEqual(store.get("user-1"), WeixinRoute("user-1", "ctx-1"))
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_gateway_records_route_from_accepted_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            route_store = WeixinRouteStore(
+                "account-1",
+                Path(tmpdir) / "routes.json",
+            )
+            gateway = ILinkGateway(
+                app=FakeApp(),
+                client=FakeClient(),
+                account_id="account-1",
+                route_store=route_store,
+            )
+            message = ILinkMessage(
+                message_id="m-route",
+                from_user_id="user-1",
+                to_user_id="account-1",
+                chat_id="user-1",
+                chat_type="dm",
+                text="hello",
+                context_token="ctx-1",
+            )
+
+            gateway.handle_message(message)
+            gateway.close()
+
+            self.assertEqual(
+                route_store.get(),
+                WeixinRoute(user_id="user-1", context_token="ctx-1"),
+            )
+
     def test_client_get_updates_parses_text_messages(self) -> None:
         with _ilink_server() as server:
             client = ILinkClient(

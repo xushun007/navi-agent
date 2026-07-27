@@ -290,6 +290,14 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.gateway_pairings, "weixin")
         self.assertEqual(args.approve_gateway_pairing, "123456")
 
+    def test_build_parser_parses_gateway_send_command(self) -> None:
+        args = build_parser().parse_args(
+            ["gateway", "send", "hello", "--to-user-id", "user-1"]
+        )
+
+        self.assertEqual(args.command_target, "hello")
+        self.assertEqual(args.to_user_id, "user-1")
+
     def test_build_parser_parses_compare_workflow_flag(self) -> None:
         parser = build_parser()
 
@@ -577,6 +585,68 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("navi-agent gateway start", stderr.getvalue())
+
+    def test_main_sends_weixin_message_using_recorded_route(self) -> None:
+        stdout = io.StringIO()
+        route = SimpleNamespace(user_id="user-1", context_token="ctx-1")
+        result = SimpleNamespace(success=True, error=None)
+
+        with patch(
+            "navi_agent.cli.main.load_config",
+            return_value={
+                "gateway": {
+                    "weixin": {
+                        "token": "token",
+                        "account_id": "account-1",
+                    }
+                }
+            },
+        ):
+            with patch("navi_agent.cli.main.WeixinRouteStore") as route_store:
+                route_store.return_value.get.return_value = route
+                with patch("navi_agent.cli.main.ILinkClient") as client:
+                    client.return_value.send_text.return_value = result
+                    with patch(
+                        "sys.argv",
+                        ["navi-agent", "gateway", "send", "hello"],
+                    ):
+                        with redirect_stdout(stdout):
+                            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        route_store.return_value.get.assert_called_once_with(None)
+        client.return_value.send_text.assert_called_once_with(
+            to_user_id="user-1",
+            text="hello",
+            context_token="ctx-1",
+        )
+        self.assertIn("weixin_send: sent to user-1", stdout.getvalue())
+
+    def test_main_explains_missing_weixin_route(self) -> None:
+        stdout = io.StringIO()
+
+        with patch(
+            "navi_agent.cli.main.load_config",
+            return_value={
+                "gateway": {
+                    "weixin": {
+                        "token": "token",
+                        "account_id": "account-1",
+                    }
+                }
+            },
+        ):
+            with patch("navi_agent.cli.main.WeixinRouteStore") as route_store:
+                route_store.return_value.get.return_value = None
+                with patch(
+                    "sys.argv",
+                    ["navi-agent", "gateway", "send", "hello"],
+                ):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("send a message to the bot first", stdout.getvalue())
 
     def test_main_runs_inspect_eval_suite(self) -> None:
         with patch(

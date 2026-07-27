@@ -73,6 +73,14 @@ uv run navi-agent
 navi-agent gateway start
 ```
 
+收到至少一条微信消息后，可从控制台向最近联系的用户发送消息：
+
+```bash
+navi-agent gateway send "日报已生成"
+```
+
+如已记录多个用户，可通过 `--to-user-id USER_ID` 明确指定。
+
 微信网关只从 `config.yaml` 或环境变量读取配置：
 
 ```yaml

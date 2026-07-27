@@ -55,6 +55,7 @@ from navi_agent.gateway.weixin import (
     ILinkClient,
     ILinkGateway,
     WeixinPairingStore,
+    WeixinRouteStore,
 )
 from navi_agent.logging import set_console_log_level
 from navi_agent.paths import get_evolution_reports_dir
@@ -156,6 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workflow-case-id", action="append")
     parser.add_argument("--workflow-level", action="append", choices=["L0", "L1", "L2", "l0", "l1", "l2"])
     parser.add_argument("--gateway", choices=["weixin"])
+    parser.add_argument("--to-user-id")
     parser.add_argument("--gateway-pairings", choices=["weixin"])
     parser.add_argument("--approve-gateway-pairing")
     parser.add_argument("--confirm-eval-case", action="store_true")
@@ -206,6 +208,10 @@ def main() -> int:
     if args.message == "gateway" and args.subcommand == "start":
         args.gateway = "weixin"
         return _run_gateway(args)
+    if args.message == "gateway" and args.subcommand == "send":
+        if not args.command_target:
+            parser.error('gateway send requires a message: navi-agent gateway send "hello"')
+        return _send_weixin_message(args.command_target, to_user_id=args.to_user_id)
     if args.message == "eval":
         if args.subcommand != "run" or not args.command_target:
             parser.error("eval command requires a suite: navi-agent eval run general-qa")
@@ -234,7 +240,7 @@ def main() -> int:
             return _run_cron_loop(args)
         parser.error("cron command requires `run` or `start`: navi-agent cron run")
     if args.message == "gateway":
-        parser.error("gateway command requires `start`: navi-agent gateway start")
+        parser.error("gateway command requires `start` or `send`")
     if args.message == "start":
         parser.error("use `navi-agent gateway start`")
     if args.subcommand or args.command_target:
@@ -507,7 +513,40 @@ def _run_weixin_gateway(args) -> int:
         dm_policy=settings.dm_policy,
         allowed_users=set(settings.allowed_users),
         pairing_store=WeixinPairingStore(),
+        route_store=WeixinRouteStore(account_id),
     ).run_forever()
+    return 0
+
+
+def _send_weixin_message(message: str, *, to_user_id: str | None = None) -> int:
+    settings = WeixinGatewaySettings.from_sources(load_config())
+    if not settings.token or not settings.account_id:
+        print("weixin token and account_id are required")
+        print("hint: run `navi-agent doctor --doctor-gateway weixin`")
+        return 1
+    route = WeixinRouteStore(settings.account_id).get(to_user_id)
+    if route is None:
+        target = f" for {to_user_id}" if to_user_id else ""
+        print(f"no recorded Weixin route{target}")
+        print("hint: send a message to the bot first, then retry")
+        return 1
+    try:
+        result = ILinkClient(
+            token=settings.token,
+            account_id=settings.account_id,
+            base_url=settings.base_url,
+        ).send_text(
+            to_user_id=route.user_id,
+            text=message,
+            context_token=route.context_token,
+        )
+    except Exception as exc:
+        print(f"weixin_send: failed ({type(exc).__name__}: {exc})")
+        return 1
+    if not result.success:
+        print(f"weixin_send: failed ({result.error or 'unknown error'})")
+        return 1
+    print(f"weixin_send: sent to {route.user_id}")
     return 0
 
 

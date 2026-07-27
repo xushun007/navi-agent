@@ -73,6 +73,14 @@ The current WeChat gateway only keeps the iLink local polling style: it pulls te
 navi-agent gateway start
 ```
 
+After receiving at least one WeChat message, send to the most recent user from the console:
+
+```bash
+navi-agent gateway send "Daily report is ready"
+```
+
+Use `--to-user-id USER_ID` when multiple users have been recorded.
+
 The WeChat gateway reads configuration only from `config.yaml` or environment variables:
 
 ```yaml
