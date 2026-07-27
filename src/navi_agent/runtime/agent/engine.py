@@ -1100,3 +1100,8 @@ class AgentRuntime:
             session_id=session_id,
             user_id=user_id,
         )
+
+    def get_user_traces(self, user_id: str) -> list[RuntimeTrace]:
+        if self._trace_store is None:
+            return []
+        return self._trace_store.list_traces(user_id=user_id, limit=None)

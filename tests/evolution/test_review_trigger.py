@@ -164,6 +164,44 @@ def test_counter_state_is_isolated_by_session() -> None:
     assert policy.tool_executions_since_skill == 1
 
 
+def test_memory_nudge_accumulates_across_sessions_for_same_user() -> None:
+    policy = NudgeReviewTriggerPolicy(memory_turn_interval=2, skill_tool_interval=0)
+
+    first = policy.decide(_trace(trace_id="trace-1", session_id="s1"))
+    second = policy.decide(_trace(trace_id="trace-2", session_id="s2"))
+
+    assert not first.review_memory
+    assert second.review_memory
+    assert policy.turns_since_memory == 2
+
+
+def test_memory_nudge_is_isolated_by_user() -> None:
+    policy = NudgeReviewTriggerPolicy(memory_turn_interval=2, skill_tool_interval=0)
+
+    first_user = policy.decide(_trace(trace_id="trace-1", user_id="u1"))
+    second_user = policy.decide(_trace(trace_id="trace-2", user_id="u2"))
+
+    assert not first_user.review_memory
+    assert not second_user.review_memory
+    assert policy.turns_since_memory == 1
+
+
+def test_hydrates_memory_counter_from_all_user_sessions() -> None:
+    policy = NudgeReviewTriggerPolicy(memory_turn_interval=3, skill_tool_interval=0)
+    policy.hydrate(
+        [
+            _trace(trace_id="trace-1", session_id="s1"),
+            _trace(trace_id="trace-2", session_id="s2"),
+        ],
+        session_id="s3",
+        user_id="u1",
+    )
+
+    decision = policy.decide(_trace(trace_id="trace-3", session_id="s3"))
+
+    assert decision.review_memory
+
+
 def test_negative_intervals_are_rejected() -> None:
     with pytest.raises(ValueError):
         NudgeReviewTriggerPolicy(memory_turn_interval=-1)
@@ -175,6 +213,7 @@ def _trace(
     *,
     trace_id: str,
     session_id: str = "s1",
+    user_id: str = "u1",
     status: str = "success",
     final_response: str = "done",
     tool_count: int = 0,
@@ -185,7 +224,7 @@ def _trace(
         executions = [_execution("read_file", index=index) for index in range(tool_count)]
     return RuntimeTrace(
         session_id=session_id,
-        user_id="u1",
+        user_id=user_id,
         user_message="hello",
         final_response=final_response,
         status=status,

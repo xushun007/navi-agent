@@ -505,7 +505,7 @@ class ApplicationService:
         hydrate = getattr(self._review_trigger_policy, "hydrate", None)
         if not callable(hydrate):
             return
-        traces = self._runtime.get_session_traces(session_id, user_id=user_id)
+        traces = self._runtime.get_user_traces(user_id)
         hydrate(
             traces,
             session_id=session_id,
