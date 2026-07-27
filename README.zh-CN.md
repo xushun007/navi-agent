@@ -2,129 +2,88 @@
 
 [English](README.md) | 简体中文
 
-Navi Agent 是一个参考 Hermes 思路构建的自我进化 Agent 项目，但当前只保留最核心的产品目标与架构方向。
-
-## 目标
-
-- 可持续优化的 Agent
-- 最小闭环：接入、执行、反馈、进化
-- 先跑通单入口、单主链路
-
-## 当前范围
-
-- `gateway` 只接微信
-- 只保留核心运行链路
-- 优先单 Agent 稳定执行
+Navi Agent 是一个参考 Hermes 构建的轻量、自我进化 Agent Runtime。项目聚焦 runtime、
+tools、memory、telemetry、evolution 组成的单一可靠执行链路，并以微信作为首个 gateway。
 
 ## 快速开始
 
-从源码安装：
-
 ```bash
 uv tool install git+https://github.com/xushun007/navi-agent.git
-```
-
-初始化本地配置、检查状态、启动微信入口：
-
-```bash
 navi-agent init
 navi-agent doctor
+navi-agent
+```
+
+启动微信网关：
+
+```bash
 navi-agent doctor --doctor-gateway weixin
 navi-agent gateway start
 ```
 
-启动本地交互聊天：
+配置与运行数据默认存放在 `~/.navi-agent`。使用 `NAVI_PROFILE=work` 隔离不同环境，
+或通过 `NAVI_HOME=/custom/path` 指定目录。
+
+显式允许访问其他目录：
 
 ```bash
-navi-agent
+navi-agent --add-dir ../shared --add-dir /path/to/repo
 ```
 
-显式允许本地会话访问其他目录：
+## 微信
 
-```bash
-navi-agent --add-dir ../shared --add-dir /path/to/another-repo
-```
-
-`--add-dir` 可以重复使用，每个目录都必须在会话启动时存在。
-
-默认情况下，Navi Agent 会把配置、记忆、技能、日志和网关状态存放在 `~/.navi-agent`。
-需要隔离场景时，可以使用 `NAVI_PROFILE=work`，对应目录为 `~/.navi-agent/profiles/work`；
-需要完全自定义目录时，可以设置 `NAVI_HOME=/path/to/.navi-agent`。
-
-如果在当前仓库内开发，命令前加 `uv run`：
-
-```bash
-uv run navi-agent init
-uv run navi-agent doctor
-uv run navi-agent doctor --doctor-gateway weixin
-uv run navi-agent gateway start
-uv run navi-agent
-```
-
-## 自我进化
-
-基于真实运行数据持续发现问题、评估方案、验证改进。
-
-## 微信网关
-
-当前微信网关只保留 iLink 本地轮询风格，拉取文本消息并发送文本回复。
-
-```bash
-navi-agent gateway start
-```
-
-收到至少一条微信消息后，可从控制台向最近联系的用户发送消息：
-
-```bash
-navi-agent gateway send "日报已生成"
-```
-
-如已记录多个用户，可通过 `--to-user-id USER_ID` 明确指定。
-
-微信网关只从 `config.yaml` 或环境变量读取配置：
+配置 `~/.navi-agent/config.yaml`：
 
 ```yaml
 gateway:
   weixin:
-    token: replace-with-your-weixin-token
-    account_id: replace-with-your-weixin-account-id
+    token: your-token
+    account_id: your-account-id
     base_url: https://ilinkai.weixin.qq.com
-    poll_interval_seconds: 1.0
     dm_policy: pairing
     allowed_users: []
 ```
 
-`dm_policy` 可选值：
-
-- `open`：所有私聊用户可直接进入 Agent。
-- `pairing`：未知私聊用户先收到 pairing code，批准后才进入 Agent。
-- `allowlist`：只允许 `allowed_users` 中的用户。
-- `disabled`：禁用私聊入口。
-
-pairing 模式下，用户首次私聊会收到批准命令提示。也可以手动查看和批准：
+`dm_policy` 支持 `open`、`pairing`、`allowlist` 和 `disabled`。查看并批准配对：
 
 ```bash
-uv run navi-agent --gateway-pairings weixin
-uv run navi-agent --approve-gateway-pairing 123456
+navi-agent --gateway-pairings weixin
+navi-agent --approve-gateway-pairing 123456
 ```
 
-当前先保留文本消息和私聊授权的最小闭环，其他能力后续再补。
-
-## 一句话定义
-
-Navi Agent = 一个以微信为起点、以持续进化为目标的最小 Agent 内核。
-
-## 命令
+网关收到消息并记录路由后，可以从控制台向最近联系的用户发送消息：
 
 ```bash
-uv run navi-agent --workflow-kind ifeval --workflow-phase review
-uv run navi-agent --workflow-kind ifeval --workflow-phase run
-uv run navi-agent --workflow-kind ifeval --workflow-phase report
-uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-name agent-healthcheck
+navi-agent gateway send "日报已生成"
+navi-agent gateway send "你好" --to-user-id USER_ID
 ```
+
+## Web 工具
+
+`web_fetch` 可读取公开 HTTP(S) 页面。`web_search` 默认使用 DDGS；配置
+`web.search_api_key`、`NAVI_WEB_SEARCH_API_KEY` 或 `BRAVE_SEARCH_API_KEY` 后优先使用
+Brave Search。
 
 ## 评测
 
-- 在线会话进 runtime，离线只看稳定样本
-- IFEval 用统一 workflow 跑分并写报告
-- 新样本先人工确认，再进 `data/eval/` 回归
+Inspect 评测复用生产环境的 Navi Runtime，结果写入
+`~/.navi-agent/evals/inspect/`，支持离线回放。
+
+```bash
+uv sync --extra eval
+uv run navi-agent eval run general-qa
+uv run navi-agent eval run human-eval
+uv run navi-agent eval run bfcl
+uv run navi-agent eval run agentbench-os
+uv run navi-agent eval run swe-bench-verified --limit 1
+```
+
+详细说明见 [evals/README.md](evals/README.md)。
+
+## 开发
+
+```bash
+uv sync
+uv run pytest
+uv run navi-agent
+```

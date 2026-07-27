@@ -2,156 +2,92 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Navi Agent is a self-evolving agent project inspired by Hermes, but it currently keeps only the core product goals and architectural direction.
-
-## Goals
-
-- A continuously improvable agent
-- Minimal closed loop: gateway, execution, feedback, evolution
-- Get a single entry point and a single main pipeline working first
-
-## Current Scope
-
-- `gateway` only integrates WeChat
-- Only the core runtime pipeline is kept
-- Prioritize stable single-agent execution
+Navi Agent is a compact, self-evolving agent runtime inspired by Hermes. It focuses on a
+single reliable execution pipeline across runtime, tools, memory, telemetry, and evolution,
+with WeChat as the first gateway.
 
 ## Quickstart
 
-Install from source:
-
 ```bash
 uv tool install git+https://github.com/xushun007/navi-agent.git
-```
-
-Initialize local config, check readiness, then start the WeChat gateway:
-
-```bash
 navi-agent init
 navi-agent doctor
+navi-agent
+```
+
+Start the WeChat gateway:
+
+```bash
 navi-agent doctor --doctor-gateway weixin
 navi-agent gateway start
 ```
 
-Run local interactive chat:
+Navi Agent stores config and runtime data under `~/.navi-agent`. Use
+`NAVI_PROFILE=work` for an isolated profile or `NAVI_HOME=/custom/path` for a
+custom location.
+
+Allow access to additional directories explicitly:
 
 ```bash
-navi-agent
+navi-agent --add-dir ../shared --add-dir /path/to/repo
 ```
 
-Allow a local session to access additional directories explicitly:
+## WeChat
 
-```bash
-navi-agent --add-dir ../shared --add-dir /path/to/another-repo
-```
-
-`--add-dir` is repeatable. Each directory must exist when the session starts.
-
-By default Navi Agent stores config, memory, skills, logs, and gateway state under `~/.navi-agent`.
-Use `NAVI_PROFILE=work` for an isolated profile under `~/.navi-agent/profiles/work`, or set
-`NAVI_HOME=/path/to/.navi-agent` when you want a fully custom home directory.
-
-When developing from this repository, prefix commands with `uv run`:
-
-```bash
-uv run navi-agent init
-uv run navi-agent doctor
-uv run navi-agent doctor --doctor-gateway weixin
-uv run navi-agent gateway start
-uv run navi-agent
-```
-
-## Self-Evolution
-
-Continuously discover issues, evaluate solutions, and validate improvements based on real runtime data.
-
-## WeChat Gateway
-
-The current WeChat gateway only keeps the iLink local polling style: it pulls text messages and sends text replies.
-
-```bash
-navi-agent gateway start
-```
-
-After receiving at least one WeChat message, send to the most recent user from the console:
-
-```bash
-navi-agent gateway send "Daily report is ready"
-```
-
-Use `--to-user-id USER_ID` when multiple users have been recorded.
-
-The WeChat gateway reads configuration only from `config.yaml` or environment variables:
+Configure `~/.navi-agent/config.yaml`:
 
 ```yaml
 gateway:
   weixin:
-    token: replace-with-your-weixin-token
-    account_id: replace-with-your-weixin-account-id
+    token: your-token
+    account_id: your-account-id
     base_url: https://ilinkai.weixin.qq.com
-    poll_interval_seconds: 1.0
     dm_policy: pairing
     allowed_users: []
 ```
 
-Available `dm_policy` values:
-
-- `open`: all DM users can access the agent directly.
-- `pairing`: unknown DM users first receive a pairing code and can access the agent only after approval.
-- `allowlist`: only users in `allowed_users` are allowed.
-- `disabled`: the DM entry is disabled.
-
-In pairing mode, a user receives an approval command hint on their first DM. You can also list and approve pairings manually:
+`dm_policy` supports `open`, `pairing`, `allowlist`, and `disabled`. Manage
+pairing requests with:
 
 ```bash
-uv run navi-agent --gateway-pairings weixin
-uv run navi-agent --approve-gateway-pairing 123456
+navi-agent --gateway-pairings weixin
+navi-agent --approve-gateway-pairing 123456
 ```
 
-For now, only the minimal closed loop of text messages and DM authorization is kept; other capabilities will be added later.
+After the gateway receives a message, send to the most recent user from the
+console:
+
+```bash
+navi-agent gateway send "Daily report is ready"
+navi-agent gateway send "Hello" --to-user-id USER_ID
+```
 
 ## Web Tools
 
-`web_fetch` is available by default for public HTTP(S) pages. `web_search` uses
-DDGS without configuration and prefers Brave Search when an API key is configured:
-
-```yaml
-web:
-  search_api_key: your-brave-search-api-key
-```
-
-You can also set `NAVI_WEB_SEARCH_API_KEY` or `BRAVE_SEARCH_API_KEY`.
-
-## One-Line Definition
-
-Navi Agent = a minimal agent kernel that starts from WeChat and aims for continuous evolution.
-
-## Commands
-
-```bash
-uv run navi-agent --workflow-kind ifeval --workflow-phase review
-uv run navi-agent --workflow-kind ifeval --workflow-phase run
-uv run navi-agent --workflow-kind ifeval --workflow-phase report
-uv run navi-agent --workflow-kind healthcheck --workflow-phase run --workflow-name agent-healthcheck
-```
+`web_fetch` works with public HTTP(S) pages. `web_search` uses DDGS by default
+and prefers Brave Search when `web.search_api_key`, `NAVI_WEB_SEARCH_API_KEY`,
+or `BRAVE_SEARCH_API_KEY` is configured.
 
 ## Evaluation
 
-Inspect evaluations run through the production Navi runtime and write replayable
-results under `~/.navi-agent/evals/inspect/`.
+Inspect evaluations use the production Navi runtime and write replayable results
+under `~/.navi-agent/evals/inspect/`.
 
 ```bash
 uv sync --extra eval
-navi-agent eval run general-qa
-navi-agent eval run human-eval
-navi-agent eval run bfcl
-navi-agent eval run agentbench-os
-navi-agent eval run swe-bench-verified --limit 1
+uv run navi-agent eval run general-qa
+uv run navi-agent eval run human-eval
+uv run navi-agent eval run bfcl
+uv run navi-agent eval run agentbench-os
+uv run navi-agent eval run swe-bench-verified --limit 1
 ```
 
-The current curated HumanEval baseline passes 10/10 functional tests. Tools are
-disabled for this suite, so it measures single-turn code generation through the
-Navi prompt and runtime rather than autonomous coding. See `evals/README.md` for
-the evaluation entry points and `evals/inspect/README.md` for baseline details.
-The curated AgentBench OS baseline passes 10/10 file and terminal tasks through
-Navi's native tools.
+See [evals/README.md](evals/README.md) for suites and usage.
+
+## Development
+
+```bash
+uv sync
+uv run pytest
+uv run navi-agent
+```
