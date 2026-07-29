@@ -186,7 +186,7 @@ class ToolUseEvalTests(unittest.TestCase):
                         category="tool_use.file_search",
                         prompt="search runtime",
                         source_inspiration="api-bank",
-                        required_tools=["search_files"],
+                        required_tools=["grep"],
                     ),
                 ]
             )

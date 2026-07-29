@@ -5,10 +5,11 @@ from .background_task_tool import BackgroundTaskTool
 from .code_executor_tool import CodeExecutorTool
 from .cron_tool import CronTool
 from .delegate_task_tool import DelegateTaskTool
+from .glob_tool import GlobTool
+from .grep_tool import GrepTool
 from .memory_tool import MemoryTool
 from .patch_tool import PatchTool
 from .read_file_tool import ReadFileTool
-from .search_files_tool import SearchFilesTool
 from .todo_tool import TodoTool, TodoItem, TodoStore
 from .write_file_tool import WriteFileTool
 from .web_fetch_tool import WebFetchTool
@@ -23,10 +24,11 @@ __all__ = [
     "CronTool",
     "DelegateTaskTool",
     "FunctionTool",
+    "GlobTool",
+    "GrepTool",
     "MemoryTool",
     "PatchTool",
     "ReadFileTool",
-    "SearchFilesTool",
     "TodoItem",
     "TodoStore",
     "TodoTool",

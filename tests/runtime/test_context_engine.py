@@ -156,7 +156,7 @@ class ContextEngineTests(unittest.TestCase):
             Message(
                 role="assistant",
                 content="",
-                tool_calls=[ToolCall(id="tc1", name="search_files", arguments={"query": "abc"})],
+                tool_calls=[ToolCall(id="tc1", name="grep", arguments={"pattern": "abc"})],
             ),
             Message(role="tool", content="protected result", tool_call_id="tc1"),
             Message(role="assistant", content="middle filler " + "x" * 600),

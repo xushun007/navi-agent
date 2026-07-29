@@ -334,10 +334,11 @@ _TOOL_LABELS = {
     "code_executor": "代码执行",
     "cron": "定时任务",
     "delegate_task": "子任务",
+    "glob": "文件匹配",
+    "grep": "内容搜索",
     "memory": "记忆",
     "patch": "文件修改",
     "read_file": "文件读取",
-    "search_files": "文件搜索",
     "session_search": "会话搜索",
     "skill_list": "技能列表",
     "skill_manage": "技能管理",
@@ -372,7 +373,9 @@ def _tool_title(tool_name: str, metadata: dict[str, object], *, completed: bool)
         return f"{verb}读取{f' {path}' if path else '文件'}"
     if tool_name in {"write_file", "patch"}:
         return f"{verb}修改{f' {path}' if path else '文件'}"
-    if tool_name == "search_files":
+    if tool_name == "glob":
+        return f"{verb}匹配文件"
+    if tool_name == "grep":
         return f"{verb}搜索文件"
     if tool_name == "bash":
         return "Ran" if completed else "Running"
@@ -390,10 +393,13 @@ def _tool_call_detail(tool_name: str, metadata: dict[str, object]) -> str | None
         return _safe_prefixed("$ ", arguments.get("command"), limit=180)
     if tool_name in {"read_file", "write_file", "patch"}:
         return _safe_prefixed("path: ", arguments.get("path"), limit=180)
-    if tool_name == "search_files":
-        query = _safe_text(arguments.get("query"), limit=140)
+    if tool_name in {"glob", "grep"}:
+        pattern = _safe_text(arguments.get("pattern"), limit=140)
         path = _safe_text(arguments.get("path"), limit=80)
-        parts = [f"query: {query}" if query else "", f"path: {path}" if path else ""]
+        parts = [
+            f"pattern: {pattern}" if pattern else "",
+            f"path: {path}" if path else "",
+        ]
         return " · ".join(part for part in parts if part) or None
     if tool_name == "delegate_task":
         return _safe_prefixed("goal: ", arguments.get("goal"), limit=200)
@@ -424,7 +430,11 @@ def _tool_result_detail(tool_name: str, metadata: dict[str, object]) -> str | No
         path = _safe_text(structured.get("path"), limit=120)
         if isinstance(line_count, int):
             return f"{line_count} lines{f' · {path}' if path else ''}"
-    if tool_name == "search_files":
+    if tool_name == "glob":
+        count = structured.get("count")
+        if isinstance(count, int):
+            return f"{count} files"
+    if tool_name == "grep":
         count = structured.get("match_count")
         if isinstance(count, int):
             return f"{count} matches"

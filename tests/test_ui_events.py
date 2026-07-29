@@ -251,7 +251,7 @@ def test_hides_redundant_execution_plan() -> None:
             "model.plan",
             {
                 "tool_calls": [
-                    {"name": "search_files", "arguments": {"query": "secret"}},
+                    {"name": "grep", "arguments": {"pattern": "secret"}},
                     {"name": "bash", "arguments": {"command": "pytest"}},
                 ],
                 "reasoning_content": "private chain of thought",
@@ -275,7 +275,7 @@ def test_emitter_only_sends_derived_ui_events() -> None:
     emitter.handle(
         _event(
             "tool.call",
-            {"tool_name": "search_files", "arguments": {"pattern": "RuntimeEvent"}},
+            {"tool_name": "grep", "arguments": {"pattern": "RuntimeEvent"}},
             item_id="tc1",
         )
     )

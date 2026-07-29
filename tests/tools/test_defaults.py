@@ -42,8 +42,9 @@ class DefaultsTest(unittest.TestCase):
                 "bash",
                 "background_task",
                 "code_executor",
+                "glob",
+                "grep",
                 "read_file",
-                "search_files",
                 "write_file",
                 "patch",
                 "memory",
@@ -62,7 +63,10 @@ class DefaultsTest(unittest.TestCase):
             )
         )
         file_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["file"])}
-        self.assertEqual(file_tools, {"read_file", "search_files", "write_file", "patch"})
+        self.assertEqual(
+            file_tools,
+            {"read_file", "glob", "grep", "write_file", "patch"},
+        )
         terminal_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["terminal"])}
         self.assertEqual(terminal_tools, {"bash", "background_task"})
         code_tools = {s["name"] for s in registry.schemas(enabled_toolsets=["code"])}

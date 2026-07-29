@@ -22,10 +22,11 @@ from .background_task_tool import BackgroundTaskTool
 from .code_executor_tool import CodeExecutorTool
 from .cron_tool import CronTool
 from .delegate_task_tool import DelegateTaskTool
+from .glob_tool import GlobTool
+from .grep_tool import GrepTool
 from .memory_tool import MemoryTool
 from .patch_tool import PatchTool
 from .read_file_tool import ReadFileTool
-from .search_files_tool import SearchFilesTool
 from .session_search_tool import SessionSearchTool
 from .skill_view_tool import SkillListTool, SkillViewTool
 from .todo_tool import TodoTool
@@ -65,7 +66,8 @@ def build_default_tool_registry(
             ("terminal", BackgroundTaskTool(background_task_manager)),
             ("code", CodeExecutorTool(root=workspace_root, additional_roots=added_roots)),
             ("file", ReadFileTool(root=workspace_root, additional_roots=added_roots)),
-            ("file", SearchFilesTool(root=workspace_root, additional_roots=added_roots)),
+            ("file", GlobTool(root=workspace_root, additional_roots=added_roots)),
+            ("file", GrepTool(root=workspace_root, additional_roots=added_roots)),
             ("file", WriteFileTool(root=workspace_root, additional_roots=added_roots)),
             ("file", PatchTool(root=workspace_root, additional_roots=added_roots)),
             ("memory", MemoryTool(memory_store=shared_memory_store)),
@@ -102,7 +104,7 @@ def build_default_tool_registry(
             ToolsetDefinition(name="code", tools=["code_executor"]),
             ToolsetDefinition(
                 name="file",
-                tools=["read_file", "search_files", "write_file", "patch"],
+                tools=["read_file", "glob", "grep", "write_file", "patch"],
             ),
             ToolsetDefinition(name="memory", tools=["memory"]),
             ToolsetDefinition(name="session", tools=["session_search"]),

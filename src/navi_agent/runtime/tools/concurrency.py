@@ -10,7 +10,8 @@ from ..models import ToolCall
 PARALLEL_SAFE_TOOLS = frozenset(
     {
         "read_file",
-        "search_files",
+        "glob",
+        "grep",
         "session_search",
         "skill_list",
         "skill_view",
