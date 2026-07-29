@@ -30,6 +30,7 @@ INTERACTIVE_STYLE = {
     "toolbar": "ansibrightblack",
     "status": "ansibrightblack italic",
     "response": "",
+    "user.message": "bg:#30343b #f5f5f5",
 }
 
 
@@ -205,7 +206,7 @@ class InteractivePromptSession:
             if not message:
                 return
             text_area.buffer.reset()
-            self.commit_history(f"❯ {message}")
+            self.commit_history(f"❯ {message}", style="class:user.message")
             on_submit(message)
 
         @bindings.add("enter")
@@ -295,7 +296,10 @@ class InteractivePromptSession:
 
         def start_first_message() -> None:
             if first_message:
-                self.commit_history(f"❯ {first_message}")
+                self.commit_history(
+                    f"❯ {first_message}",
+                    style="class:user.message",
+                )
                 on_submit(first_message)
 
         try:
@@ -404,7 +408,7 @@ class InteractivePromptSession:
             self._status_style = "class:status"
             self._busy = False
         if response:
-            self.commit_history(response)
+            self.commit_history(response, style="class:response")
         self.invalidate()
 
     def show_notice(self, text: str) -> None:
@@ -455,7 +459,7 @@ class InteractivePromptSession:
     def _render_response(self):
         with self._lock:
             text = self._response_text
-        return [("class:response", text)] if text else []
+        return [("class:response", f"{text}\n")] if text else []
 
     def _render_status(self):
         with self._lock:
@@ -499,7 +503,7 @@ class InteractivePromptSession:
             max(1, (len(line) + width - 1) // width)
             for line in text.split("\n")
         )
-        return min(12, visible_lines)
+        return min(12, visible_lines + 1)
 
 
 def _event_style(event: UiEvent) -> str | None:
@@ -517,6 +521,16 @@ def _event_style(event: UiEvent) -> str | None:
 def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, str]]:
     if not style:
         return [("", text)]
+    if style == "class:user.message":
+        fragments: list[tuple[str, str]] = []
+        for index, line in enumerate(text.splitlines() or [""]):
+            if index:
+                fragments.append(("", "\n"))
+            fragments.append((style, f"  {line}  "))
+        fragments.append(("", "\n"))
+        return fragments
+    if style == "class:response":
+        return [(style, text), ("", "\n")]
     lines = text.splitlines()
     if not lines:
         return [(style, text)]

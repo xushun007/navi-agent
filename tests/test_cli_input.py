@@ -55,6 +55,28 @@ def test_unstyled_multiline_response_keeps_normal_text_style() -> None:
     assert _styled_history_fragments(response, None) == [("", response)]
 
 
+def test_user_message_history_has_subtle_background_and_spacing() -> None:
+    fragments = _styled_history_fragments(
+        "❯ first line\nsecond line",
+        "class:user.message",
+    )
+
+    assert INTERACTIVE_STYLE["user.message"] == "bg:#30343b #f5f5f5"
+    assert fragments == [
+        ("class:user.message", "  ❯ first line  "),
+        ("", "\n"),
+        ("class:user.message", "  second line  "),
+        ("", "\n"),
+    ]
+
+
+def test_completed_response_history_has_trailing_spacing() -> None:
+    assert _styled_history_fragments("answer", "class:response") == [
+        ("class:response", "answer"),
+        ("", "\n"),
+    ]
+
+
 def test_install_shift_enter_alias_is_idempotent() -> None:
     sequences = ("\x1b[13;2u", "\x1b[27;2;13~", "\x1b[27;2;13u")
     shift_enter_key = Keys.F24
@@ -142,7 +164,7 @@ def test_persistent_interactive_state_tracks_runtime_events() -> None:
     )
 
     assert session.status_text == ""
-    assert session._render_response() == [("class:response", "hello")]
+    assert session._render_response() == [("class:response", "hello\n")]
 
 
 def test_persistent_interactive_session_commits_execution_timeline_once() -> None:
@@ -364,7 +386,7 @@ def test_discards_model_text_that_only_introduces_tool_calls() -> None:
     with patch.object(session, "commit_history") as commit_history:
         session.complete_response("最终答案")
 
-    commit_history.assert_called_once_with("最终答案")
+    commit_history.assert_called_once_with("最终答案", style="class:response")
 
 
 def test_commit_history_does_not_reschedule_run_in_terminal_future() -> None:
@@ -398,7 +420,7 @@ def test_streamed_response_height_accounts_for_wrapping() -> None:
     ):
         height = session._response_height()
 
-    assert height == 3
+    assert height == 4
 
 
 def test_placeholder_does_not_move_cursor_after_placeholder_text() -> None:
