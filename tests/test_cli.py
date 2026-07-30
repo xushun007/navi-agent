@@ -1593,12 +1593,11 @@ class CliTests(unittest.TestCase):
     def test_persistent_interactive_resolves_selected_approval(self) -> None:
         from threading import Event
 
-        completed = Event()
-
         class ApprovalApp(FakeApp):
             def __init__(self) -> None:
                 super().__init__()
                 self.resolve_calls = []
+                self.completed = Event()
 
             def resolve_interaction(self, session_id, *, approved):
                 self.resolve_calls.append((session_id, approved))
@@ -1606,21 +1605,23 @@ class CliTests(unittest.TestCase):
 
             def handle(self, request, *, event_subscribers=None):
                 self.calls.append(request)
-                completed.set()
+                self.completed.set()
                 return RuntimeResult(
                     session_id=request.session_id,
                     status="success",
-                    final_response="denied",
+                    final_response="done",
                 )
 
         class Prompt:
-            def __init__(self) -> None:
+            def __init__(self, approved, completed) -> None:
+                self.approved = approved
+                self.completed = completed
                 self.notices = []
 
             def run(self, submit, *, on_approval=None, first_message=None):
                 assert on_approval is not None
-                on_approval(False)
-                assert completed.wait(timeout=2)
+                on_approval(self.approved)
+                assert self.completed.wait(timeout=2)
 
             def set_busy(self, _busy):
                 pass
@@ -1634,21 +1635,27 @@ class CliTests(unittest.TestCase):
             def exit(self):
                 pass
 
-        app = ApprovalApp()
-        prompt = Prompt()
+        for approved in (False, True):
+            with self.subTest(approved=approved):
+                app = ApprovalApp()
+                prompt = Prompt(approved, app.completed)
 
-        _run_persistent_interactive(
-            app=app,
-            prompt_session=prompt,
-            user_id="u1",
-            session_id="s1",
-            system_prompt=None,
-            first_message=None,
-        )
+                _run_persistent_interactive(
+                    app=app,
+                    prompt_session=prompt,
+                    user_id="u1",
+                    session_id="s1",
+                    system_prompt=None,
+                    first_message=None,
+                )
 
-        self.assertEqual(app.resolve_calls, [("s1", False)])
-        self.assertIn("denied the tool bash", app.calls[0].message)
-        self.assertIn("■ 已拒绝 · bash", prompt.notices)
+                self.assertEqual(app.resolve_calls, [("s1", approved)])
+                action = "approved" if approved else "denied"
+                self.assertIn(f"{action} the tool bash", app.calls[0].message)
+                if approved:
+                    self.assertNotIn("✓ 已授权 · bash", prompt.notices)
+                else:
+                    self.assertIn("■ 已拒绝 · bash", prompt.notices)
 
     def test_read_interactive_message_uses_prompt_session(self) -> None:
         session = FakePromptSession("hello")

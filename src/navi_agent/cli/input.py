@@ -107,6 +107,7 @@ class InteractivePromptSession:
         self._approval_selected = True
         self._approval_title = ""
         self._approval_detail = ""
+        self._approval_command = ""
         self._seen_event_ids: set[str] = set()
 
     def prompt(self, _message: Any = None, *, placeholder: str = "") -> str:
@@ -359,6 +360,7 @@ class InteractivePromptSession:
         self._approval_selected = True
         self._approval_title = ""
         self._approval_detail = ""
+        self._approval_command = ""
 
     def handle(self, event: UiEvent) -> None:
         history_line: str | None = None
@@ -387,6 +389,7 @@ class InteractivePromptSession:
                     self._approval_selected = True
                     self._approval_title = event.title
                     self._approval_detail = event.detail or ""
+                    self._approval_command = event.command or ""
                 else:
                     history_line = render_ui_event(event)
             elif event.kind == "error" or event.state == "failed":
@@ -478,10 +481,18 @@ class InteractivePromptSession:
                 return []
             title = self._approval_title
             detail = self._approval_detail
+            command = self._approval_command
             approved = self._approval_selected
         lines = [
             ("class:event.warning", f"! {title}\n"),
         ]
+        if command:
+            command_lines = command.splitlines()
+            lines.append(("class:event.output", f"  $ {command_lines[0]}\n"))
+            lines.extend(
+                ("class:event.output", f"    {line}\n")
+                for line in command_lines[1:]
+            )
         if detail:
             lines.append(("class:event.output", f"  {detail}\n"))
         lines.extend(
