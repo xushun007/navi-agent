@@ -260,6 +260,27 @@ def test_approval_event_renders_inline_vertical_choices() -> None:
     assert "/approve" not in text
 
 
+def test_approval_event_renders_complete_multiline_command() -> None:
+    session = InteractivePromptSession()
+
+    session.handle(
+        UiEvent(
+            event_id="approval-1",
+            run_id="run-1",
+            sequence=1,
+            kind="approval",
+            state="waiting",
+            title="Approval required · Bash",
+            command="python - <<'PY'\nprint('hello')\nPY",
+        )
+    )
+
+    text = "".join(fragment for _style, fragment in session._render_approval())
+    assert "  $ python - <<'PY'" in text
+    assert "    print('hello')" in text
+    assert "    PY" in text
+
+
 def test_prompt_toolkit_measures_wrapped_approval_choices() -> None:
     session = InteractivePromptSession()
     session.handle(

@@ -218,9 +218,11 @@ def test_maps_bash_command_and_result_as_a_safe_execution_timeline() -> None:
     assert started is not None
     assert started.title == "Running"
     assert started.detail == "$ find . -type f | wc -l"
+    assert started.command == "find . -type f | wc -l"
     assert completed is not None
     assert completed.title == "Ran · 83 ms"
-    assert completed.detail == "$ find . -type f | wc -l\n1825"
+    assert completed.command == "find . -type f | wc -l"
+    assert completed.detail == "1825"
 
 
 def test_maps_deferred_approval_with_safe_tool_context() -> None:
@@ -241,8 +243,51 @@ def test_maps_deferred_approval_with_safe_tool_context() -> None:
     assert ui_event.kind == "approval"
     assert ui_event.state == "waiting"
     assert ui_event.title == "Approval required · Bash"
-    assert ui_event.detail == "$ TOKEN=<redacted> uv run pytest"
+    assert ui_event.command == "TOKEN=<redacted> uv run pytest"
+    assert ui_event.detail is None
     assert render_ui_event(ui_event).startswith("! Approval required")
+
+
+def test_preserves_multiline_bash_command_in_execution_timeline() -> None:
+    command = "python - <<'PY'\nprint('hello')\nPY"
+    ui_event = UiEventMapper().map(
+        _event(
+            "tool.result",
+            {
+                "tool_name": "bash",
+                "status": "success",
+                "arguments": {"command": command},
+                "structured_content": {"stdout": "hello"},
+            },
+            item_id="tc1",
+        )
+    )
+
+    assert ui_event is not None
+    assert ui_event.command == command
+    assert render_ui_event(ui_event) == (
+        "✓ Ran\n"
+        "  $ python - <<'PY'\n"
+        "    print('hello')\n"
+        "    PY\n"
+        "  └ hello"
+    )
+
+
+def test_bounds_unusually_large_bash_commands_without_losing_the_tail() -> None:
+    command = f"echo {'a' * 4500}\nprintf tail"
+    ui_event = UiEventMapper().map(
+        _event(
+            "tool.call",
+            {"tool_name": "bash", "arguments": {"command": command}},
+            item_id="tc1",
+        )
+    )
+
+    assert ui_event is not None
+    assert ui_event.command is not None
+    assert "command characters omitted" in ui_event.command
+    assert ui_event.command.endswith("printf tail")
 
 
 def test_hides_redundant_execution_plan() -> None:

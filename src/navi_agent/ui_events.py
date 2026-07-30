@@ -21,6 +21,7 @@ class UiEvent:
     title: str
     item_id: str | None = None
     detail: str | None = None
+    command: str | None = None
     severity: str = "info"
     replaceable: bool = False
     transient: bool = False
@@ -249,6 +250,7 @@ class UiEventMapper:
 
     def _tool_started(self, event: RuntimeEvent) -> UiEvent:
         tool_name = _tool_name(event)
+        command = _tool_command(tool_name, event.metadata)
         return UiEvent(
             event_id=event.event_id,
             run_id=event.run_id,
@@ -257,7 +259,12 @@ class UiEventMapper:
             state="started",
             title=_tool_title(tool_name, event.metadata, completed=False),
             item_id=event.item_id,
-            detail=_tool_call_detail(tool_name, event.metadata),
+            detail=(
+                _command_summary(command)
+                if command
+                else _tool_call_detail(tool_name, event.metadata)
+            ),
+            command=command,
             replaceable=True,
         )
 
@@ -274,6 +281,7 @@ class UiEventMapper:
                 title=f"Approval required · {_tool_label(tool_name)}",
                 item_id=event.item_id,
                 detail=_approval_detail(tool_name, event.metadata),
+                command=_tool_command(tool_name, event.metadata),
                 severity="warning",
             )
         failed = event.metadata.get("status") == "error"
@@ -292,6 +300,7 @@ class UiEventMapper:
             title=title,
             item_id=event.item_id,
             detail=_completed_tool_detail(tool_name, event.metadata, failed=failed),
+            command=_tool_command(tool_name, event.metadata),
             severity="error" if failed else "info",
             replaceable=True,
         )
@@ -354,6 +363,7 @@ _SECRET_PATTERNS = (
     ),
     re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]+"),
 )
+TOOL_COMMAND_MAX_CHARS = 4_000
 
 
 def _tool_name(event: RuntimeEvent) -> str:
@@ -389,8 +399,6 @@ def _tool_call_detail(tool_name: str, metadata: dict[str, object]) -> str | None
     if not isinstance(arguments, dict):
         return None
 
-    if tool_name == "bash":
-        return _safe_prefixed("$ ", arguments.get("command"), limit=180)
     if tool_name in {"read_file", "write_file", "patch"}:
         return _safe_prefixed("path: ", arguments.get("path"), limit=180)
     if tool_name in {"glob", "grep"}:
@@ -410,6 +418,15 @@ def _tool_call_detail(tool_name: str, metadata: dict[str, object]) -> str | None
     if tool_name == "skill_view":
         return _safe_prefixed("skill: ", arguments.get("skill_name"), limit=120)
     return None
+
+
+def _tool_command(tool_name: str, metadata: dict[str, object]) -> str | None:
+    if tool_name != "bash":
+        return None
+    arguments = metadata.get("arguments")
+    if not isinstance(arguments, dict):
+        return None
+    return _safe_command(arguments.get("command"))
 
 
 def _tool_result_detail(tool_name: str, metadata: dict[str, object]) -> str | None:
@@ -456,14 +473,12 @@ def _completed_tool_detail(
     *,
     failed: bool,
 ) -> str | None:
-    result = _safe_error_detail(metadata) if failed else _tool_result_detail(tool_name, metadata)
-    if tool_name != "bash":
-        return result
-    command = _tool_call_detail(tool_name, metadata)
-    return "\n".join(part for part in (command, result) if part) or None
+    return _safe_error_detail(metadata) if failed else _tool_result_detail(tool_name, metadata)
 
 
 def _approval_detail(tool_name: str, metadata: dict[str, object]) -> str | None:
+    if tool_name == "bash":
+        return None
     return _tool_call_detail(tool_name, metadata)
 
 
@@ -490,6 +505,29 @@ def _safe_text(value: object, *, limit: int) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     return _compact(_redact(value), limit=limit)
+
+
+def _safe_command(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    command = _redact(value).strip()
+    if len(command) <= TOOL_COMMAND_MAX_CHARS:
+        return command
+    head_size = int(TOOL_COMMAND_MAX_CHARS * 0.7)
+    tail_size = int(TOOL_COMMAND_MAX_CHARS * 0.2)
+    omitted = len(command) - head_size - tail_size
+    return "\n".join(
+        [
+            command[:head_size].rstrip(),
+            f"… {omitted} command characters omitted …",
+            command[-tail_size:].lstrip(),
+        ]
+    )
+
+
+def _command_summary(command: str) -> str:
+    first_line = command.splitlines()[0]
+    return f"$ {_compact(first_line, limit=160)}"
 
 
 def _safe_output(value: object, *, max_lines: int = 3, line_limit: int = 160) -> str | None:
@@ -560,16 +598,18 @@ def render_ui_event(event: UiEvent) -> str:
     elif event.kind == "approval":
         marker = "!"
     text = f"{marker} {event.title}"
+    if event.command and event.state in {"completed", "failed", "waiting"}:
+        command_lines = event.command.splitlines()
+        rendered_command = [f"  $ {command_lines[0]}"]
+        rendered_command.extend(f"    {line}" for line in command_lines[1:])
+        text = f"{text}\n" + "\n".join(rendered_command)
     if event.detail:
         if event.kind == "tool" and event.state in {"completed", "failed"}:
             detail_lines = event.detail.splitlines()
-            command = detail_lines[0] if detail_lines[0].startswith("$ ") else None
-            output_lines = detail_lines[1:] if command else detail_lines
-            rendered_lines = [f"  {command}"] if command else []
-            rendered_lines.extend(
+            rendered_lines = [
                 f"  {'└' if index == 0 else ' '} {line}"
-                for index, line in enumerate(output_lines)
-            )
+                for index, line in enumerate(detail_lines)
+            ]
             detail = "\n".join(rendered_lines)
             text = f"{text}\n{detail}"
         elif event.kind == "approval":
