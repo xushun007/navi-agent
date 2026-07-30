@@ -6,6 +6,7 @@ from typing import Any
 
 from prompt_toolkit.formatted_text.utils import fragment_list_len
 from prompt_toolkit.layout.processors import Processor, Transformation, TransformationInput
+from prompt_toolkit.utils import get_cwidth
 
 from navi_agent.cli.slash_commands import COMMAND_SPECS
 from navi_agent.ui_events import UiEvent, render_ui_event
@@ -206,7 +207,7 @@ class InteractivePromptSession:
             if not message:
                 return
             text_area.buffer.reset()
-            self.commit_history(f"❯ {message}", style="class:user.message")
+            self.commit_history(message, style="class:user.message")
             on_submit(message)
 
         @bindings.add("enter")
@@ -297,7 +298,7 @@ class InteractivePromptSession:
         def start_first_message() -> None:
             if first_message:
                 self.commit_history(
-                    f"❯ {first_message}",
+                    first_message,
                     style="class:user.message",
                 )
                 on_submit(first_message)
@@ -441,7 +442,11 @@ class InteractivePromptSession:
             from prompt_toolkit.formatted_text import FormattedText
             from prompt_toolkit.styles import Style
 
-            fragments = _styled_history_fragments(text, style)
+            fragments = _styled_history_fragments(
+                text,
+                style,
+                width=shutil.get_terminal_size((80, 24)).columns,
+            )
             history_style = Style.from_dict(INTERACTIVE_STYLE)
             run_in_terminal(
                 lambda: print_formatted_text(
@@ -518,17 +523,16 @@ def _event_style(event: UiEvent) -> str | None:
     return None
 
 
-def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, str]]:
+def _styled_history_fragments(
+    text: str,
+    style: str | None,
+    *,
+    width: int | None = None,
+) -> list[tuple[str, str]]:
     if not style:
         return [("", text)]
     if style == "class:user.message":
-        fragments: list[tuple[str, str]] = []
-        for index, line in enumerate(text.splitlines() or [""]):
-            if index:
-                fragments.append(("", "\n"))
-            fragments.append((style, f"  {line}  "))
-        fragments.append(("", "\n"))
-        return fragments
+        return _user_message_fragments(text, width=width or 80)
     if style == "class:response":
         return [(style, text), ("", "\n")]
     lines = text.splitlines()
@@ -545,3 +549,43 @@ def _styled_history_fragments(text: str, style: str | None) -> list[tuple[str, s
     if style:
         fragments.append(("", "\n"))
     return fragments
+
+
+def _user_message_fragments(text: str, *, width: int) -> list[tuple[str, str]]:
+    block_width = max(4, width - 1)
+    content_width = max(1, block_width - 3)
+    display_lines = [""]
+    first_line = True
+    for source_line in text.splitlines() or [""]:
+        for wrapped_line in _wrap_display_text(source_line, content_width):
+            prefix = "› " if first_line else "  "
+            display_lines.append(f"{prefix}{wrapped_line}")
+            first_line = False
+    display_lines.append("")
+
+    fragments: list[tuple[str, str]] = []
+    for index, line in enumerate(display_lines):
+        if index:
+            fragments.append(("", "\n"))
+        padding = max(0, block_width - get_cwidth(line))
+        fragments.append(("class:user.message", f"{line}{' ' * padding}"))
+    return fragments
+
+
+def _wrap_display_text(text: str, width: int) -> list[str]:
+    if not text:
+        return [""]
+    lines: list[str] = []
+    current: list[str] = []
+    current_width = 0
+    for character in text:
+        character_width = max(0, get_cwidth(character))
+        if current and current_width + character_width > width:
+            lines.append("".join(current))
+            current = []
+            current_width = 0
+        current.append(character)
+        current_width += character_width
+    if current:
+        lines.append("".join(current))
+    return lines
