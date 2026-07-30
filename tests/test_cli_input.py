@@ -57,16 +57,38 @@ def test_unstyled_multiline_response_keeps_normal_text_style() -> None:
 
 def test_user_message_history_has_subtle_background_and_spacing() -> None:
     fragments = _styled_history_fragments(
-        "❯ first line\nsecond line",
+        "first line\nsecond line",
         "class:user.message",
+        width=20,
     )
 
     assert INTERACTIVE_STYLE["user.message"] == "bg:#30343b #f5f5f5"
     assert fragments == [
-        ("class:user.message", "  ❯ first line  "),
+        ("class:user.message", "                   "),
         ("", "\n"),
-        ("class:user.message", "  second line  "),
+        ("class:user.message", "› first line       "),
         ("", "\n"),
+        ("class:user.message", "  second line      "),
+        ("", "\n"),
+        ("class:user.message", "                   "),
+    ]
+
+
+def test_user_message_history_wraps_cjk_text_with_full_width_background() -> None:
+    fragments = _styled_history_fragments(
+        "南京天气如何",
+        "class:user.message",
+        width=10,
+    )
+
+    assert fragments == [
+        ("class:user.message", "         "),
+        ("", "\n"),
+        ("class:user.message", "› 南京天 "),
+        ("", "\n"),
+        ("class:user.message", "  气如何 "),
+        ("", "\n"),
+        ("class:user.message", "         "),
     ]
 
 
