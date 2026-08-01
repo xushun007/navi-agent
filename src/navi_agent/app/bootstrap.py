@@ -44,6 +44,7 @@ from navi_agent.paths import (
 from navi_agent.runtime import (
     AgentRuntime,
     BackgroundTaskManager,
+    BackgroundTaskStore,
     ContextEngine,
     LLMContextSummarizer,
     JsonPendingInteractionStore,
@@ -90,7 +91,9 @@ def build_runtime(
     memory_store = memory_store or FileMemoryStore(get_memories_dir())
     skill_store = skill_store or FileSkillStore(get_skills_dir())
     trace_store = _build_trace_store(config)
-    background_task_manager = BackgroundTaskManager()
+    background_task_manager = BackgroundTaskManager(
+        store=BackgroundTaskStore(get_state_db_path())
+    )
     resolved_workspace_root = (workspace_root or Path.cwd()).resolve()
     added_roots = tuple(Path(root).resolve() for root in additional_workspace_roots or ())
 

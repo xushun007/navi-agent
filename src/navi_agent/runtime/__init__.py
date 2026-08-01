@@ -7,7 +7,7 @@ from .tools.approval import (
     DenyAllApprovalProvider,
     HostYoloApprovalProvider,
 )
-from .tasks.background import BackgroundTask, BackgroundTaskManager
+from .tasks.background import BackgroundTask, BackgroundTaskManager, BackgroundTaskStore
 from .agent.context import (
     ContextBuildResult,
     ContextEngine,
@@ -83,6 +83,7 @@ __all__ = [
     "AutoApproveApprovalProvider",
     "BackgroundTask",
     "BackgroundTaskManager",
+    "BackgroundTaskStore",
     "BashCommandPolicy",
     "CliApprovalProvider",
     "ContextBuildResult",

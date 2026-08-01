@@ -387,7 +387,9 @@ class ILinkGateway:
                 task.task_id,
                 task.session_id,
             )
-            return
+            raise RuntimeError(
+                f"Weixin route unavailable for background task {task.task_id}"
+            )
         route.reply_sent.wait()
         self._deliver_text(
             delivery_key=f"background:{task.task_id}",

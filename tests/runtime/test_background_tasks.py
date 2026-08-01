@@ -1,7 +1,8 @@
 import threading
 import time
+from pathlib import Path
 
-from navi_agent.runtime import BackgroundTaskManager
+from navi_agent.runtime import BackgroundTask, BackgroundTaskManager, BackgroundTaskStore
 from navi_agent.tooling import ToolResult
 
 
@@ -105,3 +106,79 @@ def test_cancel_requests_are_scoped_and_forwarded_to_runner() -> None:
     assert completed.cancel_requested
     assert completed.result is not None
     assert completed.result.structured_content["cancelled"]
+
+
+def test_completed_task_survives_manager_restart(tmp_path: Path) -> None:
+    store = BackgroundTaskStore(tmp_path / "state.db")
+    manager = BackgroundTaskManager(store=store)
+    task = manager.submit(
+        session_id="s1",
+        user_id="u1",
+        description="tests",
+        runner=lambda: ToolResult.ok(name="bash", content="passed"),
+    )
+    _wait_for_terminal(manager, task.task_id)
+
+    restarted = BackgroundTaskManager(
+        store=BackgroundTaskStore(tmp_path / "state.db")
+    )
+    restored = restarted.get(task.task_id, session_id="s1", user_id="u1")
+
+    assert restored is not None
+    assert restored.status == "succeeded"
+    assert restored.result is not None
+    assert restored.result.content == "passed"
+
+
+def test_running_task_is_marked_interrupted_after_restart(tmp_path: Path) -> None:
+    store = BackgroundTaskStore(tmp_path / "state.db")
+    store.save(
+        BackgroundTask(
+            task_id="task-1",
+            session_id="s1",
+            user_id="u1",
+            description="long command",
+            status="running",
+            submitted_at="2026-08-02T10:00:00+00:00",
+            started_at="2026-08-02T10:00:01+00:00",
+        )
+    )
+
+    restarted = BackgroundTaskManager(
+        store=BackgroundTaskStore(tmp_path / "state.db")
+    )
+    restored = restarted.get("task-1", session_id="s1", user_id="u1")
+
+    assert restored is not None
+    assert restored.status == "interrupted"
+    assert restored.result is not None
+    assert restored.result.structured_content == {
+        "interrupted": True,
+        "resumable": False,
+    }
+
+
+def test_recovered_interrupted_task_is_replayed_to_listener_once(tmp_path: Path) -> None:
+    store = BackgroundTaskStore(tmp_path / "state.db")
+    store.save(
+        BackgroundTask(
+            task_id="task-1",
+            session_id="s1",
+            user_id="u1",
+            description="long command",
+            status="queued",
+            submitted_at="2026-08-02T10:00:00+00:00",
+        )
+    )
+    manager = BackgroundTaskManager(
+        store=BackgroundTaskStore(tmp_path / "state.db")
+    )
+    received = []
+
+    manager.add_completion_listener(received.append)
+    manager.add_completion_listener(received.append)
+
+    assert [task.task_id for task in received] == ["task-1"]
+    restored = manager.get("task-1", session_id="s1", user_id="u1")
+    assert restored is not None
+    assert restored.notification_delivered is True
