@@ -83,6 +83,24 @@ class PromptOverlayStoreTests(unittest.TestCase):
             self.assertNotIn(second.candidate_id, restored or "")
             self.assertEqual(len(snapshots), 2)
 
+    def test_rollback_first_candidate_restores_empty_overlay(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = PromptOverlayStore(
+                Path(tmpdir) / "prompt-overlay.md",
+                Path(tmpdir) / "snapshots",
+            )
+            candidate = EvolutionCandidate(
+                target="prompt",
+                summary="First",
+                rationale="r1",
+            )
+
+            store.append_candidate(candidate)
+            rolled_back = store.rollback_candidate(candidate.candidate_id)
+
+            self.assertTrue(rolled_back)
+            self.assertIsNone(store.get())
+
 
 if __name__ == "__main__":
     unittest.main()

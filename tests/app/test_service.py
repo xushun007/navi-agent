@@ -119,6 +119,7 @@ class FakeEvalCaseStore:
 class FakePromptOverlayStore:
     def __init__(self) -> None:
         self.text = None
+        self.rollback_calls = []
 
     def get(self):
         return self.text
@@ -126,6 +127,11 @@ class FakePromptOverlayStore:
     def append_candidate(self, candidate):
         self.text = f"overlay for {candidate.candidate_id}"
         return self.text
+
+    def rollback_candidate(self, candidate_id):
+        self.rollback_calls.append(candidate_id)
+        self.text = None
+        return True
 
 
 class FakeSkillStore:
@@ -1263,6 +1269,32 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertIsNone(updated)
         self.assertIsNone(overlay_store.text)
         self.assertEqual(service.get_candidate(candidate.candidate_id).status, "pending")
+
+    def test_rollback_prompt_candidate_deactivates_overlay(self) -> None:
+        overlay_store = FakePromptOverlayStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=FakeCandidateStore(),
+            prompt_overlay_store=overlay_store,
+        )
+        candidate = EvolutionCandidate(
+            target="prompt",
+            summary="Review prompt",
+            rationale="Need better final answer",
+            status="accepted",
+        )
+        service.add_candidate(candidate)
+        service.apply_candidate(candidate.candidate_id)
+
+        updated = service.rollback_candidate(
+            candidate.candidate_id,
+            status="no_improvement",
+        )
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "no_improvement")
+        self.assertIsNone(overlay_store.text)
+        self.assertEqual(overlay_store.rollback_calls, [candidate.candidate_id])
 
     def test_add_and_list_eval_cases_use_store(self) -> None:
         service = ApplicationService(

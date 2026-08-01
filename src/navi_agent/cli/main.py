@@ -1634,11 +1634,24 @@ def _run_candidate_apply_workflow(
         confirm_eval_case=confirm_eval_case,
     )
     outcome_status = _candidate_outcome_status(comparison.eval_case.status)
-    updated = rerun_app.update_candidate_status(
-        candidate_id,
-        outcome_status,
-        review_note=f"workflow={workflow_name} score_delta={comparison.score_delta} report={report_dir}",
+    review_note = (
+        f"workflow={workflow_name} score_delta={comparison.score_delta} report={report_dir}"
     )
+    if outcome_status == "verified":
+        updated = rerun_app.update_candidate_status(
+            candidate_id,
+            outcome_status,
+            review_note=review_note,
+        )
+    else:
+        updated = rerun_app.rollback_candidate(
+            candidate_id,
+            status=outcome_status,
+            review_note=f"rolled back prompt overlay after validation: {review_note}",
+        )
+    if updated is None:
+        print(f"candidate outcome could not be committed: {candidate_id}")
+        return 1
     print(f"candidate_id: {applied.candidate_id}")
     print(f"candidate_status: {updated.status if updated is not None else applied.status}")
     print(f"workflow: {workflow_name}")

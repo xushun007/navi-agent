@@ -421,6 +421,16 @@ class ApplicationService:
         candidate = self.get_candidate(candidate_id)
         if candidate is None:
             return None
+        if candidate.target == "prompt":
+            if self._prompt_overlay_store is None:
+                return None
+            if not self._prompt_overlay_store.rollback_candidate(candidate_id):
+                return None
+            return self.update_candidate_status(
+                candidate_id,
+                status,
+                review_note=review_note or "rolled back prompt overlay",
+            )
         if candidate.target != "skill":
             return None
         if self._skill_store is None or self._skill_governance is None:
