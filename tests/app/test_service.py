@@ -892,6 +892,7 @@ class ApplicationServiceTests(unittest.TestCase):
             target="prompt",
             summary="Review prompt",
             rationale="Need better final answer",
+            status="accepted",
         )
 
         service.add_candidate(candidate)
@@ -1109,6 +1110,7 @@ class ApplicationServiceTests(unittest.TestCase):
             target="prompt",
             summary="Review prompt",
             rationale="Need better final answer",
+            status="accepted",
         )
         service.add_candidate(candidate)
 
@@ -1143,6 +1145,7 @@ class ApplicationServiceTests(unittest.TestCase):
                 target="skill",
                 summary="Create skill",
                 rationale="Reusable procedure",
+                status="accepted",
                 metadata={
                     "skill_name": "readme-summary",
                     "skill_content": (
@@ -1180,6 +1183,7 @@ class ApplicationServiceTests(unittest.TestCase):
             target="tooling",
             summary="Review tooling",
             rationale="Need better tool selection",
+            status="accepted",
         )
         service.add_candidate(candidate)
 
@@ -1212,6 +1216,7 @@ class ApplicationServiceTests(unittest.TestCase):
                 target="skill",
                 summary="Create skill",
                 rationale="Reusable procedure",
+                status="accepted",
                 metadata={
                     "skill_name": "readme-summary",
                     "skill_content": (
@@ -1238,6 +1243,26 @@ class ApplicationServiceTests(unittest.TestCase):
             self.assertIsNone(skill_store.get("readme-summary"))
             self.assertEqual(provenance_store.removed, ["readme-summary"])
             self.assertEqual(usage_store.archived, ["readme-summary"])
+
+    def test_apply_candidate_requires_human_acceptance(self) -> None:
+        overlay_store = FakePromptOverlayStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=FakeCandidateStore(),
+            prompt_overlay_store=overlay_store,
+        )
+        candidate = EvolutionCandidate(
+            target="prompt",
+            summary="Review prompt",
+            rationale="Need better final answer",
+        )
+        service.add_candidate(candidate)
+
+        updated = service.apply_candidate(candidate.candidate_id)
+
+        self.assertIsNone(updated)
+        self.assertIsNone(overlay_store.text)
+        self.assertEqual(service.get_candidate(candidate.candidate_id).status, "pending")
 
     def test_add_and_list_eval_cases_use_store(self) -> None:
         service = ApplicationService(

@@ -348,6 +348,8 @@ class ApplicationService:
         candidate = self.get_candidate(candidate_id)
         if candidate is None:
             return None
+        if candidate.status != "accepted":
+            return None
         if candidate.target == "prompt":
             if self._prompt_overlay_store is None:
                 return None

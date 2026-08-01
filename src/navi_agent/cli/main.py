@@ -1192,6 +1192,14 @@ def _review_skill(
             print("skill review cancelled")
             return 1
         if answer in {"y", "yes"}:
+            accepted = app.update_candidate_status(
+                candidate.candidate_id,
+                "accepted",
+                review_note="interactive skill review accepted",
+            )
+            if accepted is None:
+                print(f"candidate cannot be accepted: {candidate.candidate_id}")
+                return 1
             updated = app.apply_candidate(
                 candidate.candidate_id,
                 review_note="interactive skill review applied",
@@ -1586,6 +1594,9 @@ def _run_candidate_apply_workflow(
         return 1
     if candidate.target != "prompt":
         print(f"candidate cannot be applied as a workflow run: {candidate_id}")
+        return 1
+    if candidate.status != "accepted":
+        print(f"candidate must be accepted before apply: {candidate_id}")
         return 1
     workflow_name = (candidate.metadata or {}).get("workflow_name")
     if not workflow_name:
