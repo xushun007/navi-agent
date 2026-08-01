@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from navi_agent.evolution import (
@@ -46,7 +47,8 @@ def test_curator_status_separates_agent_and_manual_skills(tmp_path: Path) -> Non
     assert status.unused_agent_created_count == 1
     by_name = {record.name: record for record in status.records}
     assert by_name["agent-skill"].origin == "agent"
-    assert by_name["agent-skill"].candidate_action == "review-unused"
+    assert by_name["agent-skill"].candidate_action == "grace-period"
+    assert by_name["agent-skill"].age_days == 0
     assert by_name["manual-skill"].origin == "manual"
     assert by_name["manual-skill"].candidate_action == "ignore"
 
@@ -78,7 +80,7 @@ def test_curator_archives_unused_agent_created_skills(tmp_path: Path) -> None:
     )
     usage_store = SkillUsageStore(tmp_path)
 
-    result = SkillCuratorService(
+    curator = SkillCuratorService(
         skill_governance=SkillGovernanceService(
             skill_store,
             gate=SkillPromotionGate(required_suites=()),
@@ -90,8 +92,17 @@ def test_curator_archives_unused_agent_created_skills(tmp_path: Path) -> None:
         ),
         provenance_store=provenance_store,
         usage_store=usage_store,
-    ).archive_unused_agent_created()
+    )
 
+    initial = curator.archive_unused_agent_created()
+    created_at = datetime.fromisoformat(
+        provenance_store.get("unused-agent-skill").created_at
+    ).astimezone(UTC)
+    result = curator.archive_unused_agent_created(
+        now=created_at + timedelta(days=31),
+    )
+
+    assert initial.archived_count == 0
     assert result.archived_count == 1
     assert result.archived_names == ["unused-agent-skill"]
     assert (tmp_path / ".archive" / "unused-agent-skill" / "SKILL.md").exists()

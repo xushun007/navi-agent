@@ -171,6 +171,7 @@ def build_application(
     review_model_settings = model_settings or ModelSettings.from_sources(config)
     skill_store = FileSkillStore(get_skills_dir())
     skill_evaluator = DefaultSkillDraftEvaluator()
+    skill_provenance_store = SkillProvenanceStore(get_skills_dir())
     skill_governance = SkillGovernanceService(
         skill_store,
         gate=SkillPromotionGate(
@@ -211,7 +212,7 @@ def build_application(
         skill_store=skill_store,
         skill_governance=skill_governance,
         skill_evaluator=skill_evaluator,
-        skill_provenance_store=SkillProvenanceStore(get_skills_dir()),
+        skill_provenance_store=skill_provenance_store,
         skill_usage_store=SkillUsageStore(get_skills_dir()),
         memory_store=memory_store,
         review_run_store=JsonlReviewRunStore(get_review_run_store_path()),
@@ -221,6 +222,7 @@ def build_application(
             skill_store=skill_store,
             skill_governance=skill_governance,
             skill_evaluator=skill_evaluator,
+            skill_provenance_store=skill_provenance_store,
         ),
         interaction_store=interaction_store,
     )

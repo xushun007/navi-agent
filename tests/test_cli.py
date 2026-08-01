@@ -1868,6 +1868,7 @@ class CliTests(unittest.TestCase):
                         agent_created_count=1,
                         manual_count=0,
                         unused_agent_created_count=1,
+                        review_unused_count=1,
                         records=[
                             SkillCuratorRecord(
                                 name="readme-summary",

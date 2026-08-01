@@ -1299,6 +1299,7 @@ def _print_skill_curator_status() -> int:
     print(f"agent_created_count: {status.agent_created_count}")
     print(f"manual_count: {status.manual_count}")
     print(f"unused_agent_created_count: {status.unused_agent_created_count}")
+    print(f"review_unused_count: {status.review_unused_count}")
     if not status.records:
         return 0
     for record in status.records:
@@ -1307,6 +1308,8 @@ def _print_skill_curator_status() -> int:
         print(f"  origin: {record.origin}")
         print(f"  injected_count: {record.injected_count}")
         print(f"  last_injected_at: {record.last_injected_at or 'never'}")
+        print(f"  created_at: {record.created_at or 'unknown'}")
+        print(f"  age_days: {record.age_days if record.age_days is not None else 'unknown'}")
         print(f"  candidate_action: {record.candidate_action}")
     return 0
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from navi_agent.evolution.skills.governance import (
@@ -22,10 +23,12 @@ class SkillManageTool(BaseTool):
         *,
         governance: SkillGovernanceService,
         provenance: SkillDraftProvenance | None = None,
+        can_update_skill: Callable[[str], bool] | None = None,
     ) -> None:
         self._skill_store = skill_store
         self._governance = governance
         self._provenance = provenance
+        self._can_update_skill = can_update_skill
 
     @property
     def name(self) -> str:
@@ -175,6 +178,19 @@ class SkillManageTool(BaseTool):
             )
 
         if action == "append":
+            if self._can_update_skill is not None and not self._can_update_skill(skill_name):
+                return ToolResult.error(
+                    name=self.name,
+                    content=(
+                        "skill_manage_error: skill is protected from background review: "
+                        f"{skill_name}"
+                    ),
+                    structured_content={
+                        "action": "draft_append",
+                        "skill_name": skill_name,
+                        "protected": True,
+                    },
+                )
             section = str(kwargs.get("section") or "").strip()
             append_content = str(kwargs.get("append_content") or "").strip()
             if not section:

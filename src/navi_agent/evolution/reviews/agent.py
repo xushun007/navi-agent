@@ -24,6 +24,7 @@ from ..skills.governance import (
     SkillGovernanceService,
     SkillPromotionGate,
 )
+from ..skills.provenance import SkillProvenanceStore
 from ..skills.store import FileSkillStore
 
 
@@ -36,6 +37,7 @@ class ReviewAgentService:
         skill_store: FileSkillStore,
         skill_governance: SkillGovernanceService | None = None,
         skill_evaluator: SkillDraftEvaluator | None = None,
+        skill_provenance_store: SkillProvenanceStore | None = None,
         max_iterations: int = 8,
     ) -> None:
         self._transport = transport
@@ -48,6 +50,9 @@ class ReviewAgentService:
             ),
         )
         self._skill_evaluator = skill_evaluator or DefaultSkillDraftEvaluator()
+        self._skill_provenance_store = skill_provenance_store or SkillProvenanceStore(
+            skill_store.root
+        )
         self._max_iterations = max_iterations
 
     def review_and_write(
@@ -126,6 +131,7 @@ class ReviewAgentService:
                             skill_store=self._skill_store,
                             governance=self._skill_governance,
                             provenance=skill_provenance,
+                            can_update_skill=self._skill_provenance_store.is_agent_created,
                         ),
                     ),
                 ],
@@ -177,6 +183,10 @@ Rules:
 - If memory returns conflict_candidates, choose update, remove, or retry with
   conflict_resolution=retain_both and concise evidence. Never ignore the conflict.
 - Keep skills class-level, not one-session micro skills.
+- Existing user-authored skills are protected. You may inspect them, but only
+  append to skills previously created by the background review agent. If a
+  protected skill is relevant, leave it unchanged and explain what a human
+  maintainer should consider adding.
 - Never create skills named after one session, one error string, one temporary branch, or one user's one-off wording.
 - Do not persist transient setup failures or negative claims like "tool X does not work".
 - Do not store user preferences inside SKILL.md unless they materially affect a reusable procedure.

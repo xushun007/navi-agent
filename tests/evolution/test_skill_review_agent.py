@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from navi_agent.evolution import FileSkillStore, ReviewAgentService, SkillReviewEvidence
+from navi_agent.evolution import (
+    EvolutionCandidate,
+    FileSkillStore,
+    ReviewAgentService,
+    SkillProvenanceStore,
+    SkillReviewEvidence,
+)
 from navi_agent.memory import InMemoryMemoryStore
 from navi_agent.runtime import Message, ModelRequest, ModelResponse, ToolCall
 
@@ -94,6 +100,11 @@ def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> N
             "## Procedure\n\n- Read README."
         ),
     )
+    provenance_store = SkillProvenanceStore(tmp_path)
+    provenance_store.mark_agent_created(
+        skill_name="readme-verification",
+        candidate=EvolutionCandidate(target="skill", summary="created", rationale="review"),
+    )
     transport = ScriptedTransport(
         [
             ModelResponse(
@@ -136,6 +147,7 @@ def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> N
         transport=transport,
         memory_store=InMemoryMemoryStore(),
         skill_store=store,
+        skill_provenance_store=provenance_store,
     ).review_and_write(
         evidence=SkillReviewEvidence(
             session_id="session-1",
@@ -154,6 +166,60 @@ def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> N
     assert "- Verify the result before replying." in record.content
     assert result.tool_results[-1].structured_content["action"] == "draft_append"
     assert result.tool_results[-1].structured_content["promotion_status"] == "promoted"
+
+
+def test_skill_review_agent_cannot_append_user_owned_skill(tmp_path: Path) -> None:
+    store = FileSkillStore(tmp_path)
+    original = (
+        "---\n"
+        "name: readme-verification\n"
+        "description: Verify README changes.\n"
+        "category: coding\n"
+        "---\n\n"
+        "# README Verification\n\n"
+        "## When To Use\n\nUse for README checks.\n\n"
+        "## Procedure\n\n- Keep the user-authored procedure."
+    )
+    store.create(name="readme-verification", content=original)
+    transport = ScriptedTransport(
+        [
+            ModelResponse(
+                tool_calls=[
+                    ToolCall(
+                        id="call-append",
+                        name="skill_manage",
+                        arguments={
+                            "action": "append",
+                            "skill_name": "readme-verification",
+                            "section": "## Procedure",
+                            "append_content": "- Background review mutation.",
+                        },
+                    )
+                ]
+            ),
+            ModelResponse(content="Protected skill left unchanged."),
+        ]
+    )
+
+    result = ReviewAgentService(
+        transport=transport,
+        memory_store=InMemoryMemoryStore(),
+        skill_store=store,
+        skill_provenance_store=SkillProvenanceStore(tmp_path),
+    ).review_and_write(
+        evidence=SkillReviewEvidence(
+            session_id="session-1",
+            trace_id="trace-1",
+            user_id="user-1",
+            messages_snapshot=[Message(role="user", content="Review README")],
+        ),
+        review_memory=False,
+        review_skill=True,
+    )
+
+    assert store.get("readme-verification").content == original
+    assert result.tool_results[0].status == "error"
+    assert result.tool_results[0].structured_content["protected"] is True
 
 
 def test_skill_review_agent_prompt_contains_arguments_and_error_tail(tmp_path: Path) -> None:
@@ -275,5 +341,6 @@ def test_review_agent_prompt_defines_memory_skill_boundary(tmp_path: Path) -> No
     assert "Use skill_manage for reusable procedures" in system_prompt
     assert "Do not store tool logs" in system_prompt
     assert "Do not store reusable tool procedures as memory" in system_prompt
+    assert "Existing user-authored skills are protected" in system_prompt
     assert "- Memory: extract durable user facts" in user_prompt
     assert "- Skills: extract reusable procedures" in user_prompt
