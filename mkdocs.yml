@@ -1,0 +1,55 @@
+site_name: Navi Agent
+site_description: Documentation for the Navi Agent runtime and CLI
+site_url: https://xushun007.github.io/navi-agent/
+repo_url: https://github.com/xushun007/navi-agent
+repo_name: xushun007/navi-agent
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Overview: index.md
+  - Getting Started: getting-started.md
+  - Usage:
+      - CLI: cli.md
+      - Slash Commands: commands.md
+      - Tools: tools.md
+      - Permissions: permissions.md
+      - Sessions and Memory: sessions-and-memory.md
+  - Gateway: gateway.md
+  - Configuration: configuration.md
+  - Architecture: architecture.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+strict: true

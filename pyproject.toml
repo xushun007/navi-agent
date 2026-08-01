@@ -33,6 +33,9 @@ dev = [
     "inspect-ai>=0.3.249",
     "pytest>=8.0.0",
 ]
+docs = [
+    "mkdocs-material>=9.6,<10",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/navi_agent", "evals"]
