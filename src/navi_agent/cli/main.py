@@ -54,6 +54,7 @@ from navi_agent.evolution.evals.smoke import SmokeRunStore, SmokeWorkflowService
 from navi_agent.gateway.weixin import (
     ILinkClient,
     ILinkGateway,
+    WeixinDeliveryStore,
     WeixinPairingStore,
     WeixinRouteStore,
 )
@@ -514,6 +515,10 @@ def _run_weixin_gateway(args) -> int:
         allowed_users=set(settings.allowed_users),
         pairing_store=WeixinPairingStore(),
         route_store=WeixinRouteStore(account_id),
+        delivery_store=WeixinDeliveryStore(
+            get_state_db_path(),
+            account_id=account_id,
+        ),
     ).run_forever()
     return 0
 

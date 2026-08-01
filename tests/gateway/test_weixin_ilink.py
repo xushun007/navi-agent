@@ -5,9 +5,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from navi_agent.gateway.weixin import ILinkClient, ILinkGateway
+from navi_agent.gateway.weixin import ILinkClient, ILinkGateway, WeixinDeliveryStore
 from navi_agent.gateway.weixin.ilink import ILinkMessage, ILinkSendResult
 from navi_agent.gateway.weixin.pairing import WeixinPairingStore
 from navi_agent.gateway.weixin.routes import WeixinRoute, WeixinRouteStore
@@ -546,6 +546,141 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertEqual(len(app.calls), 1)
         self.assertEqual(len(client.sent), 1)
         self.assertIn("Skipped duplicate Weixin message", "\n".join(logs.output))
+
+    def test_gateway_skips_completed_message_after_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            message = ILinkMessage(
+                message_id="durable-message",
+                from_user_id="user-1",
+                to_user_id="account-1",
+                chat_id="user-1",
+                chat_type="dm",
+                text="hello",
+                context_token="ctx-1",
+            )
+            first_app = FakeApp()
+            first = ILinkGateway(
+                app=first_app,
+                client=FakeClient(),
+                account_id="account-1",
+                delivery_store=WeixinDeliveryStore(db_path, account_id="account-1"),
+            )
+            first.handle_message(message)
+            first.close()
+
+            restarted_app = FakeApp()
+            restarted_client = FakeClient()
+            restarted = ILinkGateway(
+                app=restarted_app,
+                client=restarted_client,
+                account_id="account-1",
+                delivery_store=WeixinDeliveryStore(db_path, account_id="account-1"),
+            )
+            restarted.handle_message(message)
+            restarted.close()
+
+        self.assertEqual(len(first_app.calls), 1)
+        self.assertEqual(restarted_app.calls, [])
+        self.assertEqual(restarted_client.sent, [])
+
+    def test_gateway_recovers_running_message_after_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            store = WeixinDeliveryStore(db_path, account_id="account-1")
+            message = ILinkMessage(
+                message_id="interrupted-message",
+                from_user_id="user-1",
+                to_user_id="account-1",
+                chat_id="user-1",
+                chat_type="dm",
+                text="hello",
+                context_token="ctx-1",
+            )
+            store.record_inbound(message)
+            store.mark_inbound_running(message.message_id)
+            app = FakeApp()
+            client = FakeClient()
+            restarted = ILinkGateway(
+                app=app,
+                client=client,
+                account_id="account-1",
+                delivery_store=WeixinDeliveryStore(db_path, account_id="account-1"),
+            )
+
+            restarted.recover_pending()
+            self.assertTrue(restarted.wait_for_idle(1))
+            restarted.close()
+
+            recovered = store.get_inbound(message.message_id)
+
+        self.assertEqual(len(app.calls), 1)
+        self.assertEqual(client.sent[-1]["text"], "agent reply")
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered.status, "completed")
+
+    def test_gateway_recovers_reply_send_after_restart_without_rerunning_app(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "state.db"
+            store = WeixinDeliveryStore(db_path, account_id="account-1")
+            first_app = FakeApp()
+            first = ILinkGateway(
+                app=first_app,
+                client=FakeClient(send_success=False),
+                account_id="account-1",
+                delivery_store=store,
+            )
+            message = ILinkMessage(
+                message_id="reply-recovery-message",
+                from_user_id="user-1",
+                to_user_id="account-1",
+                chat_id="user-1",
+                chat_type="dm",
+                text="hello",
+                context_token="ctx-1",
+            )
+            with patch(
+                "navi_agent.gateway.weixin.local._delivery_retry_delay",
+                return_value=0,
+            ):
+                first.handle_message(message)
+            first.close()
+
+            restarted_app = FakeApp()
+            restarted_client = FakeClient()
+            restarted = ILinkGateway(
+                app=restarted_app,
+                client=restarted_client,
+                account_id="account-1",
+                delivery_store=WeixinDeliveryStore(db_path, account_id="account-1"),
+            )
+            restarted.recover_pending()
+            restarted.close()
+
+            delivered = store.list_outbound(status="delivered")
+
+        self.assertEqual(len(first_app.calls), 1)
+        self.assertEqual(restarted_app.calls, [])
+        self.assertEqual(restarted_client.sent[-1]["text"], "agent reply")
+        self.assertEqual(len(delivered), 1)
+
+    def test_gateway_does_not_advance_checkpoint_when_inbox_write_fails(self) -> None:
+        delivery_store = Mock()
+        delivery_store.claim_due_outbound.return_value = []
+        delivery_store.record_inbound.side_effect = RuntimeError("database unavailable")
+        gateway = ILinkGateway(
+            app=FakeApp(),
+            client=FakeClient(),
+            account_id="account-1",
+            delivery_store=delivery_store,
+        )
+
+        with patch("navi_agent.gateway.weixin.local.save_sync_buf") as save_sync_buf_mock:
+            with self.assertRaisesRegex(RuntimeError, "database unavailable"):
+                gateway.tick("old-sync")
+        gateway.close()
+
+        save_sync_buf_mock.assert_not_called()
 
     def test_gateway_tick_does_not_wait_for_runtime_completion(self) -> None:
         started = Event()

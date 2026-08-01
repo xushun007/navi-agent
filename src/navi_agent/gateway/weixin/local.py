@@ -10,6 +10,7 @@ from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.runtime import BackgroundTask, SessionTaskScheduler
 from navi_agent.ui_events import UiEvent, UiEventEmitter
 
+from .delivery import WeixinDeliveryStore
 from .ilink import ILinkClient, ILinkMessage, load_sync_buf, save_sync_buf
 from .pairing import WeixinPairingStore
 from .routes import WeixinRoute, WeixinRouteStore
@@ -109,9 +110,11 @@ class ILinkGateway:
     allowed_users: set[str] | None = None
     pairing_store: WeixinPairingStore | None = None
     route_store: WeixinRouteStore | None = None
+    delivery_store: WeixinDeliveryStore | None = None
     error_backoff_seconds: float = 5.0
     progress_interval_seconds: float = 3.0
     max_concurrent_requests: int = 4
+    max_delivery_attempts: int = 5
     seen_message_ids: set[str] = field(default_factory=set)
     _background_routes: dict[str, _BackgroundRoute] = field(
         default_factory=dict,
@@ -136,6 +139,7 @@ class ILinkGateway:
             self.dm_policy,
         )
         try:
+            self.recover_pending()
             while True:
                 try:
                     sync_buf = self.tick(sync_buf)
@@ -154,25 +158,33 @@ class ILinkGateway:
             self.close()
 
     def tick(self, sync_buf: str = "") -> str:
+        self._drain_outbox()
         next_sync_buf, messages = self.client.get_updates(sync_buf)
-        if next_sync_buf:
-            save_sync_buf(self.account_id, next_sync_buf)
         if messages:
             logger.info("Processing Weixin iLink messages: count=%s", len(messages))
         for message in messages:
             self.submit_message(message)
+        if next_sync_buf:
+            save_sync_buf(self.account_id, next_sync_buf)
+        self._drain_outbox()
         return next_sync_buf
 
     def submit_message(self, message: ILinkMessage) -> None:
         if not self._accept_message(message):
             return
+        self._dispatch_message(message)
+
+    def _dispatch_message(self, message: ILinkMessage) -> None:
         command, separator, argument = message.text.strip().partition(" ")
         if command == "/stop":
             cancelled = self.app.cancel_session(message.session_id, reason="user_stop")
             pending = None
             if not cancelled:
                 pending = self.app.resolve_interaction(message.session_id, approved=False)
-            self.client.send_text(
+            self._deliver_text(
+                delivery_key=f"control:{message.message_id or message.session_id}:stop",
+                kind="control",
+                source_id=message.message_id,
                 to_user_id=message.from_user_id,
                 text=(
                     "已请求停止当前任务。"
@@ -183,16 +195,21 @@ class ILinkGateway:
                 ),
                 context_token=message.context_token,
             )
+            self._complete_inbound(message)
             return
         if command in {"/approve", "/deny"}:
             approved = command == "/approve"
             interaction = self.app.resolve_interaction(message.session_id, approved=approved)
             if interaction is None or interaction.kind != "approval":
-                self.client.send_text(
+                self._deliver_text(
+                    delivery_key=f"control:{message.message_id or message.session_id}:approval",
+                    kind="control",
+                    source_id=message.message_id,
                     to_user_id=message.from_user_id,
                     text="当前没有等待处理的授权请求。",
                     context_token=message.context_token,
                 )
+                self._complete_inbound(message)
                 return
             action = "已批准" if approved else "已拒绝"
             instruction = f"用户{action}工具 {interaction.tool_name} 的授权请求。"
@@ -203,16 +220,47 @@ class ILinkGateway:
         active = self.app.is_session_active(message.session_id)
         if active:
             self.app.cancel_session(message.session_id, reason="user_steer")
-        self._request_scheduler.submit(
+        future = self._request_scheduler.submit(
             message.session_id,
             lambda: self._handle_accepted_message_safely(message),
             replace_pending=active,
         )
+        if message.message_id and self.delivery_store is not None:
+            future.add_done_callback(
+                lambda completed, message_id=message.message_id: (
+                    self.delivery_store.mark_inbound_superseded(message_id)
+                    if completed.cancelled()
+                    else None
+                )
+            )
 
     def handle_message(self, message: ILinkMessage) -> None:
         if not self._accept_message(message):
             return
-        self._handle_accepted_message(message)
+        self._handle_accepted_message_safely(message)
+
+    def recover_pending(self) -> None:
+        if self.delivery_store is None:
+            return
+        recovered_outbound = self.delivery_store.recover_outbound()
+        recovered_inbound = self.delivery_store.recover_inbound()
+        if recovered_outbound or recovered_inbound:
+            logger.info(
+                "Recovering durable Weixin work: inbound=%s outbound=%s",
+                len(recovered_inbound),
+                recovered_outbound,
+            )
+        for record in recovered_inbound:
+            message = record.to_message()
+            if message.context_token and self.route_store is not None:
+                self.route_store.remember(
+                    WeixinRoute(
+                        user_id=message.from_user_id,
+                        context_token=message.context_token,
+                    )
+                )
+            self._dispatch_message(message)
+        self._drain_outbox()
 
     def wait_for_idle(self, timeout: float | None = None) -> bool:
         return self._request_scheduler.wait_for_idle(timeout)
@@ -228,8 +276,6 @@ class ILinkGateway:
                 message.user_id,
             )
             return False
-        if message.message_id:
-            self.seen_message_ids.add(message.message_id)
         logger.info(
             "Received Weixin text message: message_id=%s user_id=%s chat_type=%s text_length=%s",
             message.message_id,
@@ -239,6 +285,15 @@ class ILinkGateway:
         )
         if not self._is_allowed(message):
             return False
+        if self.delivery_store is not None and not self.delivery_store.record_inbound(message):
+            logger.info(
+                "Skipped durable duplicate Weixin message: message_id=%s user_id=%s",
+                message.message_id,
+                message.user_id,
+            )
+            return False
+        if message.message_id:
+            self.seen_message_ids.add(message.message_id)
         if message.context_token and self.route_store is not None:
             self.route_store.remember(
                 WeixinRoute(
@@ -249,9 +304,17 @@ class ILinkGateway:
         return True
 
     def _handle_accepted_message_safely(self, message: ILinkMessage) -> None:
+        if not self._start_inbound(message):
+            return
         try:
             self._handle_accepted_message(message)
-        except Exception:
+            self._complete_inbound(message)
+        except Exception as exc:
+            if message.message_id and self.delivery_store is not None:
+                self.delivery_store.mark_inbound_failed(
+                    message.message_id,
+                    error=f"{exc.__class__.__name__}: {exc}",
+                )
             logger.exception(
                 "Failed to process Weixin iLink message: message_id=%s user_id=%s",
                 message.message_id,
@@ -279,25 +342,20 @@ class ILinkGateway:
                 )
             finally:
                 ui_sink.close()
-            send_result = self.client.send_text(
+            self._deliver_text(
+                delivery_key=f"reply:{message.message_id or message.session_id}",
+                kind="reply",
+                source_id=message.message_id,
                 to_user_id=message.from_user_id,
                 text=result.final_response,
                 context_token=message.context_token,
             )
-            if not send_result.success:
-                logger.warning(
-                    "Weixin reply send failed: message_id=%s user_id=%s error=%s",
-                    message.message_id,
-                    message.user_id,
-                    send_result.error,
-                )
-            else:
-                logger.info(
-                    "Weixin reply sent: message_id=%s user_id=%s response_length=%s",
-                    message.message_id,
-                    message.user_id,
-                    len(result.final_response),
-                )
+            logger.info(
+                "Weixin reply persisted: message_id=%s user_id=%s response_length=%s",
+                message.message_id,
+                message.user_id,
+                len(result.final_response),
+            )
         finally:
             route.reply_sent.set()
 
@@ -322,16 +380,101 @@ class ILinkGateway:
             )
             return
         route.reply_sent.wait()
-        send_result = self.client.send_text(
+        self._deliver_text(
+            delivery_key=f"background:{task.task_id}",
+            kind="background",
+            source_id=task.task_id,
             to_user_id=route.to_user_id,
             text=self._render_background_notification(task),
             context_token=route.context_token,
         )
-        if not send_result.success:
+
+    def _start_inbound(self, message: ILinkMessage) -> bool:
+        if not message.message_id or self.delivery_store is None:
+            return True
+        return self.delivery_store.mark_inbound_running(message.message_id)
+
+    def _complete_inbound(self, message: ILinkMessage) -> None:
+        if not message.message_id or self.delivery_store is None:
+            return
+        record = self.delivery_store.get_inbound(message.message_id)
+        if record is not None and record.status == "received":
+            self.delivery_store.mark_inbound_running(message.message_id)
+        self.delivery_store.mark_inbound_completed(message.message_id)
+
+    def _deliver_text(
+        self,
+        *,
+        delivery_key: str,
+        kind: str,
+        source_id: str | None,
+        to_user_id: str,
+        text: str,
+        context_token: str | None,
+    ) -> None:
+        if self.delivery_store is None:
+            send_result = self.client.send_text(
+                to_user_id=to_user_id,
+                text=text,
+                context_token=context_token,
+            )
+            if not send_result.success:
+                logger.warning(
+                    "Weixin %s send failed: source_id=%s error=%s",
+                    kind,
+                    source_id,
+                    send_result.error,
+                )
+            return
+        self.delivery_store.enqueue_outbound(
+            delivery_key=delivery_key,
+            kind=kind,
+            source_id=source_id,
+            to_user_id=to_user_id,
+            text=text,
+            context_token=context_token,
+        )
+        self._drain_outbox()
+
+    def _drain_outbox(self) -> None:
+        if self.delivery_store is None:
+            return
+        for outbound in self.delivery_store.claim_due_outbound():
+            try:
+                send_result = self.client.send_text(
+                    to_user_id=outbound.to_user_id,
+                    text=outbound.text,
+                    context_token=outbound.context_token,
+                )
+            except Exception as exc:
+                self.delivery_store.mark_outbound_failed(
+                    outbound.id,
+                    error=f"{exc.__class__.__name__}: {exc}",
+                    retryable=True,
+                    max_attempts=self.max_delivery_attempts,
+                    retry_delay_seconds=_delivery_retry_delay(outbound.attempt_count),
+                )
+                logger.exception(
+                    "Weixin durable send raised: outbox_id=%s kind=%s",
+                    outbound.id,
+                    outbound.kind,
+                )
+                continue
+            if send_result.success:
+                self.delivery_store.mark_outbound_delivered(outbound.id)
+                continue
+            failed = self.delivery_store.mark_outbound_failed(
+                outbound.id,
+                error=send_result.error or "unknown Weixin send failure",
+                retryable=send_result.retryable is not False,
+                max_attempts=self.max_delivery_attempts,
+                retry_delay_seconds=_delivery_retry_delay(outbound.attempt_count),
+            )
             logger.warning(
-                "Weixin background task notification failed: task_id=%s user_id=%s error=%s",
-                task.task_id,
-                task.user_id,
+                "Weixin durable send failed: outbox_id=%s kind=%s status=%s error=%s",
+                outbound.id,
+                outbound.kind,
+                failed.status if failed is not None else "unknown",
                 send_result.error,
             )
 
@@ -381,3 +524,7 @@ class ILinkGateway:
             return False
         logger.warning("Rejected Weixin DM because policy is unknown: policy=%s user_id=%s", policy, message.user_id)
         return False
+
+
+def _delivery_retry_delay(attempt_count: int) -> float:
+    return min(60.0, float(2 ** max(0, attempt_count - 1)))
