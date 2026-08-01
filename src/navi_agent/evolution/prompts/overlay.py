@@ -50,14 +50,12 @@ class PromptOverlayStore:
         self._path.write_text(next_text + "\n", encoding="utf-8")
         return next_text
 
-    def snapshot(self, *, candidate_id: str | None = None) -> PromptOverlaySnapshot | None:
-        current = self.get()
-        if not current:
-            return None
+    def snapshot(self, *, candidate_id: str | None = None) -> PromptOverlaySnapshot:
+        current = self.get() or ""
         snapshot_id = self._new_snapshot_id(candidate_id=candidate_id)
         self._snapshots_dir.mkdir(parents=True, exist_ok=True)
         path = self._snapshots_dir / f"{snapshot_id}.md"
-        path.write_text(current + "\n", encoding="utf-8")
+        path.write_text(f"{current}\n" if current else "", encoding="utf-8")
         return PromptOverlaySnapshot(snapshot_id=snapshot_id, path=path, candidate_id=candidate_id)
 
     def list_snapshots(self) -> list[PromptOverlaySnapshot]:
@@ -80,10 +78,24 @@ class PromptOverlayStore:
             return None
         text = snapshot_path.read_text(encoding="utf-8").strip()
         if not text:
-            return None
+            self._path.unlink(missing_ok=True)
+            return ""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(text + "\n", encoding="utf-8")
         return text
+
+    def rollback_candidate(self, candidate_id: str) -> bool:
+        snapshot = next(
+            (
+                item
+                for item in self.list_snapshots()
+                if item.candidate_id == candidate_id
+            ),
+            None,
+        )
+        if snapshot is None:
+            return False
+        return self.rollback(snapshot.snapshot_id) is not None
 
     def list_entries(self) -> list[PromptOverlayEntry]:
         entries: list[PromptOverlayEntry] = []
