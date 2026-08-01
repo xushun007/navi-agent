@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     env:
       NAVI_API_KEY: test-key
-      NAVI_HOME: ${{ runner.temp }}/navi-agent
+      NAVI_HOME: /tmp/navi-agent
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
