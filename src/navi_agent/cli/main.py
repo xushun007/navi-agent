@@ -213,6 +213,15 @@ def main() -> int:
         if not args.command_target:
             parser.error('gateway send requires a message: navi-agent gateway send "hello"')
         return _send_weixin_message(args.command_target, to_user_id=args.to_user_id)
+    if args.message == "gateway" and args.subcommand == "dead-letters":
+        return _list_weixin_dead_letters()
+    if args.message == "gateway" and args.subcommand == "retry-dead-letter":
+        if not args.command_target:
+            parser.error(
+                "gateway retry-dead-letter requires an outbox id: "
+                "navi-agent gateway retry-dead-letter OUTBOX_ID"
+            )
+        return _retry_weixin_dead_letter(args.command_target)
     if args.message == "eval":
         if args.subcommand != "run" or not args.command_target:
             parser.error("eval command requires a suite: navi-agent eval run general-qa")
@@ -241,7 +250,10 @@ def main() -> int:
             return _run_cron_loop(args)
         parser.error("cron command requires `run` or `start`: navi-agent cron run")
     if args.message == "gateway":
-        parser.error("gateway command requires `start` or `send`")
+        parser.error(
+            "gateway command requires `start`, `send`, `dead-letters`, "
+            "or `retry-dead-letter`"
+        )
     if args.message == "start":
         parser.error("use `navi-agent gateway start`")
     if args.subcommand or args.command_target:
@@ -552,6 +564,41 @@ def _send_weixin_message(message: str, *, to_user_id: str | None = None) -> int:
         print(f"weixin_send: failed ({result.error or 'unknown error'})")
         return 1
     print(f"weixin_send: sent to {route.user_id}")
+    return 0
+
+
+def _list_weixin_dead_letters() -> int:
+    settings = WeixinGatewaySettings.from_sources(load_config())
+    if not settings.account_id:
+        print("weixin account_id is required")
+        return 1
+    records = WeixinDeliveryStore(
+        get_state_db_path(),
+        account_id=settings.account_id,
+    ).list_outbound(status="dead_letter")
+    print(f"weixin_dead_letter_count: {len(records)}")
+    for record in records:
+        print(
+            f"- {record.id} kind={record.kind} source={record.source_id or '-'} "
+            f"attempts={record.attempt_count} to={record.to_user_id}"
+        )
+        print(f"  last_error: {record.last_error or 'unknown'}")
+    return 0
+
+
+def _retry_weixin_dead_letter(outbound_id: str) -> int:
+    settings = WeixinGatewaySettings.from_sources(load_config())
+    if not settings.account_id:
+        print("weixin account_id is required")
+        return 1
+    retried = WeixinDeliveryStore(
+        get_state_db_path(),
+        account_id=settings.account_id,
+    ).retry_dead_letter(outbound_id)
+    if not retried:
+        print(f"weixin_dead_letter_not_found: {outbound_id}")
+        return 1
+    print(f"weixin_dead_letter_retried: {outbound_id}")
     return 0
 
 

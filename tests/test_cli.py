@@ -214,6 +214,15 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.subcommand, "run")
         self.assertEqual(args.cron_poll_interval, 2)
 
+        args = parser.parse_args(["gateway", "dead-letters"])
+        self.assertEqual(args.subcommand, "dead-letters")
+
+        args = parser.parse_args(
+            ["gateway", "retry-dead-letter", "outbox-1"]
+        )
+        self.assertEqual(args.subcommand, "retry-dead-letter")
+        self.assertEqual(args.command_target, "outbox-1")
+
     def test_build_parser_parses_unified_workflow_run_flag(self) -> None:
         parser = build_parser()
 
@@ -574,6 +583,55 @@ class CliTests(unittest.TestCase):
         self.assertIn("cron_jobs_path: /tmp/jobs.json", stdout.getvalue())
         self.assertIn("cron_due_count: 1", stdout.getvalue())
         self.assertIn("- job-1 [success] session=s1", stdout.getvalue())
+
+    def test_main_lists_weixin_dead_letters(self) -> None:
+        stdout = io.StringIO()
+        record = SimpleNamespace(
+            id="outbox-1",
+            kind="reply",
+            source_id="message-1",
+            attempt_count=5,
+            to_user_id="user-1",
+            last_error="send failed",
+        )
+
+        with patch(
+            "navi_agent.cli.main.load_config",
+            return_value={"gateway": {"weixin": {"account_id": "account-1"}}},
+        ):
+            with patch("navi_agent.cli.main.WeixinDeliveryStore") as store_cls:
+                store_cls.return_value.list_outbound.return_value = [record]
+                with patch("sys.argv", ["navi-agent", "gateway", "dead-letters"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        store_cls.return_value.list_outbound.assert_called_once_with(
+            status="dead_letter"
+        )
+        self.assertIn("weixin_dead_letter_count: 1", stdout.getvalue())
+        self.assertIn("outbox-1 kind=reply", stdout.getvalue())
+        self.assertIn("last_error: send failed", stdout.getvalue())
+
+    def test_main_retries_weixin_dead_letter(self) -> None:
+        stdout = io.StringIO()
+
+        with patch(
+            "navi_agent.cli.main.load_config",
+            return_value={"gateway": {"weixin": {"account_id": "account-1"}}},
+        ):
+            with patch("navi_agent.cli.main.WeixinDeliveryStore") as store_cls:
+                store_cls.return_value.retry_dead_letter.return_value = True
+                with patch(
+                    "sys.argv",
+                    ["navi-agent", "gateway", "retry-dead-letter", "outbox-1"],
+                ):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        store_cls.return_value.retry_dead_letter.assert_called_once_with("outbox-1")
+        self.assertIn("weixin_dead_letter_retried: outbox-1", stdout.getvalue())
 
     def test_main_rejects_legacy_start_command(self) -> None:
         stderr = io.StringIO()
