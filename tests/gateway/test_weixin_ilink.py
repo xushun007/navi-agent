@@ -319,6 +319,42 @@ class WeixinILinkTests(unittest.TestCase):
         self.assertIn("task-1", client.sent[1]["text"])
         self.assertIn("475 passed", client.sent[1]["text"])
 
+    def test_gateway_uses_persisted_route_for_background_notification(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            route_store = WeixinRouteStore(
+                "account-1",
+                Path(tmpdir) / "routes.json",
+            )
+            route_store.remember(WeixinRoute("user-1", "ctx-1"))
+            client = FakeClient()
+            app = FakeApp()
+            gateway = ILinkGateway(
+                app=app,
+                client=client,
+                account_id="account-1",
+                route_store=route_store,
+                delivery_store=WeixinDeliveryStore(
+                    Path(tmpdir) / "state.db",
+                    account_id="account-1",
+                ),
+            )
+
+            app.background_task_listener(
+                BackgroundTask(
+                    task_id="task-persisted-route",
+                    session_id="weixin:dm:user-1",
+                    user_id="user-1",
+                    description="uv run pytest",
+                    status="succeeded",
+                    result=ToolResult.ok(name="bash", content="all passed"),
+                )
+            )
+            gateway.close()
+
+        self.assertEqual(len(client.sent), 1)
+        self.assertEqual(client.sent[0]["context_token"], "ctx-1")
+        self.assertIn("task-persisted-route", client.sent[0]["text"])
+
     def test_gateway_streams_throttled_sanitized_tool_progress(self) -> None:
         app = FakeApp(emit_progress=True, emit_chunks=True)
         client = FakeClient()

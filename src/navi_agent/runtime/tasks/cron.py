@@ -3,10 +3,15 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 import json
+import logging
 import os
 from pathlib import Path
+import sqlite3
 from typing import Protocol
 from uuid import uuid4
+
+
+logger = logging.getLogger("navi_agent.runtime.tasks.cron")
 
 
 @dataclass(slots=True)
@@ -31,6 +36,160 @@ class CronRunRecord:
     status: str
     final_response: str
     ran_at: str
+    run_id: str = ""
+    user_id: str = ""
+    scheduled_for: str = ""
+    started_at: str = ""
+    completed_at: str | None = None
+    error: str | None = None
+    delivery_status: str = "pending"
+
+
+class CronRunStore:
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+
+    def start(
+        self,
+        job: CronJob,
+        *,
+        scheduled_for: str,
+        now: datetime,
+    ) -> CronRunRecord:
+        run_id = uuid4().hex
+        started_at = _normalize(now).isoformat(timespec="seconds")
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO cron_runs (
+                    run_id, job_id, session_id, user_id, scheduled_for,
+                    status, final_response, started_at, ran_at, delivery_status
+                )
+                VALUES (?, ?, ?, ?, ?, 'running', '', ?, ?, 'pending')
+                """,
+                (
+                    run_id,
+                    job.id,
+                    job.session_id,
+                    job.user_id,
+                    scheduled_for,
+                    started_at,
+                    started_at,
+                ),
+            )
+        record = self.get(run_id)
+        if record is None:
+            raise RuntimeError("failed to persist cron run")
+        return record
+
+    def complete(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        final_response: str,
+        error: str | None,
+        now: datetime,
+    ) -> CronRunRecord:
+        completed_at = _normalize(now).isoformat(timespec="seconds")
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE cron_runs
+                SET status = ?, final_response = ?, error = ?, completed_at = ?, ran_at = ?
+                WHERE run_id = ? AND status = 'running'
+                """,
+                (status, final_response, error, completed_at, completed_at, run_id),
+            )
+        record = self.get(run_id)
+        if record is None:
+            raise RuntimeError(f"cron run not found: {run_id}")
+        return record
+
+    def recover_interrupted(self, *, now: datetime | None = None) -> int:
+        completed_at = _normalize(now or _now()).isoformat(timespec="seconds")
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE cron_runs
+                SET status = 'interrupted',
+                    error = 'cron worker stopped before completion',
+                    completed_at = ?,
+                    ran_at = ?
+                WHERE status = 'running'
+                """,
+                (completed_at, completed_at),
+            )
+        return cursor.rowcount
+
+    def get(self, run_id: str) -> CronRunRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM cron_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return _cron_run_record(row) if row is not None else None
+
+    def list_pending_delivery(self) -> list[CronRunRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM cron_runs
+                WHERE status IN ('success', 'failed', 'interrupted')
+                  AND delivery_status = 'pending'
+                ORDER BY completed_at, run_id
+                """
+            ).fetchall()
+        return [_cron_run_record(row) for row in rows]
+
+    def mark_delivery_enqueued(self, run_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE cron_runs
+                SET delivery_status = 'enqueued'
+                WHERE run_id = ? AND delivery_status = 'pending'
+                """,
+                (run_id,),
+            )
+        return cursor.rowcount == 1
+
+    def _initialize(self) -> None:
+        with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cron_runs (
+                    run_id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    scheduled_for TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    final_response TEXT NOT NULL,
+                    error TEXT,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    ran_at TEXT NOT NULL,
+                    delivery_status TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_cron_runs_delivery
+                ON cron_runs(delivery_status, completed_at)
+                """
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self._db_path, timeout=0.25)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 250")
+        return connection
 
 
 class CronJobStore:
@@ -110,9 +269,15 @@ class CronTickLock:
 
 
 class CronSchedulerService:
-    def __init__(self, store: CronJobStore, lock_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        store: CronJobStore,
+        lock_path: Path | None = None,
+        run_store: CronRunStore | None = None,
+    ) -> None:
         self._store = store
         self._lock_path = lock_path
+        self._run_store = run_store
 
     def create_once(
         self,
@@ -180,6 +345,10 @@ class CronSchedulerService:
         now: datetime | None = None,
     ) -> list[CronRunRecord]:
         now = _normalize(now or _now())
+        if self._run_store is not None:
+            interrupted = self._run_store.recover_interrupted(now=now)
+            if interrupted:
+                logger.warning("Recovered interrupted cron runs: count=%s", interrupted)
         jobs = self._store.list_jobs()
         records: list[CronRunRecord] = []
         for job in jobs:
@@ -188,25 +357,65 @@ class CronSchedulerService:
             from navi_agent.app import AppRequest
             from navi_agent.runtime import RuntimeMode
 
-            result = app.handle(
-                AppRequest(
-                    user_id=job.user_id,
+            scheduled_for = job.next_run_at or now.isoformat(timespec="seconds")
+            run = (
+                self._run_store.start(job, scheduled_for=scheduled_for, now=now)
+                if self._run_store is not None
+                else CronRunRecord(
+                    run_id=uuid4().hex,
+                    job_id=job.id,
                     session_id=job.session_id,
-                    message=job.prompt,
-                    mode=RuntimeMode.SCHEDULED,
+                    user_id=job.user_id,
+                    scheduled_for=scheduled_for,
+                    status="running",
+                    final_response="",
+                    ran_at=now.isoformat(timespec="seconds"),
+                    started_at=now.isoformat(timespec="seconds"),
                 )
             )
             ran_at = now.isoformat(timespec="seconds")
             job.last_run_at = ran_at
-            records.append(
-                CronRunRecord(
+            try:
+                result = app.handle(
+                    AppRequest(
+                        user_id=job.user_id,
+                        session_id=job.session_id,
+                        message=job.prompt,
+                        mode=RuntimeMode.SCHEDULED,
+                        source="cron",
+                    )
+                )
+                status = result.status
+                final_response = result.final_response
+                error = None
+            except Exception as exc:
+                status = "failed"
+                final_response = ""
+                error = f"{exc.__class__.__name__}: {exc}"
+                logger.exception("Cron job failed: job_id=%s run_id=%s", job.id, run.run_id)
+            if self._run_store is not None:
+                completed = self._run_store.complete(
+                    run.run_id,
+                    status=status,
+                    final_response=final_response,
+                    error=error,
+                    now=now,
+                )
+            else:
+                completed = CronRunRecord(
+                    run_id=run.run_id,
                     job_id=job.id,
                     session_id=job.session_id,
-                    status=result.status,
-                    final_response=result.final_response,
+                    user_id=job.user_id,
+                    scheduled_for=scheduled_for,
+                    status=status,
+                    final_response=final_response,
+                    error=error,
                     ran_at=ran_at,
+                    started_at=run.started_at,
+                    completed_at=ran_at,
                 )
-            )
+            records.append(completed)
             if job.schedule_type == "once":
                 job.enabled = False
                 job.next_run_at = None
@@ -214,6 +423,23 @@ class CronSchedulerService:
                 job.next_run_at = next_cron_run(job.cron, after=now).isoformat(timespec="seconds")
         self._store.write_jobs(jobs)
         return records
+
+
+def _cron_run_record(row: sqlite3.Row) -> CronRunRecord:
+    return CronRunRecord(
+        run_id=str(row["run_id"]),
+        job_id=str(row["job_id"]),
+        session_id=str(row["session_id"]),
+        user_id=str(row["user_id"]),
+        scheduled_for=str(row["scheduled_for"]),
+        status=str(row["status"]),
+        final_response=str(row["final_response"]),
+        error=row["error"],
+        started_at=str(row["started_at"]),
+        completed_at=row["completed_at"],
+        ran_at=str(row["ran_at"]),
+        delivery_status=str(row["delivery_status"]),
+    )
 
 
 def next_cron_run(expression: str, *, after: datetime) -> datetime:

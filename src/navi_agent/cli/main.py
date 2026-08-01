@@ -91,7 +91,7 @@ from navi_agent.runtime import DeferredApprovalProvider
 from navi_agent.runtime import JsonPendingInteractionStore
 from navi_agent.runtime import SQLiteSessionStore
 from navi_agent.runtime import HostYoloApprovalProvider
-from navi_agent.runtime.tasks.cron import CronJobStore, CronSchedulerService
+from navi_agent.runtime.tasks.cron import CronJobStore, CronRunStore, CronSchedulerService
 from navi_agent.evolution.evals.healthcheck import (
     compare_healthcheck_workflow_results,
     replay_healthcheck_workflow,
@@ -468,17 +468,58 @@ def _run_cron_once(args) -> int:
         approval_provider=_build_approval_provider(args),
         disabled_toolsets=["scheduler"],
     )
+    run_store = CronRunStore(get_state_db_path())
     service = CronSchedulerService(
         CronJobStore(get_cron_jobs_path()),
         lock_path=get_cron_tick_lock_path(),
+        run_store=run_store,
     )
     records = service.run_due(app=app)
+    enqueued_count = _enqueue_pending_cron_deliveries(run_store)
     print(f"cron_jobs_path: {get_cron_jobs_path()}")
     print(f"cron_due_count: {len(records)}")
+    print(f"cron_delivery_enqueued_count: {enqueued_count}")
     for record in records:
         print(f"- {record.job_id} [{record.status}] session={record.session_id}")
     _drain_background_reviews(app)
     return 0
+
+
+def _enqueue_pending_cron_deliveries(run_store: CronRunStore) -> int:
+    settings = WeixinGatewaySettings.from_sources(load_config())
+    if not settings.account_id:
+        return 0
+    delivery_store = WeixinDeliveryStore(
+        get_state_db_path(),
+        account_id=settings.account_id,
+    )
+    route_store = WeixinRouteStore(settings.account_id)
+    enqueued_count = 0
+    for run in run_store.list_pending_delivery():
+        route = route_store.get(run.user_id)
+        if route is None:
+            continue
+        lines = [
+            "[Scheduled task completed]",
+            f"job_id: {run.job_id}",
+            f"run_id: {run.run_id}",
+            f"status: {run.status}",
+        ]
+        if run.final_response:
+            lines.extend(["result:", run.final_response])
+        if run.error:
+            lines.append(f"error: {run.error}")
+        delivery_store.enqueue_outbound(
+            delivery_key=f"cron:{run.run_id}",
+            kind="cron",
+            source_id=run.job_id,
+            to_user_id=route.user_id,
+            text="\n".join(lines),
+            context_token=route.context_token,
+        )
+        if run_store.mark_delivery_enqueued(run.run_id):
+            enqueued_count += 1
+    return enqueued_count
 
 
 def _run_cron_loop(args) -> int:

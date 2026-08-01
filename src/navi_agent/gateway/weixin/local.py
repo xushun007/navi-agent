@@ -372,6 +372,15 @@ class ILinkGateway:
     def _send_background_notification(self, task: BackgroundTask) -> None:
         with self._background_routes_lock:
             route = self._background_routes.get(task.session_id)
+        if route is None and self.route_store is not None:
+            stored_route = self.route_store.get(task.user_id)
+            if stored_route is not None:
+                route = _BackgroundRoute(
+                    user_id=task.user_id,
+                    to_user_id=stored_route.user_id,
+                    context_token=stored_route.context_token,
+                )
+                route.reply_sent.set()
         if route is None or route.user_id != task.user_id:
             logger.warning(
                 "Skipped background task notification without route: task_id=%s session_id=%s",

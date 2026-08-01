@@ -4,7 +4,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from navi_agent.evolution import (
     EvalSeed,
@@ -17,6 +17,7 @@ from navi_agent.evolution import (
 )
 from navi_agent.evolution import EvalSeedStore
 from navi_agent.cli.main import (
+    _enqueue_pending_cron_deliveries,
     _read_interactive_message,
     _run_interactive,
     _run_persistent_interactive,
@@ -558,31 +559,85 @@ class CliTests(unittest.TestCase):
         stdout = io.StringIO()
 
         with patch("navi_agent.cli.main.build_application", return_value=fake_app) as build_app_mock:
-            with patch("navi_agent.cli.main.CronSchedulerService") as scheduler_cls:
-                scheduler_cls.return_value.run_due.return_value = [
-                    CronRunRecord(
-                        job_id="job-1",
-                        session_id="s1",
-                        status="success",
-                        final_response="done",
-                        ran_at="2026-07-21T09:00:00+00:00",
-                    )
-                ]
-                with patch("navi_agent.cli.main.get_cron_jobs_path", return_value=Path("/tmp/jobs.json")):
-                    with patch("navi_agent.cli.main.get_cron_tick_lock_path", return_value=Path("/tmp/.tick.lock")):
-                        with patch("sys.argv", ["navi-agent", "cron", "run"]):
-                            with redirect_stdout(stdout):
-                                exit_code = main()
+            with patch("navi_agent.cli.main.CronRunStore") as run_store_cls:
+                with patch(
+                    "navi_agent.cli.main._enqueue_pending_cron_deliveries",
+                    return_value=1,
+                ) as enqueue_mock:
+                    with patch("navi_agent.cli.main.CronSchedulerService") as scheduler_cls:
+                        scheduler_cls.return_value.run_due.return_value = [
+                            CronRunRecord(
+                                job_id="job-1",
+                                session_id="s1",
+                                status="success",
+                                final_response="done",
+                                ran_at="2026-07-21T09:00:00+00:00",
+                            )
+                        ]
+                        with patch("navi_agent.cli.main.get_cron_jobs_path", return_value=Path("/tmp/jobs.json")):
+                            with patch("navi_agent.cli.main.get_cron_tick_lock_path", return_value=Path("/tmp/.tick.lock")):
+                                with patch("sys.argv", ["navi-agent", "cron", "run"]):
+                                    with redirect_stdout(stdout):
+                                        exit_code = main()
 
         self.assertEqual(exit_code, 0)
         build_app_mock.assert_called_once()
         self.assertEqual(build_app_mock.call_args.kwargs["disabled_toolsets"], ["scheduler"])
         scheduler_cls.assert_called_once()
         self.assertEqual(scheduler_cls.call_args.kwargs["lock_path"], Path("/tmp/.tick.lock"))
+        self.assertIs(
+            scheduler_cls.call_args.kwargs["run_store"],
+            run_store_cls.return_value,
+        )
         scheduler_cls.return_value.run_due.assert_called_once_with(app=fake_app)
+        enqueue_mock.assert_called_once_with(run_store_cls.return_value)
         self.assertIn("cron_jobs_path: /tmp/jobs.json", stdout.getvalue())
         self.assertIn("cron_due_count: 1", stdout.getvalue())
+        self.assertIn("cron_delivery_enqueued_count: 1", stdout.getvalue())
         self.assertIn("- job-1 [success] session=s1", stdout.getvalue())
+
+    def test_enqueues_pending_cron_result_to_recorded_weixin_route(self) -> None:
+        run_store = Mock()
+        run_store.list_pending_delivery.return_value = [
+            CronRunRecord(
+                run_id="run-1",
+                job_id="job-1",
+                session_id="s1",
+                user_id="user-1",
+                status="success",
+                final_response="scheduled result",
+                ran_at="2026-07-21T09:00:00+00:00",
+            )
+        ]
+        run_store.mark_delivery_enqueued.return_value = True
+        route = SimpleNamespace(user_id="user-1", context_token="ctx-1")
+
+        with patch(
+            "navi_agent.cli.main.load_config",
+            return_value={"gateway": {"weixin": {"account_id": "account-1"}}},
+        ):
+            with patch("navi_agent.cli.main.WeixinRouteStore") as route_store_cls:
+                route_store_cls.return_value.get.return_value = route
+                with patch("navi_agent.cli.main.WeixinDeliveryStore") as delivery_cls:
+                    enqueued = _enqueue_pending_cron_deliveries(run_store)
+
+        self.assertEqual(enqueued, 1)
+        delivery_cls.return_value.enqueue_outbound.assert_called_once_with(
+            delivery_key="cron:run-1",
+            kind="cron",
+            source_id="job-1",
+            to_user_id="user-1",
+            text=(
+                "[Scheduled task completed]\n"
+                "job_id: job-1\n"
+                "run_id: run-1\n"
+                "status: success\n"
+                "result:\n"
+                "scheduled result"
+            ),
+            context_token="ctx-1",
+        )
+        run_store.mark_delivery_enqueued.assert_called_once_with("run-1")
 
     def test_main_lists_weixin_dead_letters(self) -> None:
         stdout = io.StringIO()
