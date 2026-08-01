@@ -16,6 +16,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      NAVI_API_KEY: test-key
+      NAVI_HOME: ${{ runner.temp }}/navi-agent
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -25,6 +28,9 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes ripgrep
 
       - name: Sync locked dependencies
         run: uv sync --locked
