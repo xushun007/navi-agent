@@ -1,32 +1,32 @@
 # AGENTS.md
 
-- 使用 Python。
-- 使用 `uv` 进行包管理、虚拟环境管理与项目运行。
-- 按专业 Python 工程方式组织项目。
-- 产品设计与实现遵循：自顶向下设计，自底向上实现。
-- 先实现核心功能，再补充单元测试。
-- 保持模块化，按清晰职责拆分模块。
-- 不过度抽象，不为未来假设设计复杂层次。
-- 优先简单、直接、可读、可维护的实现。
-- 使用标准 Python 包结构、明确依赖声明、清晰测试目录。
-- 网关阶段只接入 weixin。
-- 核心架构保持最小闭环：gateway、runtime、tools、memory/telemetry、evolution。
-- gateway 只负责协议接入与消息适配。
-- runtime 负责会话、规划、执行、响应主链路。
-- tools 负责统一能力接口，不承载策略。
-- evolution 必须与线上运行链路解耦。
-- 优先标准库，谨慎引入依赖。
-- 公共接口应清晰，数据对象尽量明确。
-- 改动应小步进行，避免一次性大重构。
-- 新增或修改核心功能后，必须编写对应单元测试。
+- Use Python.
+- Use `uv` for dependency management, virtual environments, and project execution.
+- Follow professional Python engineering practices.
+- Design top-down and implement bottom-up.
+- Implement the core functionality before adding unit tests.
+- Keep modules focused with clear responsibilities.
+- Avoid excessive abstraction and complexity based on speculative future needs.
+- Prefer simple, direct, readable, and maintainable implementations.
+- Use a standard Python package layout, explicit dependencies, and a clear test structure.
+- During the gateway phase, support only Weixin.
+- Keep the core architecture to the minimum closed loop: gateway, runtime, tools, memory/telemetry, and evolution.
+- The gateway handles only protocol integration and message adaptation.
+- The runtime owns the session, planning, execution, and response flow.
+- Tools provide unified capability interfaces and do not contain policy.
+- Evolution must remain decoupled from the online runtime path.
+- Prefer the standard library and add dependencies cautiously.
+- Keep public interfaces clear and data objects explicit.
+- Make changes incrementally and avoid large one-shot refactors.
+- Add corresponding unit tests when adding or changing core functionality.
 
-## 需求交付
+## Requirement Delivery
 
-- 默认使用独立 worktree；用户明确要求时才直接修改 main。
-- 开始前确认目标、范围和验收方式，先阅读现有实现与测试。
-- 保持改动轻量，按完整功能点实现和验证。
-- 每完成一个功能点，立即运行对应测试并提交。
-- 用户要求 review 时，确认前不得提交。
-- 合并前 rebase 目标分支并重新验证。
-- 不创建未要求的 issue、文档或 PR，不处理无关改动。
-- 准确说明 commit、push、CI、merge 和 issue 状态。
+- Use an isolated worktree by default. Modify `main` directly only when explicitly requested.
+- Before starting, confirm the goal, scope, and acceptance criteria, then read the existing implementation and tests.
+- Keep changes lightweight. Implement and verify one complete functional increment at a time.
+- After completing each functional increment, run the relevant tests and commit immediately.
+- When review is requested, do not commit until the user approves the changes.
+- Before merging, rebase onto the target branch and verify again.
+- Do not create unrequested issues, documents, or pull requests, and do not modify unrelated work.
+- Report commit, push, CI, merge, and issue status accurately.
