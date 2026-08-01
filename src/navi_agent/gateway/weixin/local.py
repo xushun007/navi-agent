@@ -115,6 +115,7 @@ class ILinkGateway:
     progress_interval_seconds: float = 3.0
     max_concurrent_requests: int = 4
     max_delivery_attempts: int = 5
+    shutdown_drain_seconds: float = 15.0
     seen_message_ids: set[str] = field(default_factory=set)
     _background_routes: dict[str, _BackgroundRoute] = field(
         default_factory=dict,
@@ -266,7 +267,15 @@ class ILinkGateway:
         return self._request_scheduler.wait_for_idle(timeout)
 
     def close(self, *, wait: bool = True) -> None:
-        self._request_scheduler.close(wait=wait)
+        drained = self._request_scheduler.close(
+            wait=wait,
+            timeout=self.shutdown_drain_seconds if wait else None,
+        )
+        if wait and not drained:
+            logger.warning(
+                "Weixin shutdown drain timed out: timeout_seconds=%s",
+                self.shutdown_drain_seconds,
+            )
 
     def _accept_message(self, message: ILinkMessage) -> bool:
         if message.message_id and message.message_id in self.seen_message_ids:

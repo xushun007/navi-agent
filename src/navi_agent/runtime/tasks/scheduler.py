@@ -73,16 +73,21 @@ class SessionTaskScheduler:
                 self._condition.wait(remaining)
             return True
 
-    def close(self, *, wait: bool = True) -> None:
+    def close(
+        self,
+        *,
+        wait: bool = True,
+        timeout: float | None = None,
+    ) -> bool:
         with self._condition:
             if not self._accepting:
-                return
+                return not self._active_sessions
             self._accepting = False
-        if wait:
-            self.wait_for_idle()
-        else:
+        drained = self.wait_for_idle(timeout) if wait else False
+        if not drained:
             self._cancel_pending()
-        self._executor.shutdown(wait=wait, cancel_futures=not wait)
+        self._executor.shutdown(wait=drained, cancel_futures=not drained)
+        return drained
 
     def _dispatch_next(self, session_id: str) -> None:
         with self._condition:

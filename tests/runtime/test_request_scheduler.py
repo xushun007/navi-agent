@@ -102,3 +102,27 @@ class SessionTaskSchedulerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "closed"):
             scheduler.submit("session-1", lambda: None)
+
+    def test_close_stops_accepting_and_bounds_drain(self) -> None:
+        scheduler = SessionTaskScheduler(max_workers=1)
+        started = Event()
+        release = Event()
+        completed = Event()
+
+        def blocking_task() -> None:
+            started.set()
+            release.wait(1)
+            completed.set()
+
+        scheduler.submit("session-1", blocking_task)
+        pending = scheduler.submit("session-1", lambda: None)
+        self.assertTrue(started.wait(1))
+
+        drained = scheduler.close(wait=True, timeout=0.01)
+
+        self.assertFalse(drained)
+        self.assertTrue(pending.cancelled())
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            scheduler.submit("session-2", lambda: None)
+        release.set()
+        self.assertTrue(completed.wait(1))
