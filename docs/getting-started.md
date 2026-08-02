@@ -1,12 +1,16 @@
-# Getting Started
+# Run Navi Agent in 2 Minutes
 
-## Requirements
+With Python, `uv`, and an OpenAI-compatible API key ready, the setup itself
+takes about two minutes. The first package download may take longer depending
+on your network.
+
+## Before you start
 
 - Python 3.11 or newer
 - [`uv`](https://docs.astral.sh/uv/)
-- An OpenAI-compatible model endpoint
+- An OpenAI-compatible model name, API key, and endpoint
 
-## Install
+## 1. Install
 
 Install the latest version from GitHub:
 
@@ -14,42 +18,48 @@ Install the latest version from GitHub:
 uv tool install git+https://github.com/xushun007/navi-agent.git
 ```
 
-For development, clone the repository and synchronize its dependencies:
+## 2. Initialize
 
-```bash
-git clone https://github.com/xushun007/navi-agent.git
-cd navi-agent
-uv sync
-```
-
-## Initialize
-
-Create the default configuration file and verify it:
+Create `~/.navi-agent/config.yaml`:
 
 ```bash
 navi-agent init
+```
+
+## 3. Configure the model
+
+Edit the generated configuration with your model credentials:
+
+```yaml
+model:
+  name: gpt-4o-mini
+  api_key: your-api-key
+  base_url: https://api.openai.com/v1
+```
+
+Verify the configuration:
+
+```bash
 navi-agent doctor
 ```
 
-Edit `~/.navi-agent/config.yaml` and provide a model name and API key before
-starting an interactive session.
+## 4. Run
 
-## Run
-
-Start Navi Agent in the current directory:
+Start an interactive session in your project directory:
 
 ```bash
+cd /path/to/your/project
 navi-agent
 ```
 
-Run a single prompt:
+Or run a single prompt:
 
 ```bash
 navi-agent "Summarize this repository"
 ```
 
-The startup directory is the authoritative workspace. To grant access to
-another directory, add it explicitly:
+The startup directory is the authoritative workspace. To grant access to an
+additional directory, add it explicitly:
 
 ```bash
 navi-agent --add-dir ../shared
@@ -57,9 +67,20 @@ navi-agent --add-dir ../shared
 
 Multiple `--add-dir` options may be provided.
 
+## Development installation
+
+Clone the repository and synchronize its dependencies:
+
+```bash
+git clone https://github.com/xushun007/navi-agent.git
+cd navi-agent
+uv sync
+uv run navi-agent
+```
+
 ## Build the documentation
 
-From a development checkout:
+Start a local documentation preview from a development checkout:
 
 ```bash
 uv run --group docs mkdocs serve

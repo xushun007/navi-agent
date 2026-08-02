@@ -1,16 +1,23 @@
 # Navi Agent
 
-English | [简体中文](README.zh-CN.md) | [Documentation](https://www.agent-io.com/navi-agent/)
+English | [简体中文](README.zh-CN.md)
 
 Navi Agent is a compact, self-evolving agent runtime inspired by Hermes. It focuses on a
 single reliable execution pipeline across runtime, tools, memory, telemetry, and evolution,
 with WeChat as the first gateway.
+
+## Documentation
+
+**[Run Navi Agent in 2 minutes](https://www.agent-io.com/navi-agent/getting-started/)**
+
+Configuration, tools, permissions, sessions, memory, architecture, and the Weixin gateway.
 
 ## Quickstart
 
 ```bash
 uv tool install git+https://github.com/xushun007/navi-agent.git
 navi-agent init
+# Add your model credentials to ~/.navi-agent/config.yaml
 navi-agent doctor
 navi-agent
 ```
