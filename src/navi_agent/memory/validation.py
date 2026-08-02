@@ -2,6 +2,9 @@ from __future__ import annotations
 
 MAX_MEMORY_CONTENT_CHARS = 2_000
 
+_DURABLE_TARGETS = {"memory", "user"}
+_TRANSIENT_TARGETS = {"runtime", "session", "temp", "temporary"}
+
 _BLOCKED_PHRASES = (
     "ignore previous instructions",
     "ignore all previous",
@@ -16,6 +19,17 @@ _BLOCKED_PHRASES = (
 
 def normalize_memory_content(content: str) -> str:
     return " ".join(content.strip().split())
+
+
+def normalize_memory_target(target: str, *, kind: str = "fact") -> str:
+    normalized = target.strip().lower()
+    if normalized in _TRANSIENT_TARGETS:
+        raise ValueError(f"{normalized} state cannot be promoted to durable memory")
+    if normalized in _DURABLE_TARGETS:
+        return normalized
+    if kind.strip().lower() == "preference":
+        return "user"
+    return "memory"
 
 
 def validate_memory_content(content: str) -> str:

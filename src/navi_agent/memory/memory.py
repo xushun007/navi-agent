@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from .conflicts import find_memory_conflicts, require_explicit_conflict_resolution
 from .models import MemoryAuditRecord, MemoryRecall, MemoryRecord, MemoryWriteProvenance
 from .search import recall_memories, search_memories
-from .validation import normalize_memory_content, validate_memory_content
+from .validation import normalize_memory_content, normalize_memory_target, validate_memory_content
 
 
 class InMemoryMemoryStore:
@@ -56,7 +56,7 @@ class InMemoryMemoryStore:
         validation_error = validate_memory_content(content)
         if validation_error:
             raise ValueError(validation_error)
-        target = target or ("user" if kind == "preference" else "memory")
+        target = normalize_memory_target(target, kind=kind)
         for record in self._records:
             if (
                 record.user_id == user_id

@@ -149,3 +149,18 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertIn("prompt-injection", result.content)
         self.assertEqual(store.list_for_user("u1"), [])
+
+    def test_rejects_session_state_instead_of_silently_storing_it(self) -> None:
+        store = InMemoryMemoryStore()
+        tool = MemoryTool(memory_store=store)
+
+        result = tool.invoke(
+            context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+            action="add",
+            target="session",
+            content="Current command is still running",
+        )
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("cannot be promoted", result.content)
+        self.assertEqual(store.list_for_user("u1"), [])

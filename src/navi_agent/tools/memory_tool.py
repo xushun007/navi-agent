@@ -58,7 +58,12 @@ class MemoryTool(BaseTool):
             if kind not in {"fact", "preference", "task"}:
                 kind = "fact"
             target = str(kwargs.get("target") or "").strip().lower()
-            if target not in {"memory", "user"}:
+            if target in {"runtime", "session", "temp", "temporary"}:
+                return ToolResult.error(
+                    name=self.name,
+                    content=f"memory_error: {target} state cannot be promoted to durable memory",
+                )
+            if not target:
                 target = "user" if kind == "preference" else "memory"
             content = str(kwargs.get("content", "")).strip()
             if not content:

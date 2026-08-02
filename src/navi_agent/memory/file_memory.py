@@ -12,7 +12,7 @@ from pathlib import Path
 from .conflicts import find_memory_conflicts, require_explicit_conflict_resolution
 from .models import MemoryAuditRecord, MemoryRecall, MemoryRecord, MemoryWriteProvenance
 from .search import recall_memories, search_memories
-from .validation import normalize_memory_content, validate_memory_content
+from .validation import normalize_memory_content, normalize_memory_target, validate_memory_content
 
 try:
     import fcntl
@@ -320,12 +320,7 @@ class FileMemoryStore:
 
     @staticmethod
     def _normalize_target(target: str, *, kind: str = "fact") -> str:
-        target = target.strip().lower()
-        if target in {"memory", "user"}:
-            return target
-        if kind.strip().lower() == "preference":
-            return "user"
-        return "memory"
+        return normalize_memory_target(target, kind=kind)
 
     @staticmethod
     def _single_line(content: str) -> str:
