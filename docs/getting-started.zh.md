@@ -65,31 +65,6 @@ navi-agent --add-dir ../shared
 
 `--add-dir` 可以多次传入。
 
-## 开发安装
-
-克隆仓库并同步依赖：
-
-```bash
-git clone https://github.com/xushun007/navi-agent.git
-cd navi-agent
-uv sync
-uv run navi-agent
-```
-
-## 构建文档
-
-在开发仓库中启动本地预览：
-
-```bash
-uv run --group docs mkdocs serve
-```
-
-提交文档改动前执行严格构建：
-
-```bash
-uv run --group docs mkdocs build --strict
-```
-
 ## 后续阅读
 
 - 查看 [CLI](cli.md) 和 [Slash 命令](commands.md)。

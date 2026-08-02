@@ -67,31 +67,6 @@ navi-agent --add-dir ../shared
 
 Multiple `--add-dir` options may be provided.
 
-## Development installation
-
-Clone the repository and synchronize its dependencies:
-
-```bash
-git clone https://github.com/xushun007/navi-agent.git
-cd navi-agent
-uv sync
-uv run navi-agent
-```
-
-## Build the documentation
-
-Start a local documentation preview from a development checkout:
-
-```bash
-uv run --group docs mkdocs serve
-```
-
-Run a strict production build before committing documentation changes:
-
-```bash
-uv run --group docs mkdocs build --strict
-```
-
 ## Next steps
 
 - Review the [CLI](cli.md) and [slash commands](commands.md).
