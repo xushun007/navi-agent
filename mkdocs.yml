@@ -41,6 +41,35 @@ nav:
   - Configuration: configuration.md
   - Architecture: architecture.md
 
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: false
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh
+          name: 简体中文
+          build: true
+          site_description: Navi Agent 运行时与 CLI 文档
+          nav_translations:
+            Overview: 概览
+            Getting Started: 快速开始
+            Usage: 使用
+            CLI: 命令行
+            Slash Commands: Slash 命令
+            Tools: 工具
+            Permissions: 权限
+            Sessions and Memory: 会话与记忆
+            Gateway: 网关
+            Configuration: 配置
+            Architecture: 架构
+
 markdown_extensions:
   - admonition
   - attr_list
