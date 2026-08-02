@@ -1,6 +1,6 @@
 # Navi Agent
 
-English | [简体中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md) | [Documentation](https://www.agent-io.com/navi-agent/)
 
 Navi Agent is a compact, self-evolving agent runtime inspired by Hermes. It focuses on a
 single reliable execution pipeline across runtime, tools, memory, telemetry, and evolution,

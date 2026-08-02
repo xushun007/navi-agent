@@ -1,6 +1,6 @@
 # Navi Agent
 
-[English](README.md) | 简体中文
+[English](README.md) | 简体中文 | [文档](https://www.agent-io.com/navi-agent/zh/)
 
 Navi Agent 是一个参考 Hermes 构建的轻量、自我进化 Agent Runtime。项目聚焦 runtime、
 tools、memory、telemetry、evolution 组成的单一可靠执行链路，并以微信作为首个 gateway。
