@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from navi_agent.evolution import (
@@ -10,6 +11,8 @@ from navi_agent.evolution import (
     BackgroundSkillReviewWorker,
     CandidateStore,
     EvolutionCandidate,
+    EvolutionGate,
+    EvolutionRollback,
     NudgeReviewTriggerPolicy,
     SimpleEvaluator,
     PromptOverlayStore,
@@ -421,15 +424,19 @@ class ApplicationService:
         candidate = self.get_candidate(candidate_id)
         if candidate is None:
             return None
+        previous_status = candidate.status
+        note = review_note or "rolled back candidate"
         if candidate.target == "prompt":
             if self._prompt_overlay_store is None:
                 return None
             if not self._prompt_overlay_store.rollback_candidate(candidate_id):
                 return None
-            return self.update_candidate_status(
-                candidate_id,
-                status,
-                review_note=review_note or "rolled back prompt overlay",
+            note = review_note or "rolled back prompt overlay"
+            return self._record_candidate_rollback(
+                candidate,
+                status=status,
+                reason=note,
+                previous_status=previous_status,
             )
         if candidate.target != "skill":
             return None
@@ -446,11 +453,76 @@ class ApplicationService:
             self._skill_provenance_store.remove(skill_name)
         if self._skill_usage_store is not None:
             self._skill_usage_store.record_archive(skill_name)
-        return self.update_candidate_status(
-            candidate_id,
-            status,
-            review_note=review_note or f"rolled back skill {skill_name}",
+        note = review_note or f"rolled back skill {skill_name}"
+        return self._record_candidate_rollback(
+            candidate,
+            status=status,
+            reason=note,
+            previous_status=previous_status,
         )
+
+    def finalize_candidate_evaluation(
+        self,
+        candidate_id: str,
+        eval_case: EvalCase,
+        *,
+        report_path: str,
+    ) -> EvolutionCandidate | None:
+        candidate = self.get_candidate(candidate_id)
+        if candidate is None or candidate.status != "applied":
+            return None
+        workflow_name = str((candidate.metadata or {}).get("workflow_name") or "")
+        if workflow_name and workflow_name != eval_case.workflow_name:
+            raise ValueError("candidate and eval case workflows do not match")
+
+        gate_result = EvolutionGate().evaluate(eval_case, report_path=report_path)
+        candidate.gate_result = gate_result
+        if self._candidate_store is None:
+            return None
+        self._candidate_store.save(candidate)
+        note = (
+            f"workflow={gate_result.workflow_name} "
+            f"score_delta={gate_result.score_delta} report={gate_result.report_path}"
+        )
+        if gate_result.status == "verified":
+            return self.update_candidate_status(
+                candidate_id,
+                "verified",
+                review_note=note,
+            )
+        return self.rollback_candidate(
+            candidate_id,
+            status=gate_result.status,
+            review_note=f"rolled back after evolution gate: {note}",
+        )
+
+    def _record_candidate_rollback(
+        self,
+        candidate: EvolutionCandidate,
+        *,
+        status: str,
+        reason: str,
+        previous_status: str,
+    ) -> EvolutionCandidate | None:
+        if self._candidate_store is None:
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        candidate.status = status
+        candidate.review_note = reason
+        candidate.reviewed_at = now
+        candidate.rollback = EvolutionRollback(
+            reason=reason,
+            rolled_back_at=now,
+            previous_status=previous_status,
+        )
+        self._candidate_store.save(candidate)
+        for existing in self._find_archivable_candidates(candidate):
+            self._candidate_store.update_status(
+                existing.candidate_id,
+                "archived",
+                review_note=f"archived after {candidate.candidate_id} reached {status}",
+            )
+        return candidate
 
     def list_candidates(
         self,

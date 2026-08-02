@@ -81,6 +81,13 @@ class FakeCandidateStore:
     def add(self, candidate) -> None:
         self.items.append(candidate)
 
+    def save(self, candidate) -> None:
+        for index, existing in enumerate(self.items):
+            if existing.candidate_id == candidate.candidate_id:
+                self.items[index] = candidate
+                return
+        raise ValueError(f"candidate not found: {candidate.candidate_id}")
+
     def list_recent(self, limit=None):
         items = list(reversed(self.items))
         if limit is None:
@@ -1295,6 +1302,73 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(updated.status, "no_improvement")
         self.assertIsNone(overlay_store.text)
         self.assertEqual(overlay_store.rollback_calls, [candidate.candidate_id])
+        self.assertEqual(updated.rollback.previous_status, "applied")
+
+    def test_candidate_evaluation_verifies_improvement_and_keeps_gate_result(self) -> None:
+        service, candidate, overlay_store = self._applied_prompt_candidate()
+        eval_case = self._candidate_eval_case(baseline=0.7, candidate=0.9)
+
+        updated = service.finalize_candidate_evaluation(
+            candidate.candidate_id,
+            eval_case,
+            report_path="reports/gate-1",
+        )
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "verified")
+        self.assertEqual(updated.gate_result.case_fingerprint, "sha256:cases")
+        self.assertEqual(updated.gate_result.report_path, "reports/gate-1")
+        self.assertIsNone(updated.rollback)
+        self.assertIsNotNone(overlay_store.text)
+
+    def test_candidate_evaluation_rolls_back_regression_with_evidence(self) -> None:
+        service, candidate, overlay_store = self._applied_prompt_candidate()
+        eval_case = self._candidate_eval_case(baseline=0.9, candidate=0.7)
+
+        updated = service.finalize_candidate_evaluation(
+            candidate.candidate_id,
+            eval_case,
+            report_path="reports/gate-2",
+        )
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "regressed_after_apply")
+        self.assertEqual(updated.gate_result.score_delta, -0.2)
+        self.assertIn("reports/gate-2", updated.rollback.reason)
+        self.assertIsNone(overlay_store.text)
+
+    @staticmethod
+    def _applied_prompt_candidate():
+        overlay_store = FakePromptOverlayStore()
+        service = ApplicationService(
+            runtime=FakeRuntime(),
+            candidate_store=FakeCandidateStore(),
+            prompt_overlay_store=overlay_store,
+        )
+        candidate = EvolutionCandidate(
+            target="prompt",
+            summary="Review prompt",
+            rationale="Need better final answer",
+            status="accepted",
+            metadata={"workflow_name": "agent-healthcheck"},
+        )
+        service.add_candidate(candidate)
+        service.apply_candidate(candidate.candidate_id)
+        return service, candidate, overlay_store
+
+    @staticmethod
+    def _candidate_eval_case(*, baseline: float, candidate: float) -> EvalCase:
+        return EvalCase(
+            workflow_name="agent-healthcheck",
+            source_session_id="baseline-run",
+            replay_session_id="candidate-run",
+            source_average_score=baseline,
+            replay_average_score=candidate,
+            score_delta=round(candidate - baseline, 3),
+            status="comparison",
+            summary="comparison",
+            metadata={"case_fingerprint": "sha256:cases"},
+        )
 
     def test_add_and_list_eval_cases_use_store(self) -> None:
         service = ApplicationService(

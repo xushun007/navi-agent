@@ -171,6 +171,13 @@ class HealthcheckTests(unittest.TestCase):
         self.assertEqual(comparison.score_delta, 0.0)
         self.assertIsInstance(comparison.eval_case, EvalCase)
         self.assertEqual(comparison.eval_case.status, "unchanged")
+        self.assertEqual(
+            comparison.eval_case.metadata["case_ids"],
+            ["readme-summary", "workspace-search"],
+        )
+        self.assertTrue(
+            comparison.eval_case.metadata["case_fingerprint"].startswith("sha256:")
+        )
         self.assertIsNone(comparison.candidate)
 
     def test_compare_healthcheck_workflow_results_builds_candidate_for_regression(self) -> None:

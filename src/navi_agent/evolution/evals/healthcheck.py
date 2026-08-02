@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -273,7 +275,7 @@ def compare_healthcheck_workflow_results(
 
     score_delta = round(replay_average_score - source_average_score, 3)
     eval_case = _build_eval_case(
-        workflow_name=source.workflow.name,
+        workflow=source.workflow,
         source_session_id=source.session_id,
         replay_session_id=replay.session_id,
         source_average_score=source_average_score,
@@ -385,7 +387,7 @@ def _average_score(scores) -> float:
 
 def _build_eval_case(
     *,
-    workflow_name: str,
+    workflow: HealthcheckWorkflow,
     source_session_id: str,
     replay_session_id: str,
     source_average_score: float,
@@ -404,7 +406,7 @@ def _build_eval_case(
         summary = "Workflow replay produced roughly the same score as the source run"
 
     return EvalCase(
-        workflow_name=workflow_name,
+        workflow_name=workflow.name,
         source_session_id=source_session_id,
         replay_session_id=replay_session_id,
         source_average_score=source_average_score,
@@ -413,6 +415,8 @@ def _build_eval_case(
         status=status,
         summary=summary,
         metadata={
+            "case_ids": list(workflow.steps),
+            "case_fingerprint": _healthcheck_case_fingerprint(workflow),
             "step_count": len(step_comparisons),
             "steps": [
                 {
@@ -425,6 +429,24 @@ def _build_eval_case(
             ],
         },
     )
+
+
+def _healthcheck_case_fingerprint(workflow: HealthcheckWorkflow) -> str:
+    cases = [
+        {
+            "name": task.name,
+            "description": task.description,
+            "prompt": task.prompt,
+        }
+        for task in (get_healthcheck_task(name) for name in workflow.steps)
+    ]
+    payload = json.dumps(
+        {"workflow": workflow.name, "cases": cases},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"sha256:{sha256(payload.encode('utf-8')).hexdigest()}"
 
 
 def _build_candidate_from_comparison(

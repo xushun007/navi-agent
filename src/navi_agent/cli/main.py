@@ -1729,22 +1729,11 @@ def _run_candidate_apply_workflow(
         replay=replay_result,
         confirm_eval_case=confirm_eval_case,
     )
-    outcome_status = _candidate_outcome_status(comparison.eval_case.status)
-    review_note = (
-        f"workflow={workflow_name} score_delta={comparison.score_delta} report={report_dir}"
+    updated = rerun_app.finalize_candidate_evaluation(
+        candidate_id,
+        comparison.eval_case,
+        report_path=str(report_dir),
     )
-    if outcome_status == "verified":
-        updated = rerun_app.update_candidate_status(
-            candidate_id,
-            outcome_status,
-            review_note=review_note,
-        )
-    else:
-        updated = rerun_app.rollback_candidate(
-            candidate_id,
-            status=outcome_status,
-            review_note=f"rolled back prompt overlay after validation: {review_note}",
-        )
     if updated is None:
         print(f"candidate outcome could not be committed: {candidate_id}")
         return 1
@@ -1861,16 +1850,6 @@ def _print_evolution_comparison(*, comparison, report_dir, eval_case_saved: bool
         if step.replay_step.trace_id:
             print(f"replay_trace_id: {step.replay_step.trace_id}")
         print(f"step_score_delta: {step.score_delta}")
-
-
-def _candidate_outcome_status(eval_case_status: str) -> str:
-    if eval_case_status == "improved":
-        return "verified"
-    if eval_case_status == "unchanged":
-        return "no_improvement"
-    if eval_case_status == "regressed":
-        return "regressed_after_apply"
-    return "applied"
 
 
 def _render_session_history(sessions, current_session_id: str) -> str:
