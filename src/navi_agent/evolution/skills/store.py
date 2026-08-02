@@ -202,6 +202,9 @@ class EvolutionEngine:
             target="skill",
             summary=f"Create reusable skill `{skill_name}` from session {trace.session_id}",
             rationale="Successful tool-using sessions can become procedural memory after review.",
+            evidence_ids=[trace.trace_id],
+            expected_outcome="Preserve the successful tool procedure as a reusable reviewed skill.",
+            source_trace_id=trace.trace_id,
             metadata={
                 "source_session_id": trace.session_id,
                 "source_trace_id": trace.trace_id,

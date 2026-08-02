@@ -177,6 +177,9 @@ class SimpleEvaluatorTests(unittest.TestCase):
 
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.target, "eval_case")
+        self.assertEqual(candidate.evidence_ids, [trace.trace_id])
+        self.assertEqual(candidate.source_trace_id, trace.trace_id)
+        self.assertIn("regression coverage", candidate.expected_outcome)
         self.assertEqual(candidate.metadata["trace_id"], trace.trace_id)
         self.assertEqual(candidate.metadata["session_id"], "s1")
         self.assertIn("Review failed session", candidate.summary)

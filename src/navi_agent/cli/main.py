@@ -1515,6 +1515,9 @@ def _import_runtime_tool_use_case(
         target="eval_case",
         summary=f"Tool Use Eval case from runtime trajectory: {case.id}",
         rationale="Promote real runtime tool-use trajectory into the eval review queue.",
+        evidence_ids=[case.id],
+        expected_outcome="Add the observed tool trajectory to stable regression coverage.",
+        source_trace_id=run_id or trajectory.run_id or trajectory.events[0].run_id,
         metadata={
             "kind": "tool_use_eval_case",
             "session_id": session_id,

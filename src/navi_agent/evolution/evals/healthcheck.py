@@ -484,6 +484,12 @@ def _build_candidate_from_comparison(
             "step_score_delta": worst_step.score_delta,
         }
     )
+    source_trace_id = worst_step.replay_step.trace_id
+    candidate.source_trace_id = source_trace_id
+    candidate.evidence_ids = [source_trace_id] if source_trace_id else []
+    candidate.expected_outcome = (
+        f"Improve {worst_step.task_name} while preserving the stable workflow baseline."
+    )
 
     if eval_case.status == "regressed":
         candidate.summary = f"Review healthcheck regression in {worst_step.task_name} ({candidate.target})"

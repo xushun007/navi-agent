@@ -12,6 +12,9 @@ def test_proposes_skill_candidate_from_successful_tool_trace() -> None:
     assert candidate is not None
     assert candidate.target == "skill"
     assert candidate.status == "pending"
+    assert candidate.evidence_ids == [trace.trace_id]
+    assert candidate.source_trace_id == trace.trace_id
+    assert "reusable reviewed skill" in candidate.expected_outcome
     assert candidate.metadata["source_session_id"] == "session-1"
     assert candidate.metadata["source_trace_id"] == trace.trace_id
     assert candidate.metadata["skill_name"].startswith("learned-summarize-readme")

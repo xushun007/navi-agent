@@ -47,6 +47,7 @@ class SimpleEvaluator:
             score=score,
             summary=summary,
             metadata={
+                "trace_id": trace.trace_id,
                 "tool_names": list(trace.tool_names),
                 "status": trace.status,
                 "error_count": trace.error_count,
@@ -91,6 +92,9 @@ class SimpleEvaluator:
             target=target,
             summary=f"Review underperforming runtime session ({target})",
             rationale=evaluation.summary,
+            evidence_ids=[str(evaluation.metadata.get("trace_id") or evaluation.session_id)],
+            expected_outcome="Improve runtime quality without introducing new failures.",
+            source_trace_id=str(evaluation.metadata.get("trace_id") or "") or None,
             metadata={
                 "session_id": evaluation.session_id,
                 "signals": list(evaluation.metadata.get("signals", [])),
@@ -111,6 +115,9 @@ class SimpleEvaluator:
             target="eval_case",
             summary=summary,
             rationale=evaluation.summary,
+            evidence_ids=[trace.trace_id],
+            expected_outcome="Add the observed failure mode to stable regression coverage.",
+            source_trace_id=trace.trace_id,
             metadata={
                 "session_id": trace.session_id,
                 "user_id": trace.user_id,

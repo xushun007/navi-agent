@@ -202,6 +202,15 @@ class HealthcheckTests(unittest.TestCase):
         self.assertEqual(comparison.eval_case.status, "regressed")
         self.assertIsNotNone(comparison.candidate)
         self.assertEqual(comparison.candidate.target, "prompt")
+        self.assertEqual(
+            comparison.candidate.source_trace_id,
+            comparison.step_comparisons[0].replay_step.trace_id,
+        )
+        self.assertEqual(
+            comparison.candidate.evidence_ids,
+            [comparison.candidate.source_trace_id],
+        )
+        self.assertTrue(comparison.candidate.expected_outcome)
         self.assertEqual(comparison.candidate.metadata["workflow_name"], "product-orientation")
 
     def test_healthcheck_workflow_service_finalizes_comparison_and_reports(self) -> None:

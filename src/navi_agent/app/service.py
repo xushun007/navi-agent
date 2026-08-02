@@ -643,7 +643,7 @@ class ApplicationService:
                 review_run_id=review_run_id,
                 result=result,
             )
-            self._record_review_agent_skill_actions(result)
+            self._record_review_agent_skill_actions(result, trace=task.trace)
             if task.review_skill and self._has_promoted_skill_write(result):
                 self._review_trigger_policy.reset_skill(task.trace)
 
@@ -660,7 +660,12 @@ class ApplicationService:
             messages_snapshot=list(result.messages),
         )
 
-    def _record_review_agent_skill_actions(self, result: RuntimeResult) -> None:
+    def _record_review_agent_skill_actions(
+        self,
+        result: RuntimeResult,
+        *,
+        trace: RuntimeTrace,
+    ) -> None:
         for tool_result in result.tool_results:
             if tool_result.name != "skill_manage" or tool_result.status != "success":
                 continue
@@ -681,6 +686,9 @@ class ApplicationService:
                             target="skill",
                             summary=f"Background review agent created skill `{skill_name}`",
                             rationale="Tool-using skill review agent wrote this skill.",
+                            evidence_ids=[trace.trace_id],
+                            expected_outcome="Preserve a reviewed procedure as reusable skill memory.",
+                            source_trace_id=trace.trace_id,
                             metadata={"skill_name": skill_name, "reviewer": "agent"},
                             status="applied",
                         ),
