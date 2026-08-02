@@ -5,7 +5,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TypeVar
 
-from .models import EvolutionCandidate, EvalCase
+from .models import (
+    EvalCase,
+    EvolutionCandidate,
+    EvolutionGateResult,
+    EvolutionRollback,
+)
 
 T = TypeVar("T")
 
@@ -17,13 +22,27 @@ class JsonlCandidateStore:
     def add(self, candidate: EvolutionCandidate) -> None:
         self._append(asdict(candidate))
 
+    def save(self, candidate: EvolutionCandidate) -> None:
+        records = self._read_records()
+        found = False
+        new_records: list[dict] = []
+        for record in records:
+            existing = _candidate_from_record(record)
+            if existing.candidate_id == candidate.candidate_id:
+                existing = candidate
+                found = True
+            new_records.append(asdict(existing))
+        if not found:
+            raise ValueError(f"candidate not found: {candidate.candidate_id}")
+        self._write_records(new_records)
+
     def list_recent(self, limit: int | None = None) -> list[EvolutionCandidate]:
         records = self._read_records(limit=limit)
-        return [EvolutionCandidate(**record) for record in records]
+        return [_candidate_from_record(record) for record in records]
 
     def get(self, candidate_id: str) -> EvolutionCandidate | None:
         for record in self._read_records():
-            candidate = EvolutionCandidate(**record)
+            candidate = _candidate_from_record(record)
             if candidate.candidate_id == candidate_id:
                 return candidate
         return None
@@ -39,7 +58,7 @@ class JsonlCandidateStore:
         updated: EvolutionCandidate | None = None
         new_records: list[dict] = []
         for record in records:
-            candidate = EvolutionCandidate(**record)
+            candidate = _candidate_from_record(record)
             if candidate.candidate_id == candidate_id:
                 candidate.status = status
                 candidate.review_note = review_note
@@ -71,6 +90,17 @@ class JsonlCandidateStore:
         if limit is not None:
             lines = lines[-limit:]
         return [json.loads(line) for line in reversed(lines)]
+
+
+def _candidate_from_record(record: dict) -> EvolutionCandidate:
+    payload = dict(record)
+    gate_result = payload.get("gate_result")
+    if isinstance(gate_result, dict):
+        payload["gate_result"] = EvolutionGateResult(**gate_result)
+    rollback = payload.get("rollback")
+    if isinstance(rollback, dict):
+        payload["rollback"] = EvolutionRollback(**rollback)
+    return EvolutionCandidate(**payload)
 
 
 class JsonlEvalCaseStore:

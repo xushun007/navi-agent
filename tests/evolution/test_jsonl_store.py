@@ -4,9 +4,11 @@ from pathlib import Path
 
 from navi_agent.evolution import (
     EvolutionCandidate,
+    EvolutionGateResult,
     JsonlCandidateStore,
     JsonlEvalCaseStore,
     EvalCase,
+    EvolutionRollback,
 )
 
 
@@ -53,6 +55,43 @@ class JsonlStoreTests(unittest.TestCase):
         self.assertEqual(updated.review_note, "looks good")
         self.assertIsNotNone(latest)
         self.assertEqual(latest.status, "accepted")
+
+    def test_candidate_store_saves_gate_and_rollback_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = JsonlCandidateStore(Path(tmpdir) / "candidates.jsonl")
+            candidate = EvolutionCandidate(
+                target="prompt",
+                summary="first",
+                rationale="r1",
+                evidence_ids=["trace-1"],
+                expected_outcome="Improve the healthcheck score",
+                source_trace_id="trace-1",
+            )
+            store.add(candidate)
+            candidate.gate_result = EvolutionGateResult(
+                workflow_name="agent-healthcheck",
+                case_fingerprint="sha256:cases",
+                baseline_session_id="baseline-1",
+                candidate_session_id="candidate-1",
+                baseline_score=0.8,
+                candidate_score=0.7,
+                score_delta=-0.1,
+                status="regressed_after_apply",
+                report_path="reports/run-1",
+                evaluated_at="2026-08-02T00:00:00+00:00",
+            )
+            candidate.rollback = EvolutionRollback(
+                reason="gate regression",
+                rolled_back_at="2026-08-02T00:00:01+00:00",
+            )
+
+            store.save(candidate)
+            loaded = store.get(candidate.candidate_id)
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.evidence_ids, ["trace-1"])
+        self.assertEqual(loaded.gate_result.status, "regressed_after_apply")
+        self.assertEqual(loaded.rollback.reason, "gate regression")
 
     def test_eval_case_store_persists_and_lists_recent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

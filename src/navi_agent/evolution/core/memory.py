@@ -10,6 +10,13 @@ class InMemoryCandidateStore:
     def add(self, candidate: EvolutionCandidate) -> None:
         self.candidates.append(candidate)
 
+    def save(self, candidate: EvolutionCandidate) -> None:
+        for index, existing in enumerate(self.candidates):
+            if existing.candidate_id == candidate.candidate_id:
+                self.candidates[index] = candidate
+                return
+        raise ValueError(f"candidate not found: {candidate.candidate_id}")
+
     def list_recent(self, limit: int | None = None) -> list[EvolutionCandidate]:
         items = list(reversed(self.candidates))
         if limit is None:

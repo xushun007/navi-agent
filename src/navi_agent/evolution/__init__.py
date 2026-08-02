@@ -1,7 +1,14 @@
 from .core.evaluator import SimpleEvaluator
+from .core.gate import EvolutionGate
 from .core.jsonl_store import JsonlCandidateStore, JsonlEvalCaseStore
 from .core.memory import InMemoryCandidateStore, InMemoryEvalCaseStore
-from .core.models import EvaluationResult, EvolutionCandidate, EvalCase
+from .core.models import (
+    EvalCase,
+    EvaluationResult,
+    EvolutionCandidate,
+    EvolutionGateResult,
+    EvolutionRollback,
+)
 from .core.store import CandidateStore, EvalCaseStore
 from .evals.ifeval import IfevalEvaluationResult, IfevalEvaluator, IfevalInstructionResult, IfevalRunRecord, IfevalRunStore, IfevalRunWriter
 from .evals.report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
@@ -50,6 +57,9 @@ __all__ = [
     "EvolutionReportRecord",
     "EvolutionReportStore",
     "EvolutionCandidate",
+    "EvolutionGate",
+    "EvolutionGateResult",
+    "EvolutionRollback",
     "EvolutionEngine",
     "EvolutionReportWriter",
     "FileSkillStore",
