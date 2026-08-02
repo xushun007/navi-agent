@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime
 
 from .conflicts import find_memory_conflicts, require_explicit_conflict_resolution
+from .lifecycle import is_memory_expired, normalize_expiry
 from .models import MemoryAuditRecord, MemoryRecall, MemoryRecord, MemoryWriteProvenance
 from .search import recall_memories, search_memories
 from .validation import normalize_memory_content, normalize_memory_target, validate_memory_content
@@ -15,7 +16,11 @@ class InMemoryMemoryStore:
         self._audit_records: list[MemoryAuditRecord] = []
 
     def list_for_user(self, user_id: str) -> list[MemoryRecord]:
-        return [record for record in self._records if record.user_id == user_id]
+        return [
+            record
+            for record in self._records
+            if record.user_id == user_id and not is_memory_expired(record)
+        ]
 
     def search_for_user(self, user_id: str, query: str, limit: int) -> list[MemoryRecord]:
         return search_memories(self.list_for_user(user_id), query=query, limit=limit)
@@ -43,6 +48,7 @@ class InMemoryMemoryStore:
         target: str = "",
         source: str = "unknown",
         source_session_id: str = "",
+        expires_at: str = "",
         *,
         provenance: MemoryWriteProvenance | None = None,
         conflict_resolution: str = "",
@@ -57,7 +63,8 @@ class InMemoryMemoryStore:
         if validation_error:
             raise ValueError(validation_error)
         target = normalize_memory_target(target, kind=kind)
-        for record in self._records:
+        expires_at = normalize_expiry(expires_at)
+        for record in self.list_for_user(user_id):
             if (
                 record.user_id == user_id
                 and record.kind == kind
@@ -91,6 +98,7 @@ class InMemoryMemoryStore:
             target=target,
             source=provenance.source,
             source_session_id=provenance.source_session_id,
+            expires_at=expires_at,
         )
         self._records.append(record)
         self._record_audit(
@@ -185,6 +193,25 @@ class InMemoryMemoryStore:
                 )
                 return True
         return False
+
+    def expire_for_user(self, user_id: str, *, now: datetime | None = None) -> int:
+        expired = [
+            record
+            for record in self._records
+            if record.user_id == user_id and is_memory_expired(record, now=now)
+        ]
+        if not expired:
+            return 0
+        expired_ids = {record.id for record in expired}
+        self._records = [record for record in self._records if record.id not in expired_ids]
+        for record in expired:
+            self._record_audit(
+                record,
+                action="expire",
+                provenance=MemoryWriteProvenance(source="lifecycle_policy"),
+                before_content=record.content,
+            )
+        return len(expired)
 
     def audit_for_user(self, user_id: str) -> list[MemoryAuditRecord]:
         return [record for record in self._audit_records if record.user_id == user_id]

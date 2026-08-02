@@ -30,6 +30,7 @@ class MemoryRecord:
     target: str = "memory"
     source: str = "unknown"
     source_session_id: str = ""
+    expires_at: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,5 +1,6 @@
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -74,6 +75,16 @@ class InMemoryMemoryStoreTests(unittest.TestCase):
             store.add_for_user("u1", "Current task is running", target="session")
 
         self.assertEqual(store.list_for_user("u1"), [])
+
+    def test_expired_memory_is_not_recalled_and_cleanup_is_audited(self) -> None:
+        store = InMemoryMemoryStore()
+        expired = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+        record = store.add_for_user("u1", "Old deployment status", expires_at=expired)
+
+        self.assertEqual(store.list_for_user("u1"), [])
+        self.assertEqual(store.expire_for_user("u1"), 1)
+        self.assertEqual(store.audit_for_user("u1")[-1].action, "expire")
+        self.assertEqual(store.audit_for_user("u1")[-1].memory_id, record.id)
 
     def test_audits_memory_mutations_with_review_provenance(self) -> None:
         store = InMemoryMemoryStore()
@@ -258,6 +269,23 @@ class FileMemoryStoreTests(unittest.TestCase):
                 store.add_for_user("u1", "Temporary command output", target="temporary")
 
             self.assertEqual(store.list_for_user("u1"), [])
+
+    def test_file_store_persists_and_cleans_up_expired_memory(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            store = FileMemoryStore(root)
+            expires_at = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+            record = store.add_for_user(
+                "u1",
+                "Expired rollout note",
+                expires_at=expires_at,
+            )
+
+            self.assertIn("expires:", (root / "MEMORY.md").read_text(encoding="utf-8"))
+            self.assertEqual(FileMemoryStore(root).list_for_user("u1"), [])
+            self.assertEqual(FileMemoryStore(root).expire_for_user("u1"), 1)
+            self.assertNotIn(record.id, (root / "MEMORY.md").read_text(encoding="utf-8"))
+            self.assertEqual(FileMemoryStore(root).audit_for_user("u1")[-1].action, "expire")
 
     def test_deduplicates_persisted_memory(self) -> None:
         with TemporaryDirectory() as tmpdir:

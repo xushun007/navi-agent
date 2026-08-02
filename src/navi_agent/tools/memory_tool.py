@@ -35,6 +35,7 @@ class MemoryTool(BaseTool):
                 "target": {"type": "string", "enum": ["memory", "user"]},
                 "kind": {"type": "string", "enum": ["fact", "preference", "task"]},
                 "content": {"type": "string"},
+                "expires_at": {"type": "string"},
                 "conflict_resolution": {
                     "type": "string",
                     "enum": ["retain_both"],
@@ -78,6 +79,7 @@ class MemoryTool(BaseTool):
                     kind=kind,
                     target=target,
                     provenance=provenance,
+                    expires_at=str(kwargs.get("expires_at") or ""),
                     conflict_resolution=str(kwargs.get("conflict_resolution") or ""),
                     evidence=str(kwargs.get("evidence") or ""),
                 )
@@ -96,6 +98,7 @@ class MemoryTool(BaseTool):
                     "target": record.target,
                     "source": record.source,
                     "source_session_id": record.source_session_id,
+                    "expires_at": record.expires_at,
                     "content": record.content,
                 },
             )
@@ -118,6 +121,7 @@ class MemoryTool(BaseTool):
                             "target": record.target,
                             "source": record.source,
                             "source_session_id": record.source_session_id,
+                            "expires_at": record.expires_at,
                             "content": record.content,
                         }
                         for record in records

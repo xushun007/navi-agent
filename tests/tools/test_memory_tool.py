@@ -1,4 +1,5 @@
 import unittest
+from datetime import UTC, datetime, timedelta
 
 from navi_agent.memory import InMemoryMemoryStore, MemoryWriteProvenance
 from navi_agent.runtime import ToolContext
@@ -164,3 +165,18 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(result.status, "error")
         self.assertIn("cannot be promoted", result.content)
         self.assertEqual(store.list_for_user("u1"), [])
+
+    def test_add_accepts_an_explicit_expiry(self) -> None:
+        store = InMemoryMemoryStore()
+        tool = MemoryTool(memory_store=store)
+        expires_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+
+        result = tool.invoke(
+            context=ToolContext(session_id="s1", user_id="u1", iteration=1),
+            action="add",
+            content="Release freeze lasts one hour",
+            expires_at=expires_at,
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.structured_content["expires_at"], expires_at)

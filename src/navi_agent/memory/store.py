@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from .models import MemoryAuditRecord, MemoryRecall, MemoryRecord, MemoryWriteProvenance
@@ -24,6 +25,7 @@ class MemoryStore(Protocol):
         target: str = "",
         source: str = "unknown",
         source_session_id: str = "",
+        expires_at: str = "",
         *,
         provenance: MemoryWriteProvenance | None = None,
         conflict_resolution: str = "",
@@ -47,4 +49,5 @@ class MemoryStore(Protocol):
         *,
         provenance: MemoryWriteProvenance | None = None,
     ) -> bool: ...
+    def expire_for_user(self, user_id: str, *, now: datetime | None = None) -> int: ...
     def audit_for_user(self, user_id: str) -> list[MemoryAuditRecord]: ...

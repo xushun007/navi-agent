@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 from .conflicts import find_memory_conflicts, require_explicit_conflict_resolution
+from .lifecycle import is_memory_expired, normalize_expiry
 from .models import MemoryAuditRecord, MemoryRecall, MemoryRecord, MemoryWriteProvenance
 from .search import recall_memories, search_memories
 from .validation import normalize_memory_content, normalize_memory_target, validate_memory_content
@@ -24,6 +25,7 @@ _ENTRY_RE = re.compile(
     r"  <!-- id:(?P<id>[^ ]+) user:(?P<user_id>[^ ]+)"
     r"(?: source:(?P<source>[^ ]+))?"
     r"(?: session:(?P<source_session_id>[^ ]+))?"
+    r"(?: expires:(?P<expires_at>[^ ]+))?"
     r" -->$",
     re.MULTILINE,
 )
@@ -34,7 +36,11 @@ class FileMemoryStore:
         self._root = root
 
     def list_for_user(self, user_id: str) -> list[MemoryRecord]:
-        return [record for record in self._read_all() if record.user_id == user_id]
+        return [
+            record
+            for record in self._read_all()
+            if record.user_id == user_id and not is_memory_expired(record)
+        ]
 
     def search_for_user(self, user_id: str, query: str, limit: int) -> list[MemoryRecord]:
         return search_memories(self.list_for_user(user_id), query=query, limit=limit)
@@ -62,6 +68,7 @@ class FileMemoryStore:
         target: str = "",
         source: str = "unknown",
         source_session_id: str = "",
+        expires_at: str = "",
         *,
         provenance: MemoryWriteProvenance | None = None,
         conflict_resolution: str = "",
@@ -73,13 +80,15 @@ class FileMemoryStore:
         )
         normalized_kind = self._normalize_kind(kind)
         normalized_target = self._normalize_target(target, kind=normalized_kind)
+        expires_at = normalize_expiry(expires_at)
         content = normalize_memory_content(content)
         validation_error = validate_memory_content(content)
         if validation_error:
             raise ValueError(validation_error)
         with self._file_lock():
             records = self._read_all()
-            for existing in records:
+            active_records = [record for record in records if not is_memory_expired(record)]
+            for existing in active_records:
                 if (
                     existing.user_id == user_id
                     and existing.kind == normalized_kind
@@ -95,7 +104,7 @@ class FileMemoryStore:
                     )
                     return existing
             conflicts = find_memory_conflicts(
-                [record for record in records if record.user_id == user_id],
+                [record for record in active_records if record.user_id == user_id],
                 content=content,
                 kind=normalized_kind,
                 target=normalized_target,
@@ -113,6 +122,7 @@ class FileMemoryStore:
                 target=normalized_target,
                 source=self._single_line(provenance.source) or "unknown",
                 source_session_id=self._single_line(provenance.source_session_id),
+                expires_at=expires_at,
             )
             records.append(record)
             self._write_all(records)
@@ -227,6 +237,27 @@ class FileMemoryStore:
             )
             return True
 
+    def expire_for_user(self, user_id: str, *, now: datetime | None = None) -> int:
+        with self._file_lock():
+            records = self._read_all()
+            expired = [
+                record
+                for record in records
+                if record.user_id == user_id and is_memory_expired(record, now=now)
+            ]
+            if not expired:
+                return 0
+            expired_ids = {record.id for record in expired}
+            self._write_all([record for record in records if record.id not in expired_ids])
+            for record in expired:
+                self._append_audit(
+                    record,
+                    action="expire",
+                    provenance=MemoryWriteProvenance(source="lifecycle_policy"),
+                    before_content=record.content,
+                )
+            return len(expired)
+
     def audit_for_user(self, user_id: str) -> list[MemoryAuditRecord]:
         if not self._audit_path.exists():
             return []
@@ -256,6 +287,7 @@ class FileMemoryStore:
                         target=target,
                         source=match.group("source") or "unknown",
                         source_session_id=match.group("source_session_id") or "",
+                        expires_at=match.group("expires_at") or "",
                     )
                 )
         return records
@@ -358,6 +390,7 @@ class FileMemoryStore:
                     f"  <!-- id:{record.id} user:{record.user_id}"
                     f" source:{FileMemoryStore._single_line(record.source) or 'unknown'}"
                     f"{f' session:{FileMemoryStore._single_line(record.source_session_id)}' if record.source_session_id else ''}"
+                    f"{f' expires:{record.expires_at}' if record.expires_at else ''}"
                     " -->\n"
                 )
             if records:
