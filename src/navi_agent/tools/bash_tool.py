@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from navi_agent.tooling import ToolContext, ToolResult
 from navi_agent.bash_command import assess_bash_command
-from navi_agent.safety import sanitized_subprocess_env
+from navi_agent.safety import is_sensitive_path, sanitized_subprocess_env
 
 from .workspace_tool import WorkspaceTool
 
@@ -66,6 +66,7 @@ class _RunningCommand:
 
 
 class BashTool(WorkspaceTool):
+    _DIRECT_FILE_COMMANDS = {"cat", "head", "sort", "stat", "tail", "wc"}
     _WORKSPACE_PATH_COMMANDS = {
         "cat",
         "cd",
@@ -662,8 +663,23 @@ class BashTool(WorkspaceTool):
             for token in words[1:]:
                 if token.startswith("-") or token in {"!", "(", ")"}:
                     continue
+                path = self._command_path(token, effective_cwd)
+                if path is None and command_name in self._DIRECT_FILE_COMMANDS:
+                    path = (effective_cwd / token).resolve()
+                if path is not None and is_sensitive_path(path):
+                    return ToolResult.error(
+                        name=self.name,
+                        content=f"Access denied: command reads a sensitive path: {token}",
+                        structured_content={
+                            "command": command,
+                            "command_name": command_name,
+                            "path": token,
+                            "reason": "sensitive_path",
+                        },
+                    )
                 try:
-                    self._resolve_command_path(token, effective_cwd)
+                    if path is not None:
+                        self._resolve_path(str(path))
                 except ValueError as exc:
                     return ToolResult.error(
                         name=self.name,
@@ -677,16 +693,19 @@ class BashTool(WorkspaceTool):
 
         return None
 
-    def _resolve_command_path(self, token: str, cwd) -> None:
+    @staticmethod
+    def _command_path(token: str, cwd) -> Path | None:
         if token in {".", ".."}:
             target = cwd / token
         elif token.startswith("/"):
-            target = token
-        elif token.startswith("~") or "/" in token or token.startswith("."):
-            target = str(cwd / token)
+            target = Path(token)
+        elif token.startswith("~"):
+            target = Path(token).expanduser()
+        elif "/" in token or token.startswith("."):
+            target = cwd / token
         else:
-            return
-        self._resolve_path(target)
+            return None
+        return Path(target).resolve()
 
     def _command_name(self, command: str) -> str | None:
         try:

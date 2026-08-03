@@ -343,3 +343,27 @@ class BashToolTests(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertIn("outside workspace", result.content)
+
+    def test_rejects_commands_that_read_sensitive_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / ".env").write_text("TOKEN=private\n", encoding="utf-8")
+            tool = BashTool(root=root)
+
+            for command in ("cat .env", "head .env | wc -l"):
+                with self.subTest(command=command):
+                    result = tool.invoke(command=command)
+                    self.assertEqual(result.status, "error")
+                    self.assertEqual(
+                        result.structured_content["reason"],
+                        "sensitive_path",
+                    )
+
+    def test_allows_commands_that_read_environment_examples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / ".env.example").write_text("TOKEN=\n", encoding="utf-8")
+
+            result = BashTool(root=root).invoke(command="cat .env.example")
+
+        self.assertEqual(result.status, "success")
