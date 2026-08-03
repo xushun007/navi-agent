@@ -8,6 +8,7 @@ from threading import Lock, Thread
 from time import sleep
 from uuid import uuid4
 
+from navi_agent import __version__
 from navi_agent.app import AppRequest
 from navi_agent.cli.input import InteractivePromptSession
 from navi_agent.cli.banner import render_banner
@@ -128,6 +129,7 @@ telemetry:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="navi-agent")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("message", nargs="?")
     parser.add_argument("subcommand", nargs="?")
     parser.add_argument("command_target", nargs="?")

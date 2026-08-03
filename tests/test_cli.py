@@ -138,6 +138,13 @@ class FakePromptSession:
 
 
 class CliTests(unittest.TestCase):
+    def test_version_flag_prints_installed_version(self) -> None:
+        with self.assertRaises(SystemExit) as raised, redirect_stdout(io.StringIO()) as stdout:
+            build_parser().parse_args(["--version"])
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertRegex(stdout.getvalue(), r"^navi-agent \d+\.\d+\.\d+")
+
     def test_build_parser_parses_expected_arguments(self) -> None:
         parser = build_parser()
 

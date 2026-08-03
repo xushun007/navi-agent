@@ -38,5 +38,8 @@ jobs:
       - name: Run tests
         run: uv run --frozen pytest -q
 
+      - name: Build distribution
+        run: uv build
+
       - name: Check patch whitespace
         run: git diff --check
