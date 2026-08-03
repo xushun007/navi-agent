@@ -1,6 +1,7 @@
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from threading import Event, Thread
 
@@ -9,6 +10,24 @@ from navi_agent.tools import BashTool
 
 
 class BashToolTests(unittest.TestCase):
+    def test_does_not_inherit_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool = BashTool(root=Path(tmpdir), default_timeout_seconds=5)
+            with patch.dict(
+                "os.environ",
+                {"NAVI_API_KEY": "private", "NAVI_SAFE_VALUE": "visible"},
+            ):
+                result = tool.invoke(
+                    command=(
+                        "python -c 'import os; "
+                        'print(os.getenv("NAVI_API_KEY", "missing")); '
+                        'print(os.getenv("NAVI_SAFE_VALUE", "missing"))\''
+                    )
+                )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.structured_content["stdout"], "missing\nvisible")
+
     def test_cancels_foreground_command(self) -> None:
         cancelled = Event()
         results = []

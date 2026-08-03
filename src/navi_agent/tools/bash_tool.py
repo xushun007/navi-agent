@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from navi_agent.tooling import ToolContext, ToolResult
 from navi_agent.bash_command import assess_bash_command
+from navi_agent.safety import sanitized_subprocess_env
 
 from .workspace_tool import WorkspaceTool
 
@@ -391,7 +392,7 @@ class BashTool(WorkspaceTool):
         stdout_buffer = _BoundedTextBuffer(self._max_output_chars)
         stderr_buffer = _BoundedTextBuffer(self._max_output_chars)
         emit_output_holder = [emit_output]
-        env = os.environ.copy()
+        env = sanitized_subprocess_env(os.environ)
         env.pop("CDPATH", None)
         process = subprocess.Popen(
             command,
