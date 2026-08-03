@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from navi_agent.tooling import ToolArtifact, ToolContext, ToolResult
+from navi_agent.safety import is_sensitive_path
 
 from .workspace_tool import WorkspaceTool
 
@@ -46,6 +47,12 @@ class ReadFileTool(WorkspaceTool):
             resolved = self._resolve_path(requested_path)
         except ValueError as exc:
             return ToolResult.error(name=self.name, content=str(exc), metadata={"path": requested_path})
+        if is_sensitive_path(resolved):
+            return ToolResult.error(
+                name=self.name,
+                content=f"Access denied: sensitive file cannot be read: {requested_path}",
+                metadata={"path": requested_path, "reason": "sensitive_path"},
+            )
         if not resolved.exists():
             return ToolResult.error(name=self.name, **self._missing_path_error(requested_path))
         if resolved.is_dir():

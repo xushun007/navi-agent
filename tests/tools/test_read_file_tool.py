@@ -6,6 +6,29 @@ from navi_agent.tools import ReadFileTool
 
 
 class ReadFileToolTests(unittest.TestCase):
+    def test_rejects_sensitive_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / ".env").write_text("TOKEN=private\n", encoding="utf-8")
+            (root / ".ssh").mkdir()
+            (root / ".ssh" / "config").write_text("private\n", encoding="utf-8")
+            tool = ReadFileTool(root=root)
+
+            for path in (".env", ".ssh/config"):
+                with self.subTest(path=path):
+                    result = tool.invoke(path=path)
+                    self.assertEqual(result.status, "error")
+                    self.assertEqual(result.metadata["reason"], "sensitive_path")
+
+    def test_allows_environment_example(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / ".env.example").write_text("TOKEN=\n", encoding="utf-8")
+
+            result = ReadFileTool(root=root).invoke(path=".env.example")
+
+        self.assertEqual(result.status, "success")
+
     def test_reads_selected_line_range(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
