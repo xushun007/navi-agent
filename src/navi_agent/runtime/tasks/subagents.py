@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from typing import Protocol
+from time import monotonic
+from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 from ..models import RuntimeResult
+
+if TYPE_CHECKING:
+    from ..agent.control import RunCancellationToken
 
 
 SUBAGENT_SYSTEM_PROMPT = """You are an isolated Navi Agent worker.
@@ -16,6 +21,7 @@ Complete only the delegated task. You do not have the parent conversation, so re
 DEFAULT_SUBAGENT_TOOLSETS = ("file", "skills")
 ALLOWED_SUBAGENT_TOOLSETS = frozenset({"file", "terminal", "code", "skills"})
 MAX_CONCURRENT_SUBAGENTS = 3
+DEFAULT_SUBAGENT_DEADLINE_SECONDS = 300.0
 
 
 class SubagentRuntime(Protocol):
@@ -25,6 +31,8 @@ class SubagentRuntime(Protocol):
         user_id: str,
         user_message: str,
         system_prompt: str | None = None,
+        source: str = "console",
+        cancellation_token: RunCancellationToken | None = None,
     ) -> RuntimeResult: ...
 
 
@@ -52,9 +60,24 @@ class SubagentRun:
     toolsets: tuple[str, ...]
 
 
+@dataclass(slots=True)
+class _PreparedRun:
+    task: SubagentTask
+    session_id: str
+    toolsets: tuple[str, ...]
+    cancellation_token: RunCancellationToken
+
+
 class SubagentService:
-    def __init__(self, runtime_factory: SubagentRuntimeFactory) -> None:
+    def __init__(
+        self,
+        runtime_factory: SubagentRuntimeFactory,
+        deadline_seconds: float = DEFAULT_SUBAGENT_DEADLINE_SECONDS,
+    ) -> None:
+        if deadline_seconds <= 0:
+            raise ValueError("subagent deadline must be positive")
         self._runtime_factory = runtime_factory
+        self._deadline_seconds = deadline_seconds
 
     def run(
         self,
@@ -65,31 +88,19 @@ class SubagentService:
         user_id: str,
         toolsets: list[str] | None = None,
         non_interactive: bool = False,
+        cancellation_requested: Callable[[], bool] | None = None,
     ) -> SubagentRun:
-        normalized_goal = goal.strip()
-        if not normalized_goal:
-            raise ValueError("goal is required")
-
-        selected_toolsets = self._normalize_toolsets(toolsets)
-        child_session_id = f"{parent_session_id}:subagent:{uuid4().hex[:12]}"
-        runtime = self._runtime_factory(
-            list(selected_toolsets),
-            parent_session_id,
-            non_interactive,
+        prepared = self._prepare(
+            SubagentTask(goal, context, toolsets),
+            parent_session_id=parent_session_id,
         )
-        result = runtime.run_conversation(
-            session_id=child_session_id,
+        return self._execute(
+            [prepared],
+            parent_session_id=parent_session_id,
             user_id=user_id,
-            user_message=self._build_task_prompt(goal=normalized_goal, context=context),
-            system_prompt=SUBAGENT_SYSTEM_PROMPT,
-            source="subagent",
-        )
-        return SubagentRun(
-            session_id=child_session_id,
-            status=result.status,
-            final_response=result.final_response,
-            toolsets=selected_toolsets,
-        )
+            non_interactive=non_interactive,
+            cancellation_requested=cancellation_requested,
+        )[0]
 
     def run_many(
         self,
@@ -97,6 +108,7 @@ class SubagentService:
         tasks: list[SubagentTask],
         parent_session_id: str,
         user_id: str,
+        cancellation_requested: Callable[[], bool] | None = None,
     ) -> list[SubagentRun]:
         if not tasks:
             raise ValueError("at least one subagent task is required")
@@ -104,24 +116,111 @@ class SubagentService:
             raise ValueError(
                 f"subagent batch exceeds maximum of {MAX_CONCURRENT_SUBAGENTS} tasks"
             )
+        prepared = [
+            self._prepare(task, parent_session_id=parent_session_id) for task in tasks
+        ]
+        return self._execute(
+            prepared,
+            parent_session_id=parent_session_id,
+            user_id=user_id,
+            non_interactive=True,
+            cancellation_requested=cancellation_requested,
+        )
 
-        with ThreadPoolExecutor(
-            max_workers=len(tasks),
-            thread_name_prefix="navi-subagent",
-        ) as executor:
-            futures = [
-                executor.submit(
-                    self.run,
-                    goal=task.goal,
-                    context=task.context,
-                    parent_session_id=parent_session_id,
-                    user_id=user_id,
-                    toolsets=task.toolsets,
-                    non_interactive=True,
+    def _execute(
+        self,
+        prepared: list[_PreparedRun],
+        *,
+        parent_session_id: str,
+        user_id: str,
+        non_interactive: bool,
+        cancellation_requested: Callable[[], bool] | None,
+    ) -> list[SubagentRun]:
+        executor = ThreadPoolExecutor(len(prepared), thread_name_prefix="navi-subagent")
+        futures = [
+            executor.submit(
+                self._run_one,
+                item,
+                parent_session_id,
+                user_id,
+                non_interactive,
+            )
+            for item in prepared
+        ]
+        pending = set(futures)
+        deadline = monotonic() + self._deadline_seconds
+        status = "timed_out"
+        try:
+            while pending:
+                if cancellation_requested is not None and cancellation_requested():
+                    status = "cancelled"
+                    break
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    break
+                _, pending = wait(
+                    pending,
+                    timeout=min(0.05, remaining),
+                    return_when=FIRST_COMPLETED,
                 )
-                for task in tasks
+            unfinished = set(pending)
+            for item, future in zip(prepared, futures, strict=True):
+                if future in unfinished:
+                    item.cancellation_token.cancel(
+                        "parent_cancelled" if status == "cancelled" else "deadline_exceeded"
+                    )
+                    future.cancel()
+            message = "Subagent cancelled" if status == "cancelled" else "Subagent timed out"
+            return [
+                future.result()
+                if future not in unfinished
+                else SubagentRun(item.session_id, status, message, item.toolsets)
+                for item, future in zip(prepared, futures, strict=True)
             ]
-            return [future.result() for future in futures]
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    def _run_one(
+        self,
+        prepared: _PreparedRun,
+        parent_session_id: str,
+        user_id: str,
+        non_interactive: bool,
+    ) -> SubagentRun:
+        runtime = self._runtime_factory(
+            list(prepared.toolsets), parent_session_id, non_interactive
+        )
+        result = runtime.run_conversation(
+            session_id=prepared.session_id,
+            user_id=user_id,
+            user_message=self._build_task_prompt(
+                goal=prepared.task.goal,
+                context=prepared.task.context,
+            ),
+            system_prompt=SUBAGENT_SYSTEM_PROMPT,
+            source="subagent",
+            cancellation_token=prepared.cancellation_token,
+        )
+        return SubagentRun(
+            prepared.session_id,
+            result.status,
+            result.final_response,
+            prepared.toolsets,
+        )
+
+    def _prepare(self, task: SubagentTask, *, parent_session_id: str) -> _PreparedRun:
+        from ..agent.control import RunCancellationToken
+
+        goal = task.goal.strip()
+        if not goal:
+            raise ValueError("goal is required")
+        task = SubagentTask(goal, task.context, task.toolsets)
+        return _PreparedRun(
+            task,
+            f"{parent_session_id}:subagent:{uuid4().hex[:12]}",
+            self._normalize_toolsets(task.toolsets),
+            RunCancellationToken(),
+        )
 
     @staticmethod
     def _normalize_toolsets(toolsets: list[str] | None) -> tuple[str, ...]:

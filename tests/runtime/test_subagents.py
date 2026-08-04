@@ -1,4 +1,5 @@
-from threading import Barrier
+import time
+from threading import Barrier, Event
 
 from navi_agent.runtime import Message, RuntimeResult, SubagentService, SubagentTask
 
@@ -14,6 +15,7 @@ class RecordingRuntime:
         user_message,
         system_prompt=None,
         source="console",
+        cancellation_token=None,
     ):
         self._calls.append(
             {
@@ -98,6 +100,7 @@ def test_subagent_batch_runs_concurrently_and_preserves_task_order() -> None:
             user_message,
             system_prompt=None,
             source="console",
+            cancellation_token=None,
         ):
             assert source == "subagent"
             barrier.wait()
@@ -143,3 +146,54 @@ def test_subagent_batch_enforces_concurrency_limit() -> None:
         assert str(exc) == "subagent batch exceeds maximum of 3 tasks"
     else:
         raise AssertionError("expected concurrency limit error")
+
+
+def test_subagent_batch_times_out_only_unfinished_tasks() -> None:
+    stopped = Event()
+
+    class Runtime:
+        def run_conversation(self, session_id, user_message, cancellation_token, **kwargs):
+            if "Slow task" not in user_message:
+                return RuntimeResult(session_id=session_id, status="success", final_response="done")
+            while not cancellation_token.is_cancelled:
+                time.sleep(0.005)
+            stopped.set()
+            return RuntimeResult(session_id=session_id, status="cancelled", final_response="")
+
+    service = SubagentService(
+        runtime_factory=lambda _tools, _parent, _non_interactive: Runtime(),
+        deadline_seconds=0.05,
+    )
+    runs = service.run_many(
+        tasks=[SubagentTask("Slow task", ""), SubagentTask("Fast task", "")],
+        parent_session_id="parent-1",
+        user_id="user-1",
+    )
+
+    assert [run.status for run in runs] == ["timed_out", "success"]
+    assert stopped.wait(0.5)
+
+
+def test_subagent_propagates_parent_cancellation() -> None:
+    parent_cancelled = Event()
+    parent_cancelled.set()
+
+    class Runtime:
+        def run_conversation(self, session_id, cancellation_token, **kwargs):
+            while not cancellation_token.is_cancelled:
+                time.sleep(0.005)
+            return RuntimeResult(session_id=session_id, status="cancelled", final_response="")
+
+    service = SubagentService(
+        runtime_factory=lambda _tools, _parent, _non_interactive: Runtime(),
+    )
+
+    run = service.run(
+        goal="Inspect runtime",
+        context="",
+        parent_session_id="parent-1",
+        user_id="user-1",
+        cancellation_requested=parent_cancelled.is_set,
+    )
+
+    assert run.status == "cancelled"

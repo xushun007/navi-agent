@@ -95,6 +95,7 @@ class DelegateTaskTool(BaseTool):
                     tasks=self._parse_tasks(raw_tasks),
                     parent_session_id=context.session_id,
                     user_id=context.user_id,
+                    cancellation_requested=context.cancellation_requested,
                 )
                 if has_batch
                 else [
@@ -104,6 +105,7 @@ class DelegateTaskTool(BaseTool):
                         parent_session_id=context.session_id,
                         user_id=context.user_id,
                         toolsets=kwargs.get("toolsets"),
+                        cancellation_requested=context.cancellation_requested,
                     )
                 ]
             )
