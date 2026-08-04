@@ -45,10 +45,14 @@ def test_delegate_task_returns_only_child_final_report() -> None:
                 "child_session_id": "parent:subagent:child",
                 "status": "success",
                 "toolsets": ["file"],
+                "duration_seconds": 0.0,
+                "truncated": False,
             }
         ],
         "status": "success",
         "toolsets": ["file"],
+        "duration_seconds": 0.0,
+        "truncated": False,
     }
     assert service.calls[0]["parent_session_id"] == "parent"
     assert service.calls[0]["user_id"] == "user"

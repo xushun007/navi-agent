@@ -156,6 +156,8 @@ class DelegateTaskTool(BaseTool):
             "child_session_id": run.session_id,
             "status": run.status,
             "toolsets": list(run.toolsets),
+            "duration_seconds": round(run.duration_seconds, 3),
+            "truncated": run.truncated,
         }
 
     @staticmethod

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from ..models import RuntimeResult
 
 if TYPE_CHECKING:
     from ..agent.control import RunCancellationToken
+
+logger = logging.getLogger(__name__)
 
 
 SUBAGENT_SYSTEM_PROMPT = """You are an isolated Navi Agent worker.
@@ -60,6 +63,7 @@ class SubagentRun:
     status: str
     final_response: str
     toolsets: tuple[str, ...]
+    duration_seconds: float = 0.0
     truncated: bool = False
 
 
@@ -69,6 +73,7 @@ class _PreparedRun:
     session_id: str
     toolsets: tuple[str, ...]
     cancellation_token: RunCancellationToken
+    started_at: float
 
 
 class SubagentService:
@@ -177,7 +182,13 @@ class SubagentService:
             return [
                 future.result()
                 if future not in unfinished
-                else SubagentRun(item.session_id, status, message, item.toolsets)
+                else SubagentRun(
+                    item.session_id,
+                    status,
+                    message,
+                    item.toolsets,
+                    monotonic() - item.started_at,
+                )
                 for item, future in zip(prepared, futures, strict=True)
             ]
         finally:
@@ -190,20 +201,30 @@ class SubagentService:
         user_id: str,
         non_interactive: bool,
     ) -> SubagentRun:
-        runtime = self._runtime_factory(
-            list(prepared.toolsets), parent_session_id, non_interactive
-        )
-        result = runtime.run_conversation(
-            session_id=prepared.session_id,
-            user_id=user_id,
-            user_message=self._build_task_prompt(
-                goal=prepared.task.goal,
-                context=prepared.task.context,
-            ),
-            system_prompt=SUBAGENT_SYSTEM_PROMPT,
-            source="subagent",
-            cancellation_token=prepared.cancellation_token,
-        )
+        try:
+            runtime = self._runtime_factory(
+                list(prepared.toolsets), parent_session_id, non_interactive
+            )
+            result = runtime.run_conversation(
+                session_id=prepared.session_id,
+                user_id=user_id,
+                user_message=self._build_task_prompt(
+                    goal=prepared.task.goal,
+                    context=prepared.task.context,
+                ),
+                system_prompt=SUBAGENT_SYSTEM_PROMPT,
+                source="subagent",
+                cancellation_token=prepared.cancellation_token,
+            )
+        except Exception as exc:
+            logger.exception("Subagent execution failed: session_id=%s", prepared.session_id)
+            return SubagentRun(
+                prepared.session_id,
+                "failed",
+                f"Subagent failed: {type(exc).__name__}",
+                prepared.toolsets,
+                monotonic() - prepared.started_at,
+            )
         response = result.final_response
         truncated = len(response) > MAX_SUBAGENT_RESULT_CHARS
         if truncated:
@@ -215,7 +236,8 @@ class SubagentService:
             result.status,
             response,
             prepared.toolsets,
-            truncated,
+            monotonic() - prepared.started_at,
+            truncated=truncated,
         )
 
     def _prepare(self, task: SubagentTask, *, parent_session_id: str) -> _PreparedRun:
@@ -232,6 +254,7 @@ class SubagentService:
             f"{parent_session_id}:subagent:{uuid4().hex[:12]}",
             self._normalize_toolsets(task.toolsets),
             RunCancellationToken(),
+            monotonic(),
         )
 
     @staticmethod

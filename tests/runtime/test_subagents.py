@@ -234,3 +234,23 @@ def test_subagent_bounds_input_and_result_size() -> None:
         assert str(exc) == "delegated task input is too large"
     else:
         raise AssertionError("expected oversized input error")
+
+
+def test_subagent_converts_runtime_exception_to_failed_result() -> None:
+    class Runtime:
+        def run_conversation(self, **kwargs):
+            raise RuntimeError("private detail")
+
+    service = SubagentService(
+        runtime_factory=lambda _tools, _parent, _non_interactive: Runtime()
+    )
+    run = service.run(
+        goal="Inspect runtime",
+        context="",
+        parent_session_id="parent-1",
+        user_id="user-1",
+    )
+
+    assert run.status == "failed"
+    assert run.final_response == "Subagent failed: RuntimeError"
+    assert run.duration_seconds >= 0
