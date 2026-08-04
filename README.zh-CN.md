@@ -14,7 +14,7 @@ tools、memory、telemetry、evolution 组成的单一可靠执行链路，并�
 ## 快速开始
 
 ```bash
-uv tool install git+https://github.com/xushun007/navi-agent.git
+uv tool install navi-agent
 navi-agent init
 # 在 ~/.navi-agent/config.yaml 中填写模型凭据
 navi-agent doctor

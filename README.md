@@ -15,7 +15,7 @@ Configuration, tools, permissions, sessions, memory, architecture, and the Weixi
 ## Quickstart
 
 ```bash
-uv tool install git+https://github.com/xushun007/navi-agent.git
+uv tool install navi-agent
 navi-agent init
 # Add your model credentials to ~/.navi-agent/config.yaml
 navi-agent doctor

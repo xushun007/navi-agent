@@ -1,21 +1,25 @@
 # Run Navi Agent in 2 Minutes
 
-With Python, `uv`, and an OpenAI-compatible API key ready, the setup itself
-takes about two minutes. The first package download may take longer depending
-on your network.
+With an OpenAI-compatible API key ready, the setup itself takes about two
+minutes. The first package download may take longer depending on your network.
 
 ## Before you start
 
-- Python 3.11 or newer
-- [`uv`](https://docs.astral.sh/uv/)
+- macOS or Linux with `curl`, or Windows with [`uv`](https://docs.astral.sh/uv/) installed
 - An OpenAI-compatible model name, API key, and endpoint
 
 ## 1. Install
 
-Install the latest version from GitHub:
+Install the latest release. The installer sets up `uv` when needed:
 
 ```bash
-uv tool install git+https://github.com/xushun007/navi-agent.git
+curl -fsSL https://raw.githubusercontent.com/xushun007/navi-agent/main/scripts/install.sh | sh
+```
+
+If `uv` is already installed, install directly from PyPI:
+
+```bash
+uv tool install navi-agent
 ```
 
 ## 2. Initialize
