@@ -22,6 +22,8 @@ DEFAULT_SUBAGENT_TOOLSETS = ("file", "skills")
 ALLOWED_SUBAGENT_TOOLSETS = frozenset({"file", "terminal", "code", "skills"})
 MAX_CONCURRENT_SUBAGENTS = 3
 DEFAULT_SUBAGENT_DEADLINE_SECONDS = 300.0
+MAX_SUBAGENT_INPUT_CHARS = 32_000
+MAX_SUBAGENT_RESULT_CHARS = 20_000
 
 
 class SubagentRuntime(Protocol):
@@ -58,6 +60,7 @@ class SubagentRun:
     status: str
     final_response: str
     toolsets: tuple[str, ...]
+    truncated: bool = False
 
 
 @dataclass(slots=True)
@@ -201,11 +204,18 @@ class SubagentService:
             source="subagent",
             cancellation_token=prepared.cancellation_token,
         )
+        response = result.final_response
+        truncated = len(response) > MAX_SUBAGENT_RESULT_CHARS
+        if truncated:
+            marker = "\n...<subagent result truncated>...\n"
+            side = (MAX_SUBAGENT_RESULT_CHARS - len(marker)) // 2
+            response = f"{response[:side]}{marker}{response[-side:]}"
         return SubagentRun(
             prepared.session_id,
             result.status,
-            result.final_response,
+            response,
             prepared.toolsets,
+            truncated,
         )
 
     def _prepare(self, task: SubagentTask, *, parent_session_id: str) -> _PreparedRun:
@@ -214,6 +224,8 @@ class SubagentService:
         goal = task.goal.strip()
         if not goal:
             raise ValueError("goal is required")
+        if len(goal) + len(task.context) > MAX_SUBAGENT_INPUT_CHARS:
+            raise ValueError("delegated task input is too large")
         task = SubagentTask(goal, task.context, task.toolsets)
         return _PreparedRun(
             task,

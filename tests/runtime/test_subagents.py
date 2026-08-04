@@ -197,3 +197,40 @@ def test_subagent_propagates_parent_cancellation() -> None:
     )
 
     assert run.status == "cancelled"
+
+
+def test_subagent_bounds_input_and_result_size() -> None:
+    class Runtime:
+        def run_conversation(self, session_id, **kwargs):
+            return RuntimeResult(
+                session_id=session_id,
+                status="success",
+                final_response="start" + "x" * 20_000 + "end",
+            )
+
+    service = SubagentService(
+        runtime_factory=lambda _tools, _parent, _non_interactive: Runtime()
+    )
+    run = service.run(
+        goal="Inspect runtime",
+        context="",
+        parent_session_id="parent-1",
+        user_id="user-1",
+    )
+
+    assert run.truncated is True
+    assert len(run.final_response) <= 20_000
+    assert run.final_response.startswith("start")
+    assert run.final_response.endswith("end")
+
+    try:
+        service.run(
+            goal="Inspect runtime",
+            context="x" * 32_000,
+            parent_session_id="parent-1",
+            user_id="user-1",
+        )
+    except ValueError as exc:
+        assert str(exc) == "delegated task input is too large"
+    else:
+        raise AssertionError("expected oversized input error")
