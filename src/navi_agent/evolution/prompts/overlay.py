@@ -43,7 +43,7 @@ class PromptOverlayStore:
 
     def append_candidate(self, candidate: EvolutionCandidate) -> str:
         self.snapshot(candidate_id=candidate.candidate_id)
-        block = self._format_candidate_block(candidate)
+        block = self.format_candidate(candidate)
         current = self.get()
         next_text = f"{current}\n\n{block}".strip() if current else block
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +165,7 @@ class PromptOverlayStore:
         return timestamp
 
     @staticmethod
-    def _format_candidate_block(candidate: EvolutionCandidate) -> str:
+    def format_candidate(candidate: EvolutionCandidate) -> str:
         lines = [
             f"## Candidate {candidate.candidate_id}",
             f"- status: {candidate.status}",

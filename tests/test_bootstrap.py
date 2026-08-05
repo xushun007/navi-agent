@@ -170,9 +170,13 @@ class BootstrapTests(unittest.TestCase):
                     model_settings=ModelSettings(model="demo", api_key="x"),
                     runtime_settings=RuntimeSettings(max_iterations=3),
                     default_system_prompt="base prompt",
+                    staged_prompt_overlay="staged prompt",
                 )
 
-        self.assertEqual(app._default_system_prompt, "base prompt\n\noverlay prompt")
+        self.assertEqual(
+            app._default_system_prompt,
+            "base prompt\n\noverlay prompt\n\nstaged prompt",
+        )
         build_runtime_mock.assert_called_once()
 
 

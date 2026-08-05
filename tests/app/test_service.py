@@ -1112,7 +1112,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(updated.status, "accepted")
         self.assertEqual(updated.review_note, "good")
 
-    def test_apply_prompt_candidate_uses_overlay_store(self) -> None:
+    def test_apply_prompt_candidate_stays_staged(self) -> None:
         overlay_store = FakePromptOverlayStore()
         service = ApplicationService(
             runtime=FakeRuntime(),
@@ -1130,9 +1130,9 @@ class ApplicationServiceTests(unittest.TestCase):
         updated = service.apply_candidate(candidate.candidate_id, review_note="applied")
 
         self.assertIsNotNone(updated)
-        self.assertEqual(updated.status, "applied")
+        self.assertEqual(updated.status, "staged")
         self.assertEqual(updated.review_note, "applied")
-        self.assertEqual(overlay_store.text, f"overlay for {candidate.candidate_id}")
+        self.assertIsNone(overlay_store.text)
 
     def test_apply_skill_candidate_uses_skill_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1301,8 +1301,8 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertIsNotNone(updated)
         self.assertEqual(updated.status, "no_improvement")
         self.assertIsNone(overlay_store.text)
-        self.assertEqual(overlay_store.rollback_calls, [candidate.candidate_id])
-        self.assertEqual(updated.rollback.previous_status, "applied")
+        self.assertEqual(overlay_store.rollback_calls, [])
+        self.assertEqual(updated.rollback.previous_status, "staged")
 
     def test_candidate_evaluation_verifies_improvement_and_keeps_gate_result(self) -> None:
         service, candidate, overlay_store = self._applied_prompt_candidate()
@@ -1336,6 +1336,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(updated.gate_result.score_delta, -0.2)
         self.assertIn("reports/gate-2", updated.rollback.reason)
         self.assertIsNone(overlay_store.text)
+        self.assertEqual(overlay_store.rollback_calls, [])
 
     @staticmethod
     def _applied_prompt_candidate():

@@ -1712,7 +1712,7 @@ def _run_candidate_apply_workflow(
     )
     applied = source_app.apply_candidate(
         candidate_id,
-        review_note=review_note or "applied prompt overlay and ran workflow validation",
+        review_note=review_note or "staged prompt candidate for workflow validation",
     )
     if applied is None:
         print(f"candidate cannot be applied: {candidate_id}")
@@ -1720,6 +1720,7 @@ def _run_candidate_apply_workflow(
     rerun_app = build_application(
         default_system_prompt=system_prompt,
         approval_provider=HostYoloApprovalProvider() if yolo else CliApprovalProvider(),
+        staged_prompt_overlay=PromptOverlayStore.format_candidate(applied),
     )
     replay_result = run_healthcheck_workflow(
         app=rerun_app,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -356,8 +356,7 @@ class ApplicationService:
         if candidate.target == "prompt":
             if self._prompt_overlay_store is None:
                 return None
-            self._prompt_overlay_store.append_candidate(candidate)
-            note = review_note or "applied prompt overlay"
+            note = review_note or "staged prompt candidate"
         elif candidate.target == "skill":
             if self._skill_governance is None or self._skill_evaluator is None:
                 return None
@@ -410,7 +409,7 @@ class ApplicationService:
             return None
         return self.update_candidate_status(
             candidate_id,
-            "applied",
+            "staged" if candidate.target == "prompt" else "applied",
             review_note=note,
         )
 
@@ -429,6 +428,13 @@ class ApplicationService:
         if candidate.target == "prompt":
             if self._prompt_overlay_store is None:
                 return None
+            if previous_status == "staged":
+                return self._record_candidate_rollback(
+                    candidate,
+                    status=status,
+                    reason=note,
+                    previous_status=previous_status,
+                )
             if not self._prompt_overlay_store.rollback_candidate(candidate_id):
                 return None
             note = review_note or "rolled back prompt overlay"
@@ -469,7 +475,7 @@ class ApplicationService:
         report_path: str,
     ) -> EvolutionCandidate | None:
         candidate = self.get_candidate(candidate_id)
-        if candidate is None or candidate.status != "applied":
+        if candidate is None or candidate.status != "staged":
             return None
         workflow_name = str((candidate.metadata or {}).get("workflow_name") or "")
         if workflow_name and workflow_name != eval_case.workflow_name:
@@ -485,15 +491,21 @@ class ApplicationService:
             f"score_delta={gate_result.score_delta} report={gate_result.report_path}"
         )
         if gate_result.status == "verified":
+            if self._prompt_overlay_store is None:
+                return None
+            self._prompt_overlay_store.append_candidate(
+                replace(candidate, status="verified")
+            )
             return self.update_candidate_status(
                 candidate_id,
                 "verified",
                 review_note=note,
             )
-        return self.rollback_candidate(
-            candidate_id,
+        return self._record_candidate_rollback(
+            candidate,
             status=gate_result.status,
-            review_note=f"rolled back after evolution gate: {note}",
+            reason=f"rejected staged candidate after evolution gate: {note}",
+            previous_status="staged",
         )
 
     def _record_candidate_rollback(

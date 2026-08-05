@@ -169,6 +169,7 @@ def build_application(
     workspace_root: Path | None = None,
     additional_workspace_roots: Iterable[Path] | None = None,
     interaction_store: JsonPendingInteractionStore | None = None,
+    staged_prompt_overlay: str | None = None,
 ) -> ApplicationService:
     config = load_config()
     review_model_settings = model_settings or ModelSettings.from_sources(config)
@@ -201,11 +202,11 @@ def build_application(
         get_prompt_overlay_snapshots_dir(),
     )
     prompt_overlay = prompt_overlay_store.get()
-    default_prompt = default_system_prompt
-    if prompt_overlay:
-        default_prompt = "\n\n".join(
-            part for part in [default_system_prompt, prompt_overlay] if part
-        ) or None
+    default_prompt = "\n\n".join(
+        part
+        for part in [default_system_prompt, prompt_overlay, staged_prompt_overlay]
+        if part
+    ) or None
     return ApplicationService(
         runtime=runtime,
         default_system_prompt=default_prompt,
