@@ -178,6 +178,8 @@ class HealthcheckTests(unittest.TestCase):
         self.assertTrue(
             comparison.eval_case.metadata["case_fingerprint"].startswith("sha256:")
         )
+        self.assertFalse(comparison.eval_case.metadata["correctness_passed"])
+        self.assertTrue(comparison.eval_case.metadata["steps"][0]["missing_terms"])
         self.assertIsNone(comparison.candidate)
 
     def test_compare_healthcheck_workflow_results_builds_candidate_for_regression(self) -> None:
@@ -212,6 +214,25 @@ class HealthcheckTests(unittest.TestCase):
         )
         self.assertTrue(comparison.candidate.expected_outcome)
         self.assertEqual(comparison.candidate.metadata["workflow_name"], "product-orientation")
+
+    def test_healthcheck_records_deterministic_correctness_evidence(self) -> None:
+        source = run_healthcheck_workflow(
+            app=FakeApp(), workflow_name="product-orientation", user_id="u1"
+        )
+        replay = run_healthcheck_workflow(
+            app=FakeApp(), workflow_name="product-orientation", user_id="u1"
+        )
+        replay.steps[0].runtime_result.final_response = "Navi Agent summary"
+        replay.steps[1].runtime_result.final_response = (
+            "src/navi_agent/cli -> src/navi_agent/app -> src/navi_agent/runtime"
+        )
+
+        comparison = compare_healthcheck_workflow_results(source, replay)
+
+        self.assertTrue(comparison.eval_case.metadata["correctness_passed"])
+        self.assertTrue(
+            all(step["correctness_passed"] for step in comparison.eval_case.metadata["steps"])
+        )
 
     def test_healthcheck_workflow_service_finalizes_comparison_and_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

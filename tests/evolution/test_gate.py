@@ -15,7 +15,10 @@ def _eval_case(*, baseline: float = 0.7, candidate: float = 0.8) -> EvalCase:
         score_delta=round(candidate - baseline, 3),
         status="improved",
         summary="comparison",
-        metadata={"case_fingerprint": "sha256:stable-cases"},
+        metadata={
+            "case_fingerprint": "sha256:stable-cases",
+            "correctness_passed": True,
+        },
     )
 
 
@@ -57,6 +60,23 @@ def test_gate_requires_a_reproducible_case_fingerprint() -> None:
 
     with pytest.raises(ValueError, match="case_fingerprint"):
         EvolutionGate().evaluate(eval_case, report_path="reports/run-1")
+
+
+def test_gate_requires_correctness_evidence() -> None:
+    eval_case = _eval_case()
+    del eval_case.metadata["correctness_passed"]
+
+    with pytest.raises(ValueError, match="correctness_passed"):
+        EvolutionGate().evaluate(eval_case, report_path="reports/run-1")
+
+
+def test_gate_rejects_improvement_when_correctness_fails() -> None:
+    eval_case = _eval_case()
+    eval_case.metadata["correctness_passed"] = False
+
+    result = EvolutionGate().evaluate(eval_case, report_path="reports/run-1")
+
+    assert result.status == "regressed_after_apply"
 
 
 def test_gate_rejects_an_inconsistent_score_delta() -> None:

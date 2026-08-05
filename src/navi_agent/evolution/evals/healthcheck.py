@@ -130,6 +130,13 @@ HEALTHCHECK_WORKFLOWS: dict[str, HealthcheckWorkflow] = {
     ),
 }
 
+_REQUIRED_OUTPUT_TERMS = {
+    "readme-summary": ("navi",),
+    "config-check": ("model", "api_key"),
+    "workspace-search": ("src/navi_agent/cli", "src/navi_agent/app", "src/navi_agent/runtime"),
+    "runtime-trace-check": ("trace", "telemetry"),
+}
+
 
 def list_healthcheck_tasks() -> list[HealthcheckTask]:
     return [HEALTHCHECK_TASKS[name] for name in sorted(HEALTHCHECK_TASKS)]
@@ -405,6 +412,25 @@ def _build_eval_case(
         status = "unchanged"
         summary = "Workflow replay produced roughly the same score as the source run"
 
+    step_evidence = []
+    for comparison in step_comparisons:
+        output = comparison.replay_step.runtime_result.final_response.lower()
+        missing = [
+            term for term in _REQUIRED_OUTPUT_TERMS[comparison.task_name] if term not in output
+        ]
+        step_evidence.append(
+            {
+                "task_name": comparison.task_name,
+                "source_trace_id": comparison.source_step.trace_id,
+                "replay_trace_id": comparison.replay_step.trace_id,
+                "score_delta": comparison.score_delta,
+                "correctness_passed": (
+                    comparison.replay_step.runtime_result.status == "success" and not missing
+                ),
+                "missing_terms": missing,
+            }
+        )
+
     return EvalCase(
         workflow_name=workflow.name,
         source_session_id=source_session_id,
@@ -417,16 +443,11 @@ def _build_eval_case(
         metadata={
             "case_ids": list(workflow.steps),
             "case_fingerprint": _healthcheck_case_fingerprint(workflow),
+            "correctness_passed": all(
+                step["correctness_passed"] for step in step_evidence
+            ),
             "step_count": len(step_comparisons),
-            "steps": [
-                {
-                    "task_name": comparison.task_name,
-                    "source_trace_id": comparison.source_step.trace_id,
-                    "replay_trace_id": comparison.replay_step.trace_id,
-                    "score_delta": comparison.score_delta,
-                }
-                for comparison in step_comparisons
-            ],
+            "steps": step_evidence,
         },
     )
 
@@ -437,6 +458,7 @@ def _healthcheck_case_fingerprint(workflow: HealthcheckWorkflow) -> str:
             "name": task.name,
             "description": task.description,
             "prompt": task.prompt,
+            "required_output_terms": _REQUIRED_OUTPUT_TERMS[task.name],
         }
         for task in (get_healthcheck_task(name) for name in workflow.steps)
     ]

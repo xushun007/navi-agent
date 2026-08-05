@@ -1368,7 +1368,10 @@ class ApplicationServiceTests(unittest.TestCase):
             score_delta=round(candidate - baseline, 3),
             status="comparison",
             summary="comparison",
-            metadata={"case_fingerprint": "sha256:cases"},
+            metadata={
+                "case_fingerprint": "sha256:cases",
+                "correctness_passed": True,
+            },
         )
 
     def test_add_and_list_eval_cases_use_store(self) -> None:

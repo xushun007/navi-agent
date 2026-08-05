@@ -20,6 +20,9 @@ class EvolutionGate:
             raise ValueError("eval case must include a case_fingerprint")
         if not eval_case.source_session_id or not eval_case.replay_session_id:
             raise ValueError("eval case must identify baseline and candidate sessions")
+        correctness_passed = eval_case.metadata.get("correctness_passed")
+        if not isinstance(correctness_passed, bool):
+            raise ValueError("eval case must include boolean correctness_passed evidence")
         scores = (
             eval_case.source_average_score,
             eval_case.replay_average_score,
@@ -34,7 +37,9 @@ class EvolutionGate:
         if not isclose(eval_case.score_delta, calculated_delta, abs_tol=0.001):
             raise ValueError("eval case score_delta does not match its scores")
 
-        if calculated_delta > self._minimum_improvement:
+        if not correctness_passed:
+            status = "regressed_after_apply"
+        elif calculated_delta > self._minimum_improvement:
             status = "verified"
         elif calculated_delta < -self._minimum_improvement:
             status = "regressed_after_apply"
