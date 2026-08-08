@@ -77,6 +77,7 @@ from navi_agent.paths import get_skills_dir
 from navi_agent.paths import get_smoke_reports_dir
 from navi_agent.paths import get_state_db_path
 from navi_agent.paths import get_trace_store_path
+from navi_agent.paths import get_trace_viewer_dir
 from navi_agent.paths import get_tool_use_eval_reports_dir
 from navi_agent.paths import get_tool_use_reports_dir
 from navi_agent.telemetry import (
@@ -193,6 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-id", action="append")
     parser.add_argument("--log-dir", type=Path)
     parser.add_argument("--case-file", type=Path)
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--source-kind", choices=["human", "external"], default="external")
     return parser
 
@@ -212,6 +214,8 @@ def main() -> int:
         return run_doctor(gateway=args.doctor_gateway)
     if args.message == "skill":
         return _run_skill_command(args, parser=parser)
+    if args.message == "trace":
+        return _run_trace_command(args, parser=parser)
     if args.message == "gateway" and args.subcommand == "start":
         args.gateway = "weixin"
         return _run_gateway(args)
@@ -480,6 +484,25 @@ def _run_skill_command(args, *, parser: argparse.ArgumentParser) -> int:
         print(f"skill_command_error: {error}")
         return 1
     parser.error("skill command requires import, eval, or activate")
+
+
+def _run_trace_command(args, *, parser: argparse.ArgumentParser) -> int:
+    from navi_agent.telemetry.viewer import TraceViewerService
+
+    if args.subcommand != "render" or not args.command_target:
+        parser.error("trace command requires: navi-agent trace render TRACE_ID")
+    output = args.output or get_trace_viewer_dir() / f"{args.command_target}.html"
+    service = TraceViewerService(
+        trace_store=JsonlTraceStore(get_trace_store_path()),
+        event_store=JsonlRuntimeEventStore(get_runtime_event_store_path()),
+    )
+    try:
+        path = service.write_trace(args.command_target, output.resolve())
+    except (OSError, ValueError) as error:
+        print(f"trace_viewer_error: {error}")
+        return 1
+    print(f"trace_viewer_path: {path}")
+    return 0
 
 
 def _existing_directory(value: str) -> Path:

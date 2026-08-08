@@ -1933,6 +1933,20 @@ class CliTests(unittest.TestCase):
         activate.assert_called_once_with("draft-1")
         self.assertIn("skill_draft_status: promoted", stdout.getvalue())
 
+    def test_main_renders_local_trace_viewer(self) -> None:
+        stdout = io.StringIO()
+        with patch(
+            "navi_agent.telemetry.viewer.TraceViewerService.write_trace",
+            return_value=Path("/tmp/trace.html"),
+        ) as render:
+            with patch("sys.argv", ["navi-agent", "trace", "render", "trace-1"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(render.call_args.args[0], "trace-1")
+        self.assertIn("trace_viewer_path: /tmp/trace.html", stdout.getvalue())
+
     def test_main_lists_skills(self) -> None:
         stdout = io.StringIO()
         records = [

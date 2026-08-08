@@ -43,6 +43,10 @@ def get_trace_store_path() -> Path:
     return get_logs_dir() / "traces.jsonl"
 
 
+def get_trace_viewer_dir() -> Path:
+    return get_logs_dir() / "trace-viewer"
+
+
 def get_runtime_event_store_path() -> Path:
     return get_logs_dir() / "runtime-events.jsonl"
 
