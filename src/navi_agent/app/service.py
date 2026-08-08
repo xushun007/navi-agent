@@ -19,7 +19,7 @@ from navi_agent.evolution import (
     EvalCase,
     EvalCaseStore,
     FileSkillStore,
-    SkillDraftEvaluator,
+    SkillAdmissionValidator,
     SkillDraftProvenance,
     SkillGovernanceService,
     JsonlReviewRunStore,
@@ -76,7 +76,7 @@ class ApplicationService:
         prompt_overlay_store: PromptOverlayStore | None = None,
         skill_store: FileSkillStore | None = None,
         skill_governance: SkillGovernanceService | None = None,
-        skill_evaluator: SkillDraftEvaluator | None = None,
+        skill_admission_validator: SkillAdmissionValidator | None = None,
         skill_provenance_store: SkillProvenanceStore | None = None,
         skill_usage_store: SkillUsageStore | None = None,
         memory_store: MemoryStore | None = None,
@@ -94,7 +94,7 @@ class ApplicationService:
         self._prompt_overlay_store = prompt_overlay_store
         self._skill_store = skill_store
         self._skill_governance = skill_governance
-        self._skill_evaluator = skill_evaluator
+        self._skill_admission_validator = skill_admission_validator
         self._skill_provenance_store = skill_provenance_store
         self._skill_usage_store = skill_usage_store
         self._memory_store = memory_store
@@ -358,7 +358,7 @@ class ApplicationService:
                 return None
             note = review_note or "staged prompt candidate"
         elif candidate.target == "skill":
-            if self._skill_governance is None or self._skill_evaluator is None:
+            if self._skill_governance is None or self._skill_admission_validator is None:
                 return None
             metadata = candidate.metadata or {}
             skill_name = str(metadata.get("skill_name") or "").strip()
@@ -367,6 +367,8 @@ class ApplicationService:
                 source_session_id=str(metadata.get("source_session_id") or ""),
                 source_trace_id=str(metadata.get("source_trace_id") or candidate.candidate_id),
                 evidence_ids=(candidate.candidate_id,),
+                source_kind=str(metadata.get("source_kind") or "agent"),
+                source_uri=str(metadata.get("source_uri") or ""),
             )
             operation = str(metadata.get("operation") or "create").strip()
             try:
@@ -383,33 +385,27 @@ class ApplicationService:
                         content=str(metadata.get("skill_content") or ""),
                         provenance=provenance,
                     )
-                decision = self._skill_governance.evaluate_and_promote(
+                admission = self._skill_governance.admit(
                     draft.draft_id,
-                    evaluator=self._skill_evaluator,
+                    validator=self._skill_admission_validator,
                 )
             except ValueError:
                 return None
-            if decision.status != "promoted":
+            if admission.status != "candidate":
                 return self.update_candidate_status(
                     candidate_id,
-                    decision.status,
-                    review_note=decision.decision_reason,
+                    admission.status,
+                    review_note=admission.decision_reason,
                 )
-            skill = self._skill_store.get(skill_name) if self._skill_store is not None else None
-            if skill is None:
-                return None
-            if self._skill_provenance_store is not None:
-                self._skill_provenance_store.mark_agent_created(
-                    skill_name=skill.name,
-                    candidate=candidate,
-                )
-            self._record_skill_usage(skill.name, candidate=candidate)
-            note = review_note or f"applied skill {skill.name}"
+            candidate.metadata["draft_id"] = draft.draft_id
+            candidate.metadata["source_kind"] = provenance.source_kind
+            self._candidate_store.save(candidate)
+            note = review_note or f"admitted skill draft {draft.draft_id}"
         else:
             return None
         return self.update_candidate_status(
             candidate_id,
-            "staged" if candidate.target == "prompt" else "applied",
+            "staged",
             review_note=note,
         )
 
@@ -448,9 +444,22 @@ class ApplicationService:
             return None
         if self._skill_store is None or self._skill_governance is None:
             return None
-        skill_name = (candidate.metadata or {}).get("skill_name")
+        metadata = candidate.metadata or {}
+        skill_name = metadata.get("skill_name")
         if not isinstance(skill_name, str) or not skill_name.strip():
             return None
+        draft_id = str(metadata.get("draft_id") or "")
+        if previous_status == "staged" and draft_id:
+            try:
+                self._skill_governance.discard(draft_id, reason=note)
+            except ValueError:
+                return None
+            return self._record_candidate_rollback(
+                candidate,
+                status=status,
+                reason=note,
+                previous_status=previous_status,
+            )
         try:
             self._skill_governance.rollback(skill_name)
         except ValueError:
@@ -656,7 +665,7 @@ class ApplicationService:
                 result=result,
             )
             self._record_review_agent_skill_actions(result, trace=task.trace)
-            if task.review_skill and self._has_promoted_skill_write(result):
+            if task.review_skill and self._has_admitted_skill_write(result):
                 self._review_trigger_policy.reset_skill(task.trace)
 
     def _build_skill_review_evidence(
@@ -685,38 +694,23 @@ class ApplicationService:
             skill_name = str(tool_result.structured_content.get("skill_name") or "").strip()
             if not action or not skill_name:
                 continue
-            promotion_status = str(
-                tool_result.structured_content.get("promotion_status") or ""
+            admission_status = str(
+                tool_result.structured_content.get("admission_status") or ""
             )
-            if promotion_status != "promoted":
+            if admission_status != "candidate":
                 continue
-            if action == "draft_create":
-                if self._skill_provenance_store is not None:
-                    self._skill_provenance_store.mark_agent_created(
-                        skill_name=skill_name,
-                        candidate=EvolutionCandidate(
-                            target="skill",
-                            summary=f"Background review agent created skill `{skill_name}`",
-                            rationale="Tool-using skill review agent wrote this skill.",
-                            evidence_ids=[trace.trace_id],
-                            expected_outcome="Preserve a reviewed procedure as reusable skill memory.",
-                            source_trace_id=trace.trace_id,
-                            metadata={"skill_name": skill_name, "reviewer": "agent"},
-                            status="applied",
-                        ),
-                    )
-                if self._skill_usage_store is not None:
-                    self._skill_usage_store.record_create(skill_name)
-            elif action == "draft_append":
-                if self._skill_usage_store is not None:
-                    self._skill_usage_store.record_update(skill_name)
+            logger.info(
+                "Skill draft admitted for evaluation: skill=%s trace_id=%s",
+                skill_name,
+                trace.trace_id,
+            )
 
     @staticmethod
-    def _has_promoted_skill_write(result: RuntimeResult) -> bool:
+    def _has_admitted_skill_write(result: RuntimeResult) -> bool:
         return any(
             tool_result.name == "skill_manage"
             and tool_result.status == "success"
-            and tool_result.structured_content.get("promotion_status") == "promoted"
+            and tool_result.structured_content.get("admission_status") == "candidate"
             and tool_result.structured_content.get("action")
             in {"draft_create", "draft_append", "draft_attachment"}
             for tool_result in result.tool_results

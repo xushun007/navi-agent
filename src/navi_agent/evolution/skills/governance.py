@@ -15,10 +15,19 @@ from .store import FileSkillStore, SkillAttachment, SkillRecord, append_to_markd
 
 @dataclass(frozen=True, slots=True)
 class SkillDraftProvenance:
-    review_run_id: str
-    source_session_id: str
-    source_trace_id: str
+    review_run_id: str = ""
+    source_session_id: str = ""
+    source_trace_id: str = ""
     evidence_ids: tuple[str, ...] = ()
+    source_kind: str = "agent"
+    source_uri: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SkillAdmissionResult:
+    check: str
+    passed: bool
+    reason: str = ""
 
 
 @dataclass(slots=True)
@@ -32,6 +41,7 @@ class SkillDraft:
     previous_version_id: str = ""
     active_version_id: str = ""
     decision_reason: str = ""
+    admission_results: list[SkillAdmissionResult] = field(default_factory=list)
     evaluation_results: list[SkillEvaluationResult] = field(default_factory=list)
 
 
@@ -58,13 +68,13 @@ class SkillVersionRecord:
     diff_path: str = ""
 
 
-class SkillDraftEvaluator(Protocol):
-    def evaluate(
+class SkillAdmissionValidator(Protocol):
+    def validate(
         self,
         draft: SkillDraft,
         proposed: SkillRecord,
         active: SkillRecord | None,
-    ) -> list[SkillEvaluationResult]: ...
+    ) -> list[SkillAdmissionResult]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,35 +83,42 @@ class SkillPromotionGate:
     minimum_score_delta: float = 0.0
 
 
-class DefaultSkillDraftEvaluator:
-    def evaluate(
+class DefaultSkillAdmissionValidator:
+    def validate(
         self,
         draft: SkillDraft,
         proposed: SkillRecord,
         active: SkillRecord | None,
-    ) -> list[SkillEvaluationResult]:
+    ) -> list[SkillAdmissionResult]:
         has_structure = all(
             marker in proposed.content
             for marker in ("---", "## When To Use", "## Procedure")
         )
-        targeted = SkillEvaluationResult(
-            suite="draft_validation",
-            passed=has_structure and bool(draft.provenance.source_trace_id),
-            baseline_score=0.0,
-            draft_score=1.0 if has_structure else 0.0,
-            reason="draft must be structured and linked to source evidence",
+        structure = SkillAdmissionResult(
+            check="structure",
+            passed=has_structure,
+            reason="draft must include frontmatter, usage guidance, and a procedure",
+        )
+        source_kind = draft.provenance.source_kind
+        provenance_valid = source_kind in {"agent", "human", "external", "revision"}
+        if source_kind == "agent":
+            provenance_valid = provenance_valid and bool(draft.provenance.source_trace_id)
+        elif source_kind == "external":
+            provenance_valid = provenance_valid and bool(draft.provenance.source_uri)
+        provenance = SkillAdmissionResult(
+            check="provenance",
+            passed=provenance_valid,
+            reason="skill source must be identified and linked to its available evidence",
         )
         active_lines = set(active.content.splitlines()) if active is not None else set()
         proposed_lines = set(proposed.content.splitlines())
         preserved = active is None or active_lines.issubset(proposed_lines)
-        regression = SkillEvaluationResult(
-            suite="content_regression",
+        content_preserved = SkillAdmissionResult(
+            check="content_preserved",
             passed=preserved,
-            baseline_score=1.0,
-            draft_score=1.0 if preserved else 0.0,
             reason="existing skill content must be preserved",
         )
-        return [targeted, regression]
+        return [structure, provenance, content_preserved]
 
 
 class SkillGovernanceService:
@@ -184,11 +201,11 @@ class SkillGovernanceService:
         self._record_event(draft, "draft_attachment_written")
         return attachment
 
-    def evaluate_and_promote(
+    def admit(
         self,
         draft_id: str,
         *,
-        evaluator: SkillDraftEvaluator,
+        validator: SkillAdmissionValidator,
     ) -> SkillDraft:
         draft = self._require_pending_draft(draft_id)
         proposed = self._draft_store(draft_id).get(draft.skill_name)
@@ -196,12 +213,35 @@ class SkillGovernanceService:
             return self.reject(draft_id, reason="draft content is missing")
         active = self._skill_store.get(draft.skill_name)
         try:
-            results = evaluator.evaluate(draft, proposed, active)
+            results = validator.validate(draft, proposed, active)
         except Exception as error:
-            return self.reject(draft_id, reason=f"evaluation failed: {error}")
+            return self.reject(draft_id, reason=f"admission failed: {error}")
 
-        draft.evaluation_results = list(results)
-        decision, reason = self._gate_decision(results)
+        draft.admission_results = list(results)
+        failed = next((result for result in results if not result.passed), None)
+        if failed is not None:
+            draft.status = "rejected"
+            draft.decision_reason = failed.reason or f"admission check failed: {failed.check}"
+            self._save_draft(draft)
+            self._record_event(draft, "rejected")
+            return draft
+        draft.status = "candidate"
+        draft.decision_reason = "skill admission checks passed; evaluation required"
+        self._save_draft(draft)
+        self._record_event(draft, "admitted")
+        return draft
+
+    def activate(
+        self,
+        draft_id: str,
+        *,
+        evaluation_results: list[SkillEvaluationResult],
+    ) -> SkillDraft:
+        draft = self._require_candidate_draft(draft_id)
+        active = self._skill_store.get(draft.skill_name)
+
+        draft.evaluation_results = list(evaluation_results)
+        decision, reason = self._gate_decision(evaluation_results)
         if decision != "promoted":
             draft.status = decision
             draft.decision_reason = reason
@@ -214,7 +254,7 @@ class SkillGovernanceService:
             draft,
             parent_version_id=previous_version_id,
             active=active,
-            evaluation_results=results,
+            evaluation_results=evaluation_results,
         )
         if previous_version_id:
             self._set_version_status(
@@ -242,6 +282,14 @@ class SkillGovernanceService:
         draft.decision_reason = reason
         self._save_draft(draft)
         self._record_event(draft, "rejected")
+        return draft
+
+    def discard(self, draft_id: str, *, reason: str) -> SkillDraft:
+        draft = self._require_candidate_draft(draft_id)
+        draft.status = "rejected"
+        draft.decision_reason = reason
+        self._save_draft(draft)
+        self._record_event(draft, "discarded")
         return draft
 
     def rollback(self, skill_name: str) -> SkillDraft:
@@ -312,6 +360,10 @@ class SkillGovernanceService:
         provenance = self._load_provenance(payload.pop("provenance"))
         if provenance is None:
             raise ValueError(f"draft provenance is missing: {draft_id}")
+        payload["admission_results"] = [
+            SkillAdmissionResult(**item)
+            for item in payload.get("admission_results", [])
+        ]
         payload["evaluation_results"] = [
             SkillEvaluationResult(**item)
             for item in payload.get("evaluation_results", [])
@@ -394,6 +446,14 @@ class SkillGovernanceService:
             raise ValueError(f"draft not found: {draft_id}")
         if draft.status != "draft":
             raise ValueError(f"draft already decided: {draft_id}")
+        return draft
+
+    def _require_candidate_draft(self, draft_id: str) -> SkillDraft:
+        draft = self.get_draft(draft_id)
+        if draft is None:
+            raise ValueError(f"draft not found: {draft_id}")
+        if draft.status != "candidate":
+            raise ValueError(f"draft is not ready for activation: {draft_id}")
         return draft
 
     def _ensure_active_version(self, skill_name: str) -> str:

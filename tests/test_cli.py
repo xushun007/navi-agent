@@ -35,7 +35,6 @@ from navi_agent.runtime import (
     SessionSummary,
 )
 from navi_agent.runtime.tasks.cron import CronRunRecord
-from navi_agent.evolution.evals.smoke import SmokeCheckResult, SmokeRunSummary
 
 
 class FakeApp:
@@ -92,7 +91,7 @@ class FakeApp:
         return None
 
     def apply_candidate(self, candidate_id, review_note=None):
-        candidate = self.update_candidate_status(candidate_id, "applied", review_note=review_note)
+        candidate = self.update_candidate_status(candidate_id, "staged", review_note=review_note)
         if candidate is not None:
             self.applied_candidate = candidate
         return candidate
@@ -1827,18 +1826,9 @@ class CliTests(unittest.TestCase):
 
         with patch("navi_agent.cli.main.build_application", return_value=fake_app):
             with patch("builtins.input", return_value="y"):
-                with patch("navi_agent.cli.main.SmokeWorkflowService") as smoke_cls:
-                    smoke_cls.return_value.run.return_value = SmokeRunSummary(
-                        count=1,
-                        passed_count=1,
-                        failed_count=0,
-                        pass_rate=1.0,
-                        results=[SmokeCheckResult(name="doctor", passed=True, summary="doctor ok")],
-                        report_path=Path("/tmp/smoke/report.json"),
-                    )
-                    with patch("sys.argv", ["navi-agent", "--review-skill"]):
-                        with redirect_stdout(stdout):
-                            exit_code = main()
+                with patch("sys.argv", ["navi-agent", "--review-skill"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("skill review:", stdout.getvalue())
@@ -1850,9 +1840,8 @@ class CliTests(unittest.TestCase):
         self.assertIn("--- BEGIN SKILL.md ---", stdout.getvalue())
         self.assertIn("# README Summary", stdout.getvalue())
         self.assertIn("--- END SKILL.md ---", stdout.getvalue())
-        self.assertIn("skill_apply_gate: smoke", stdout.getvalue())
-        self.assertIn("skill_apply_gate_failed_count: 0", stdout.getvalue())
-        self.assertIn("candidate_status: verified", stdout.getvalue())
+        self.assertIn("candidate_status: staged", stdout.getvalue())
+        self.assertIn("evaluate this isolated skill draft", stdout.getvalue())
         self.assertIs(fake_app.applied_candidate, fake_app.saved_candidates[0])
 
     def test_main_reviews_and_rejects_skill_candidate(self) -> None:
@@ -1887,44 +1876,6 @@ class CliTests(unittest.TestCase):
         self.assertIn("--- END PATCH ---", stdout.getvalue())
         self.assertIn("candidate_status: rejected", stdout.getvalue())
         self.assertEqual(fake_app.saved_candidates[0].status, "rejected")
-
-    def test_main_marks_skill_candidate_regressed_when_apply_gate_fails(self) -> None:
-        fake_app = FakeApp()
-        fake_app.saved_candidates.append(
-            EvolutionCandidate(
-                target="skill",
-                summary="Create README summary skill",
-                rationale="Successful tool trace",
-                candidate_id="skill-1",
-                metadata={
-                    "skill_name": "readme-summary",
-                    "skill_content": "# README Summary\n",
-                },
-            )
-        )
-        stdout = io.StringIO()
-
-        with patch("navi_agent.cli.main.build_application", return_value=fake_app):
-            with patch("builtins.input", return_value="y"):
-                with patch("navi_agent.cli.main.SmokeWorkflowService") as smoke_cls:
-                    smoke_cls.return_value.run.return_value = SmokeRunSummary(
-                        count=1,
-                        passed_count=0,
-                        failed_count=1,
-                        pass_rate=0.0,
-                        results=[SmokeCheckResult(name="doctor", passed=False, summary="doctor failed")],
-                        report_path=Path("/tmp/smoke/report.json"),
-                    )
-                    with patch("sys.argv", ["navi-agent", "--review-skill"]):
-                        with redirect_stdout(stdout):
-                            exit_code = main()
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("skill_apply_gate_failed_count: 1", stdout.getvalue())
-        self.assertIn("doctor [fail] doctor failed", stdout.getvalue())
-        self.assertIn("candidate_status: regressed_after_apply", stdout.getvalue())
-        self.assertEqual(fake_app.saved_candidates[0].status, "regressed_after_apply")
-        self.assertIs(fake_app.rolled_back_candidate, fake_app.saved_candidates[0])
 
     def test_main_lists_skills(self) -> None:
         stdout = io.StringIO()

@@ -18,8 +18,8 @@ from navi_agent.tools.skill_manage_tool import SkillManageTool
 
 from .evidence import SkillReviewEvidence, render_skill_review_evidence
 from ..skills.governance import (
-    DefaultSkillDraftEvaluator,
-    SkillDraftEvaluator,
+    DefaultSkillAdmissionValidator,
+    SkillAdmissionValidator,
     SkillDraftProvenance,
     SkillGovernanceService,
     SkillPromotionGate,
@@ -36,7 +36,7 @@ class ReviewAgentService:
         memory_store: MemoryStore,
         skill_store: FileSkillStore,
         skill_governance: SkillGovernanceService | None = None,
-        skill_evaluator: SkillDraftEvaluator | None = None,
+        skill_admission_validator: SkillAdmissionValidator | None = None,
         skill_provenance_store: SkillProvenanceStore | None = None,
         max_iterations: int = 8,
     ) -> None:
@@ -49,7 +49,9 @@ class ReviewAgentService:
                 required_suites=("draft_validation", "content_regression"),
             ),
         )
-        self._skill_evaluator = skill_evaluator or DefaultSkillDraftEvaluator()
+        self._skill_admission_validator = (
+            skill_admission_validator or DefaultSkillAdmissionValidator()
+        )
         self._skill_provenance_store = skill_provenance_store or SkillProvenanceStore(
             skill_store.root
         )
@@ -76,19 +78,19 @@ class ReviewAgentService:
             system_prompt=_REVIEW_AGENT_SYSTEM_PROMPT,
             mode=RuntimeMode.REVIEW,
         )
-        decided_drafts = {}
+        admitted_drafts = {}
         for tool_result in result.tool_results:
             draft_id = str(tool_result.structured_content.get("draft_id") or "")
             if not draft_id:
                 continue
-            if draft_id not in decided_drafts:
-                decided_drafts[draft_id] = self._skill_governance.evaluate_and_promote(
+            if draft_id not in admitted_drafts:
+                admitted_drafts[draft_id] = self._skill_governance.admit(
                     draft_id,
-                    evaluator=self._skill_evaluator,
+                    validator=self._skill_admission_validator,
                 )
-            decision = decided_drafts[draft_id]
-            tool_result.structured_content["promotion_status"] = decision.status
-            tool_result.structured_content["decision_reason"] = decision.decision_reason
+            admission = admitted_drafts[draft_id]
+            tool_result.structured_content["admission_status"] = admission.status
+            tool_result.structured_content["decision_reason"] = admission.decision_reason
         return result
 
     def _build_runtime(

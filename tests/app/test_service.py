@@ -9,7 +9,7 @@ from uuid import uuid4
 from navi_agent.app import AppRequest, ApplicationService
 from navi_agent.events import RuntimeEvent
 from navi_agent.evolution import (
-    DefaultSkillDraftEvaluator,
+    DefaultSkillAdmissionValidator,
     EvolutionCandidate,
     EvalCase,
     NudgeReviewTriggerPolicy,
@@ -759,7 +759,7 @@ class ApplicationServiceTests(unittest.TestCase):
 
         self.assertEqual(policy.tool_executions_since_skill, 1)
 
-    def test_background_review_records_promoted_skill_draft(self) -> None:
+    def test_background_review_records_admitted_skill_draft(self) -> None:
         runtime = FakeRuntime()
         runtime.latest_trace = RuntimeTrace(
             session_id="s1",
@@ -791,7 +791,7 @@ class ApplicationServiceTests(unittest.TestCase):
                     "action": "draft_create",
                     "draft_id": "draft-1",
                     "skill_name": "readme-summary",
-                    "promotion_status": "promoted",
+                    "admission_status": "candidate",
                 },
             },
         )()
@@ -812,11 +812,11 @@ class ApplicationServiceTests(unittest.TestCase):
         service.handle(AppRequest(user_id="u1", message="hello", session_id="s1"))
         service.wait_for_background_reviews()
 
-        self.assertEqual(usage_store.created, ["readme-summary"])
-        self.assertEqual(provenance_store.records[0][0], "readme-summary")
+        self.assertEqual(usage_store.created, [])
+        self.assertEqual(provenance_store.records, [])
         self.assertEqual(
-            review_run_store.records[0].skill_writes[0]["promotion_status"],
-            "promoted",
+            review_run_store.records[0].skill_writes[0]["admission_status"],
+            "candidate",
         )
 
     def test_handle_hydrates_memory_trigger_from_user_traces(self) -> None:
@@ -1150,7 +1150,7 @@ class ApplicationServiceTests(unittest.TestCase):
                 candidate_store=FakeCandidateStore(),
                 skill_store=skill_store,
                 skill_governance=governance,
-                skill_evaluator=DefaultSkillDraftEvaluator(),
+                skill_admission_validator=DefaultSkillAdmissionValidator(),
                 skill_provenance_store=provenance_store,
                 skill_usage_store=usage_store,
             )
@@ -1176,14 +1176,12 @@ class ApplicationServiceTests(unittest.TestCase):
             updated = service.apply_candidate(candidate.candidate_id)
 
             self.assertIsNotNone(updated)
-            self.assertEqual(updated.status, "applied")
-            self.assertEqual(updated.review_note, "applied skill readme-summary")
-            self.assertIsNotNone(skill_store.get("readme-summary"))
-            self.assertEqual(
-                provenance_store.records,
-                [("readme-summary", candidate.candidate_id)],
-            )
-            self.assertEqual(usage_store.created, ["readme-summary"])
+            self.assertEqual(updated.status, "staged")
+            self.assertIn("admitted skill draft", updated.review_note)
+            self.assertIsNone(skill_store.get("readme-summary"))
+            self.assertTrue(candidate.metadata["draft_id"])
+            self.assertEqual(provenance_store.records, [])
+            self.assertEqual(usage_store.created, [])
 
     def test_apply_unsupported_candidate_is_rejected(self) -> None:
         overlay_store = FakePromptOverlayStore()
@@ -1205,7 +1203,7 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertIsNone(updated)
         self.assertIsNone(overlay_store.text)
 
-    def test_rollback_skill_candidate_removes_skill_and_provenance(self) -> None:
+    def test_rollback_staged_skill_candidate_discards_only_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_store = FileSkillStore(Path(tmpdir))
             governance = SkillGovernanceService(
@@ -1221,7 +1219,7 @@ class ApplicationServiceTests(unittest.TestCase):
                 candidate_store=FakeCandidateStore(),
                 skill_store=skill_store,
                 skill_governance=governance,
-                skill_evaluator=DefaultSkillDraftEvaluator(),
+                skill_admission_validator=DefaultSkillAdmissionValidator(),
                 skill_provenance_store=provenance_store,
                 skill_usage_store=usage_store,
             )
@@ -1254,8 +1252,8 @@ class ApplicationServiceTests(unittest.TestCase):
             self.assertEqual(updated.status, "regressed_after_apply")
             self.assertEqual(updated.review_note, "gate failed")
             self.assertIsNone(skill_store.get("readme-summary"))
-            self.assertEqual(provenance_store.removed, ["readme-summary"])
-            self.assertEqual(usage_store.archived, ["readme-summary"])
+            self.assertEqual(provenance_store.removed, [])
+            self.assertEqual(usage_store.archived, [])
 
     def test_apply_candidate_requires_human_acceptance(self) -> None:
         overlay_store = FakePromptOverlayStore()

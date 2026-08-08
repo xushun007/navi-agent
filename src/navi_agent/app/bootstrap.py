@@ -13,7 +13,7 @@ from navi_agent.config import (
     load_config,
 )
 from navi_agent.evolution import (
-    DefaultSkillDraftEvaluator,
+    DefaultSkillAdmissionValidator,
     FileSkillStore,
     JsonlCandidateStore,
     JsonlEvalCaseStore,
@@ -174,7 +174,7 @@ def build_application(
     config = load_config()
     review_model_settings = model_settings or ModelSettings.from_sources(config)
     skill_store = FileSkillStore(get_skills_dir())
-    skill_evaluator = DefaultSkillDraftEvaluator()
+    skill_admission_validator = DefaultSkillAdmissionValidator()
     skill_provenance_store = SkillProvenanceStore(get_skills_dir())
     skill_governance = SkillGovernanceService(
         skill_store,
@@ -215,7 +215,7 @@ def build_application(
         prompt_overlay_store=prompt_overlay_store,
         skill_store=skill_store,
         skill_governance=skill_governance,
-        skill_evaluator=skill_evaluator,
+        skill_admission_validator=skill_admission_validator,
         skill_provenance_store=skill_provenance_store,
         skill_usage_store=SkillUsageStore(get_skills_dir()),
         memory_store=memory_store,
@@ -225,7 +225,7 @@ def build_application(
             memory_store=memory_store,
             skill_store=skill_store,
             skill_governance=skill_governance,
-            skill_evaluator=skill_evaluator,
+            skill_admission_validator=skill_admission_validator,
             skill_provenance_store=skill_provenance_store,
         ),
         interaction_store=interaction_store,

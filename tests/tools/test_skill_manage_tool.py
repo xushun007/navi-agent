@@ -1,9 +1,10 @@
 from pathlib import Path
 
 from navi_agent.evolution import (
-    DefaultSkillDraftEvaluator,
+    DefaultSkillAdmissionValidator,
     FileSkillStore,
     SkillDraftProvenance,
+    SkillEvaluationResult,
     SkillGovernanceService,
     SkillPromotionGate,
 )
@@ -35,11 +36,19 @@ def _promote(
     governance: SkillGovernanceService,
     draft_id: str,
 ) -> None:
-    decision = governance.evaluate_and_promote(
+    decision = governance.admit(
         draft_id,
-        evaluator=DefaultSkillDraftEvaluator(),
+        validator=DefaultSkillAdmissionValidator(),
     )
-    assert decision.status == "promoted"
+    assert decision.status == "candidate"
+    activated = governance.activate(
+        draft_id,
+        evaluation_results=[
+            SkillEvaluationResult("draft_validation", True, 0.0, 1.0),
+            SkillEvaluationResult("content_regression", True, 1.0, 1.0),
+        ],
+    )
+    assert activated.status == "promoted"
 
 
 def _skill_content(name: str, title: str, procedure: str) -> str:

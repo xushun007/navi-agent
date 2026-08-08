@@ -76,13 +76,11 @@ def test_skill_review_agent_creates_skill_via_tool(tmp_path: Path) -> None:
         review_skill=True,
     )
 
-    record = store.get("readme-verification")
     assert result.status == "success"
-    assert record is not None
-    assert "Verify the result" in record.content
+    assert store.get("readme-verification") is None
     assert [item.name for item in result.tool_results] == ["skill_manage", "skill_manage"]
     assert result.tool_results[1].structured_content["action"] == "draft_create"
-    assert result.tool_results[1].structured_content["promotion_status"] == "promoted"
+    assert result.tool_results[1].structured_content["admission_status"] == "candidate"
 
 
 def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> None:
@@ -159,13 +157,12 @@ def test_skill_review_agent_appends_existing_skill_via_tool(tmp_path: Path) -> N
         review_skill=True,
     )
 
-    record = store.get("readme-verification")
     assert result.status == "success"
+    record = store.get("readme-verification")
     assert record is not None
-    assert "- Read README." in record.content
-    assert "- Verify the result before replying." in record.content
+    assert "- Verify the result before replying." not in record.content
     assert result.tool_results[-1].structured_content["action"] == "draft_append"
-    assert result.tool_results[-1].structured_content["promotion_status"] == "promoted"
+    assert result.tool_results[-1].structured_content["admission_status"] == "candidate"
 
 
 def test_skill_review_agent_cannot_append_user_owned_skill(tmp_path: Path) -> None:

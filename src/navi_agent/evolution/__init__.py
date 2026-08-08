@@ -35,9 +35,10 @@ from .reviews.service import ReviewLoopService, ReviewLoopSummary
 from .reviews.trigger import NudgeReviewTriggerPolicy, ReviewTriggerDecision, ReviewTriggerPolicy
 from .skills.curator import SkillCuratorArchiveResult, SkillCuratorRecord, SkillCuratorService, SkillCuratorStatus, SkillCuratorStatusService
 from .skills.governance import (
-    DefaultSkillDraftEvaluator,
+    DefaultSkillAdmissionValidator,
     SkillDraft,
-    SkillDraftEvaluator,
+    SkillAdmissionResult,
+    SkillAdmissionValidator,
     SkillDraftProvenance,
     SkillEvaluationResult,
     SkillGovernanceService,
@@ -108,8 +109,9 @@ __all__ = [
     "SkillCuratorStatus",
     "SkillCuratorStatusService",
     "SkillDraft",
-    "DefaultSkillDraftEvaluator",
-    "SkillDraftEvaluator",
+    "DefaultSkillAdmissionValidator",
+    "SkillAdmissionResult",
+    "SkillAdmissionValidator",
     "SkillDraftProvenance",
     "SkillEvaluationResult",
     "SkillGovernanceService",
