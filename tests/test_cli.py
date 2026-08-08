@@ -1877,6 +1877,62 @@ class CliTests(unittest.TestCase):
         self.assertIn("candidate_status: rejected", stdout.getvalue())
         self.assertEqual(fake_app.saved_candidates[0].status, "rejected")
 
+    def test_main_imports_skill_as_candidate(self) -> None:
+        stdout = io.StringIO()
+        with patch(
+            "navi_agent.cli.skill.stage_skill_directory",
+            return_value="draft-1",
+        ) as stage:
+            with patch(
+                "sys.argv",
+                ["navi-agent", "skill", "import", "/tmp/my-skill", "--source-kind", "human"],
+            ):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        stage.assert_called_once_with(Path("/tmp/my-skill"), source_kind="human")
+        self.assertIn("skill_draft_status: candidate", stdout.getvalue())
+
+    def test_main_runs_skill_eval_and_prints_viewer(self) -> None:
+        stdout = io.StringIO()
+        report = Path("/tmp/skill-report")
+        with patch(
+            "navi_agent.cli.skill.run_skill_evaluation",
+            return_value=(report, True),
+        ) as evaluate:
+            with patch(
+                "sys.argv",
+                [
+                    "navi-agent",
+                    "skill",
+                    "eval",
+                    "draft-1",
+                    "--case-file",
+                    "/tmp/cases.json",
+                ],
+            ):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(evaluate.call_args.kwargs["case_file"], Path("/tmp/cases.json"))
+        self.assertIn("skill_eval_review_path: /tmp/skill-report/REVIEW.html", stdout.getvalue())
+
+    def test_main_activates_evaluated_skill_draft(self) -> None:
+        stdout = io.StringIO()
+        with patch(
+            "navi_agent.cli.skill.activate_skill_draft",
+            return_value="promoted",
+        ) as activate:
+            with patch("sys.argv", ["navi-agent", "skill", "activate", "draft-1"]):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        activate.assert_called_once_with("draft-1")
+        self.assertIn("skill_draft_status: promoted", stdout.getvalue())
+
     def test_main_lists_skills(self) -> None:
         stdout = io.StringIO()
         records = [

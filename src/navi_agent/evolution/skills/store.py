@@ -10,7 +10,7 @@ from navi_agent.telemetry import RuntimeTrace
 from ..core.models import EvolutionCandidate
 
 _VALID_SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
-_ALLOWED_ATTACHMENT_DIRS = frozenset({"references", "templates", "scripts"})
+_ALLOWED_ATTACHMENT_DIRS = frozenset({"assets", "references", "templates", "scripts"})
 
 
 @dataclass(frozen=True, slots=True)

@@ -90,14 +90,21 @@ class DefaultSkillAdmissionValidator:
         proposed: SkillRecord,
         active: SkillRecord | None,
     ) -> list[SkillAdmissionResult]:
-        has_structure = all(
-            marker in proposed.content
-            for marker in ("---", "## When To Use", "## Procedure")
+        declared_name = _frontmatter_value(proposed.content, "name")
+        description = _frontmatter_value(proposed.content, "description")
+        body = _markdown_body(proposed.content).lstrip()
+        has_structure = (
+            declared_name == draft.skill_name
+            and bool(description)
+            and body.startswith("#")
         )
         structure = SkillAdmissionResult(
             check="structure",
             passed=has_structure,
-            reason="draft must include frontmatter, usage guidance, and a procedure",
+            reason=(
+                "draft must have matching name and description frontmatter "
+                "followed by a Markdown body"
+            ),
         )
         source_kind = draft.provenance.source_kind
         provenance_valid = source_kind in {"agent", "human", "external", "revision"}
@@ -149,6 +156,40 @@ class SkillGovernanceService:
         self._draft_store(draft.draft_id).create(name=skill_name, content=content)
         self._save_draft(draft)
         self._record_event(draft, "draft_created")
+        return draft
+
+    def import_draft(
+        self,
+        *,
+        source: Path,
+        provenance: SkillDraftProvenance,
+        maximum_bytes: int = 5_000_000,
+    ) -> SkillDraft:
+        source = source.resolve()
+        if not (source / "SKILL.md").is_file():
+            raise ValueError(f"skill source is missing SKILL.md: {source}")
+        source_store = FileSkillStore(source.parent)
+        record = source_store.get(source.name)
+        if record is None:
+            raise ValueError(f"skill source cannot be read: {source}")
+        files = [path for path in source.rglob("*") if path.is_file() or path.is_symlink()]
+        if any(path.is_symlink() for path in files):
+            raise ValueError("skill source must not contain symbolic links")
+        total_bytes = sum(path.stat().st_size for path in files)
+        if total_bytes > maximum_bytes:
+            raise ValueError(f"skill source exceeds {maximum_bytes} bytes")
+        if self._skill_store.get(record.name) is not None:
+            raise ValueError(f"skill already exists: {record.name}")
+        draft = self._new_draft(
+            skill_name=record.name,
+            operation="create",
+            provenance=provenance,
+        )
+        destination = self._draft_root(draft.draft_id) / record.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, destination)
+        self._save_draft(draft)
+        self._record_event(draft, "draft_imported")
         return draft
 
     def append_draft(
@@ -274,6 +315,19 @@ class SkillGovernanceService:
             previous_version_id=previous_version_id,
         )
         self._record_event(draft, "promoted")
+        return draft
+
+    def record_evaluation(
+        self,
+        draft_id: str,
+        *,
+        evaluation_results: list[SkillEvaluationResult],
+    ) -> SkillDraft:
+        draft = self._require_candidate_draft(draft_id)
+        draft.evaluation_results = list(evaluation_results)
+        draft.decision_reason = "skill evaluation evidence recorded; activation remains pending"
+        self._save_draft(draft)
+        self._record_event(draft, "evaluated")
         return draft
 
     def reject(self, draft_id: str, *, reason: str) -> SkillDraft:
@@ -718,3 +772,27 @@ class SkillGovernanceService:
             encoding="utf-8",
         )
         temporary.replace(path)
+
+
+def _frontmatter_value(content: str, key: str) -> str:
+    lines = content.lstrip().splitlines()
+    if not lines or lines[0].strip() != "---":
+        return ""
+    prefix = f"{key}:"
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            return ""
+        if stripped.startswith(prefix):
+            return stripped.removeprefix(prefix).strip().strip("'\"")
+    return ""
+
+
+def _markdown_body(content: str) -> str:
+    lines = content.lstrip().splitlines()
+    if not lines or lines[0].strip() != "---":
+        return ""
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return "\n".join(lines[index + 1 :])
+    return ""

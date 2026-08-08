@@ -192,6 +192,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--sample-id", action="append")
     parser.add_argument("--log-dir", type=Path)
+    parser.add_argument("--case-file", type=Path)
+    parser.add_argument("--source-kind", choices=["human", "external"], default="external")
     return parser
 
 
@@ -208,6 +210,8 @@ def main() -> int:
         return _init_config()
     if args.message == "doctor":
         return run_doctor(gateway=args.doctor_gateway)
+    if args.message == "skill":
+        return _run_skill_command(args, parser=parser)
     if args.message == "gateway" and args.subcommand == "start":
         args.gateway = "weixin"
         return _run_gateway(args)
@@ -435,6 +439,47 @@ def _build_approval_provider(args):
     if getattr(args, "yolo", False):
         return HostYoloApprovalProvider()
     return CliApprovalProvider()
+
+
+def _run_skill_command(args, *, parser: argparse.ArgumentParser) -> int:
+    from navi_agent.cli.skill import (
+        activate_skill_draft,
+        run_skill_evaluation,
+        stage_skill_directory,
+    )
+
+    if not args.command_target:
+        parser.error("skill command requires a path or draft id")
+    try:
+        if args.subcommand == "import":
+            draft_id = stage_skill_directory(
+                Path(args.command_target),
+                source_kind=args.source_kind,
+            )
+            print(f"skill_draft_id: {draft_id}")
+            print("skill_draft_status: candidate")
+            return 0
+        if args.subcommand == "eval":
+            if args.case_file is None:
+                parser.error("skill eval requires --case-file")
+            report_path, passed = run_skill_evaluation(
+                args.command_target,
+                case_file=args.case_file,
+                approval_provider=_build_approval_provider(args),
+                system_prompt=args.system_prompt,
+            )
+            print(f"skill_eval_report_path: {report_path}")
+            print(f"skill_eval_passed: {'yes' if passed else 'no'}")
+            print(f"skill_eval_review_path: {report_path / 'REVIEW.html'}")
+            return 0 if passed else 1
+        if args.subcommand == "activate":
+            status = activate_skill_draft(args.command_target)
+            print(f"skill_draft_status: {status}")
+            return 0 if status == "promoted" else 1
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"skill_command_error: {error}")
+        return 1
+    parser.error("skill command requires import, eval, or activate")
 
 
 def _existing_directory(value: str) -> Path:
