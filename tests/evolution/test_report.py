@@ -160,6 +160,12 @@ class EvolutionReportWriterTests(unittest.TestCase):
         self.assertIn("replay", review_html)
         self.assertIn("correctness: fail", review_html)
         self.assertIn("tokens: 0 in / 0 out", review_html)
+        self.assertIn("Download feedback.json", review_html)
+        self.assertIn('value="baseline"', review_html)
+        self.assertIn('value="variant"', review_html)
+        self.assertIn('value="tie"', review_html)
+        self.assertIn('value="instruction_quality"', review_html)
+        self.assertIn('link.download = "feedback.json"', review_html)
 
     def test_review_html_escapes_model_output(self) -> None:
         comparison = HealthcheckWorkflowComparison(
