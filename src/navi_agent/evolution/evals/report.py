@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..reviews.service import ReviewLoopSummary
+from .review import render_ab_review
 
 if TYPE_CHECKING:
     from navi_agent.evolution.evals.healthcheck import HealthcheckWorkflowComparison
@@ -51,6 +52,10 @@ class EvolutionReportWriter:
             ),
             encoding="utf-8",
         )
+        (run_dir / "REVIEW.html").write_text(
+            render_ab_review(payload),
+            encoding="utf-8",
+        )
         return run_dir
 
     def _new_run_dir(self) -> Path:
@@ -70,6 +75,11 @@ class EvolutionReportWriter:
         comparison: HealthcheckWorkflowComparison,
         review_summary: ReviewLoopSummary | None,
     ) -> dict:
+        correctness_by_task = {
+            str(item.get("task_name")): item
+            for item in comparison.eval_case.metadata.get("steps", [])
+            if isinstance(item, dict) and item.get("task_name")
+        }
         return {
             "workflow_name": comparison.workflow_name,
             "source_session_id": comparison.source_session_id,
@@ -84,9 +94,16 @@ class EvolutionReportWriter:
                     "task_name": step.task_name,
                     "source_trace_id": step.source_step.trace_id,
                     "replay_trace_id": step.replay_step.trace_id,
+                    "source_status": step.source_step.runtime_result.status,
+                    "replay_status": step.replay_step.runtime_result.status,
+                    "source_output": step.source_step.runtime_result.final_response,
+                    "replay_output": step.replay_step.runtime_result.final_response,
+                    "source_metrics": _trace_metrics(step.source_step.trace),
+                    "replay_metrics": _trace_metrics(step.replay_step.trace),
                     "source_score": step.source_evaluation.score if step.source_evaluation is not None else None,
                     "replay_score": step.replay_evaluation.score if step.replay_evaluation is not None else None,
                     "score_delta": step.score_delta,
+                    "correctness": correctness_by_task.get(step.task_name),
                     "source_failure_attribution": _failure_attribution(step.source_evaluation),
                     "replay_failure_attribution": _failure_attribution(step.replay_evaluation),
                 }
@@ -173,6 +190,21 @@ def _primary_failure(evaluation) -> str:
     attribution = _failure_attribution(evaluation)
     value = attribution.get("primary_failure")
     return value if isinstance(value, str) and value else "none"
+
+
+def _trace_metrics(trace) -> dict:
+    if trace is None:
+        return {}
+    return {
+        "duration_ms": trace.duration_ms,
+        "input_tokens": sum(call.input_tokens for call in trace.model_calls),
+        "output_tokens": sum(call.output_tokens for call in trace.model_calls),
+        "cost_usd": round(sum(call.cost_usd or 0.0 for call in trace.model_calls), 6),
+        "model_calls": len(trace.model_calls),
+        "tool_calls": len(trace.tool_executions),
+        "tool_errors": trace.error_count,
+        "approvals": trace.approval_count,
+    }
 
 
 class EvolutionReportStore:

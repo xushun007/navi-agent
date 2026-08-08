@@ -36,6 +36,7 @@ class EvolutionReportWriterTests(unittest.TestCase):
                             final_response="source",
                             status="success",
                             trace_id="trace-1",
+                            duration_ms=12,
                         ),
                     ),
                     replay_step=HealthcheckStepResult(
@@ -87,6 +88,15 @@ class EvolutionReportWriterTests(unittest.TestCase):
                 score_delta=-0.2,
                 status="regressed",
                 summary="Workflow replay regressed compared with the source run",
+                metadata={
+                    "steps": [
+                        {
+                            "task_name": "config-check",
+                            "correctness_passed": False,
+                            "missing_terms": ["api_key"],
+                        }
+                    ]
+                },
             ),
             candidate=EvolutionCandidate(
                 target="prompt",
@@ -124,11 +134,15 @@ class EvolutionReportWriterTests(unittest.TestCase):
 
             payload = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
             report_md = (run_dir / "REPORT.md").read_text(encoding="utf-8")
+            review_html = (run_dir / "REVIEW.html").read_text(encoding="utf-8")
 
         self.assertEqual(payload["workflow_name"], "agent-healthcheck")
         self.assertEqual(payload["candidate"]["target"], "prompt")
         self.assertEqual(payload["candidate"]["status"], "pending")
         self.assertEqual(payload["step_comparisons"][0]["source_trace_id"], "trace-1")
+        self.assertEqual(payload["step_comparisons"][0]["source_output"], "source")
+        self.assertEqual(payload["step_comparisons"][0]["replay_output"], "replay")
+        self.assertEqual(payload["step_comparisons"][0]["source_metrics"]["duration_ms"], 12)
         self.assertEqual(
             payload["step_comparisons"][0]["replay_failure_attribution"]["primary_failure"],
             "model_error",
@@ -139,6 +153,68 @@ class EvolutionReportWriterTests(unittest.TestCase):
         self.assertIn("agent-healthcheck", report_md)
         self.assertIn("failures: source=`none` replay=`model_error`", report_md)
         self.assertIn("verified candidate count", report_md)
+        self.assertIn("Navi Evolution A/B Review", review_html)
+        self.assertIn("Baseline", review_html)
+        self.assertIn("Variant", review_html)
+        self.assertIn("source", review_html)
+        self.assertIn("replay", review_html)
+        self.assertIn("correctness: fail", review_html)
+        self.assertIn("tokens: 0 in / 0 out", review_html)
+
+    def test_review_html_escapes_model_output(self) -> None:
+        comparison = HealthcheckWorkflowComparison(
+            workflow_name="safe-review",
+            source_session_id="wf-1",
+            replay_session_id="wf-2",
+            step_comparisons=[
+                HealthcheckStepComparison(
+                    task_name="unsafe-output",
+                    source_step=HealthcheckStepResult(
+                        task_name="unsafe-output",
+                        runtime_result=RuntimeResult(
+                            session_id="wf-1",
+                            status="success",
+                            final_response='<script>alert("source")</script>',
+                        ),
+                    ),
+                    replay_step=HealthcheckStepResult(
+                        task_name="unsafe-output",
+                        runtime_result=RuntimeResult(
+                            session_id="wf-2",
+                            status="success",
+                            final_response="<b>variant</b>",
+                        ),
+                    ),
+                    source_evaluation=None,
+                    replay_evaluation=None,
+                    score_delta=0.0,
+                )
+            ],
+            source_average_score=0.0,
+            replay_average_score=0.0,
+            score_delta=0.0,
+            eval_case=EvalCase(
+                workflow_name="safe-review",
+                source_session_id="wf-1",
+                replay_session_id="wf-2",
+                source_average_score=0.0,
+                replay_average_score=0.0,
+                score_delta=0.0,
+                status="unchanged",
+                summary="unchanged",
+            ),
+            candidate=None,
+        )
+
+        with TemporaryDirectory() as tmp_dir:
+            run_dir = EvolutionReportWriter(Path(tmp_dir)).write_workflow_comparison_report(
+                comparison=comparison
+            )
+            review_html = (run_dir / "REVIEW.html").read_text(encoding="utf-8")
+
+        self.assertNotIn('<script>alert("source")</script>', review_html)
+        self.assertIn("&lt;script&gt;alert(&quot;source&quot;)&lt;/script&gt;", review_html)
+        self.assertIn("&lt;b&gt;variant&lt;/b&gt;", review_html)
 
     def test_report_store_loads_latest_report(self) -> None:
         comparison = HealthcheckWorkflowComparison(
