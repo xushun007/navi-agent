@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "id": "navi-weekly-3p-2026-08-08",
+      "prompt": "为 Navi Agent 团队编写一份 2026-08-02 至 2026-08-08 的内部 3P 周报，面向对项目只有有限背景的负责人，要求 30-60 秒可读。只能使用以下冻结事实，不得补充或推测数字：本周发布了 0.1.1 和轻量 PyPI 安装器；加强了敏感文件与 Bash 子进程的凭证边界；为子 Agent 增加有界执行、有界委派载荷和终态元数据；为 Evolution 增加 Prompt 正确性证据、Skill 准入与激活分离、隔离 Skill A/B、静态 A/B Viewer 和本地 feedback.json 导出。下一步是用真实 Skill 跑首个 A/B，收集人工判断，再根据证据决定是否修改 Skill。当前问题是 Skill 真实样本仍少、人工反馈尚未自动进入修订循环、单次模型运行存在随机性。不要声称这些问题已经解决。",
+      "required_output_terms": [
+        "Navi Agent",
+        "Progress:",
+        "Plans:",
+        "Problems:"
+      ]
+    },
+    {
+      "id": "navi-skill-governance-faq",
+      "prompt": "请为 Navi Agent 使用者写一组简短的内部 FAQ，回答他们对新 Skill 治理流程最可能产生的困惑。只能依据以下冻结事实：Agent 自主生成、人工编写和外部提供的 Skill 都先进入未激活候选区；准入检查包结构和来源，但不代表效果合格；A/B 的 Baseline 是当前已激活 Skill 集合，Variant 是相同集合加候选 Skill；机器检查当前只验证运行成功和 required_output_terms；REVIEW.html 用于人工比较并可导出 feedback.json；feedback.json 当前不会自动触发修改或激活；只有显式执行 skill activate 且已有通过的 skill_ab 证据才会写入正式 Skill Store。输出 4 个 Question/Answer 对，不要虚构已经实现的自动化。",
+      "required_output_terms": [
+        "Question",
+        "Answer",
+        "candidate",
+        "activate"
+      ]
+    },
+    {
+      "id": "navi-evolution-leadership-update",
+      "prompt": "为 Navi Agent 项目负责人写一份内部状态更新。受众是项目负责人；目的是说明 Evolution 当前达到的边界并请求批准首个真实 Skill 实验；语气简洁、客观；格式必须使用 Shipped、Risk、Next 三个标题。只使用以下冻结事实：已实现候选准入与显式激活分离；已实现相同任务的 Baseline/Variant 隔离运行；已生成 run.json、REPORT.md 和 REVIEW.html；Viewer 可记录 Baseline、Variant 或 Tie 并下载 feedback.json；机器评分仍是最小确定性断言；人工反馈尚未自动进入修订循环；计划先用 internal-comms 和 3 个真实 Navi 场景进行小样本实验。不要宣布候选 Skill 已激活，也不要声称实验已经完成。",
+      "required_output_terms": [
+        "Shipped",
+        "Risk",
+        "Next",
+        "A/B"
+      ]
+    }
+  ]
+}

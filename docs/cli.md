@@ -100,3 +100,5 @@ The case file uses a deliberately small format:
 Evaluation writes `run.json`, `REPORT.md`, and a self-contained `REVIEW.html`.
 The viewer can download human judgments as `feedback.json`; importing that
 feedback into an automated revision loop is intentionally outside activation.
+See [Skill A/B Evaluation Walkthrough](skill-evaluation.md) for a concrete
+`internal-comms` experiment using frozen Navi Agent scenarios.
