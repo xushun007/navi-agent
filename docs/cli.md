@@ -66,3 +66,37 @@ SWE-bench requires its dedicated extra:
 uv sync --extra swe-bench
 uv run navi-agent eval run swe-bench-verified --limit 1
 ```
+
+## Skill candidates
+
+Import a human-authored or external Skill package without activating it:
+
+```bash
+navi-agent skill import PATH --source-kind human
+navi-agent skill import PATH --source-kind external
+```
+
+Evaluate the returned draft ID and activate it only after the A/B gate passes:
+
+```bash
+navi-agent skill eval DRAFT_ID --case-file cases.json
+navi-agent skill activate DRAFT_ID
+```
+
+The case file uses a deliberately small format:
+
+```json
+{
+  "cases": [
+    {
+      "id": "review-readme",
+      "prompt": "Review README.md and cite verified findings.",
+      "required_output_terms": ["verified"]
+    }
+  ]
+}
+```
+
+Evaluation writes `run.json`, `REPORT.md`, and a self-contained `REVIEW.html`.
+The viewer can download human judgments as `feedback.json`; importing that
+feedback into an automated revision loop is intentionally outside activation.

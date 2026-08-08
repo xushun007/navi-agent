@@ -48,3 +48,12 @@ flowchart LR
 ### 进化
 
 消费已存储的证据，提出并治理 Prompt 或 Skill 候选项。它不会直接修改在线运行时链路。
+
+Skill 生产与 Skill 评测属于两个独立职责。Agent 自主生成、人工编写和外部提供的
+Skill 都进入同一个未激活的草稿区。准入只检查包结构与来源；A/B 评测随后在隔离的
+临时 Skill Store 中，以当前已激活集合为 Baseline、已准入草稿为 Variant。激活是
+最后一个显式操作，并且必须已有记录的 `skill_ab` 结果。
+
+`REVIEW.html` 是静态评审产物。评审者可以对比输出、选择 Baseline/Variant/Tie、
+标注问题归因并下载 `feedback.json`。反馈只用于后续归因或修改 Skill，不会激活草稿，
+也不会修改在线运行时。

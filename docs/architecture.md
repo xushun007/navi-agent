@@ -56,3 +56,15 @@ cross-session recall and remains user-scoped.
 
 Consumes stored evidence to propose and govern prompt or skill candidates. It
 does not mutate the live runtime path directly.
+
+Skill production and Skill evaluation are separate responsibilities. Agent,
+human, and external Skills enter the same inactive draft store. Admission only
+checks package structure and provenance. A/B evaluation then runs the active
+Skill set as the baseline and the admitted draft as the variant in isolated
+temporary stores. Activation is a final explicit operation and requires the
+recorded `skill_ab` result.
+
+`REVIEW.html` is a static review artifact. Reviewers can compare outputs, mark
+Baseline/Variant/Tie, attribute problems, and download `feedback.json`. That
+feedback informs later diagnosis or Skill revision; it does not activate a
+draft or modify the runtime.

@@ -64,3 +64,36 @@ SWE-bench 需要专用 Extra：
 uv sync --extra swe-bench
 uv run navi-agent eval run swe-bench-verified --limit 1
 ```
+
+## Skill 候选项
+
+导入人工编写或外部提供的 Skill 包，但不激活：
+
+```bash
+navi-agent skill import PATH --source-kind human
+navi-agent skill import PATH --source-kind external
+```
+
+使用返回的草稿 ID 做 A/B 评测；通过 Gate 后再显式激活：
+
+```bash
+navi-agent skill eval DRAFT_ID --case-file cases.json
+navi-agent skill activate DRAFT_ID
+```
+
+Case 文件使用刻意保持精简的格式：
+
+```json
+{
+  "cases": [
+    {
+      "id": "review-readme",
+      "prompt": "审查 README.md，并引用已验证的发现。",
+      "required_output_terms": ["已验证"]
+    }
+  ]
+}
+```
+
+评测产出 `run.json`、`REPORT.md` 和自包含的 `REVIEW.html`。Viewer 可以把人工判断
+下载为 `feedback.json`；将该反馈自动送入修改循环不属于激活流程，当前刻意保持解耦。
