@@ -12,6 +12,13 @@ from .core.models import (
 from .core.store import CandidateStore, EvalCaseStore
 from .evals.ifeval import IfevalEvaluationResult, IfevalEvaluator, IfevalInstructionResult, IfevalRunRecord, IfevalRunStore, IfevalRunWriter
 from .evals.report import EvolutionReportRecord, EvolutionReportStore, EvolutionReportWriter
+from .evals.skill import (
+    SkillEvalCase,
+    SkillEvalComparison,
+    SkillEvalRun,
+    SkillEvalSummary,
+    SkillEvalWorkflowService,
+)
 from .evals.seed import EvalSeed, EvalSeedReportRecord, EvalSeedReportStore, EvalSeedReportWriter, EvalSeedStore
 from .evals.tool_use import (
     ToolUseEvalCase,
@@ -114,6 +121,11 @@ __all__ = [
     "SkillAdmissionValidator",
     "SkillDraftProvenance",
     "SkillEvaluationResult",
+    "SkillEvalCase",
+    "SkillEvalComparison",
+    "SkillEvalRun",
+    "SkillEvalSummary",
+    "SkillEvalWorkflowService",
     "SkillGovernanceService",
     "SkillPromotionGate",
     "SkillVersionRecord",

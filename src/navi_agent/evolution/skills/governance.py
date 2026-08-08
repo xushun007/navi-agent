@@ -378,6 +378,12 @@ class SkillGovernanceService:
                 drafts.append(draft)
         return drafts
 
+    def get_draft_skill(self, draft_id: str) -> SkillRecord | None:
+        draft = self.get_draft(draft_id)
+        if draft is None:
+            return None
+        return self._draft_store(draft_id).get(draft.skill_name)
+
     def get_version(
         self,
         skill_name: str,

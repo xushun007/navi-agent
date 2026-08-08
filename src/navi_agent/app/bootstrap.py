@@ -179,7 +179,7 @@ def build_application(
     skill_governance = SkillGovernanceService(
         skill_store,
         gate=SkillPromotionGate(
-            required_suites=("draft_validation", "content_regression"),
+            required_suites=("skill_ab",),
         ),
     )
     memory_store = FileMemoryStore(get_memories_dir())

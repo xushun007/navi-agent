@@ -46,7 +46,7 @@ class ReviewAgentService:
         self._skill_governance = skill_governance or SkillGovernanceService(
             skill_store,
             gate=SkillPromotionGate(
-                required_suites=("draft_validation", "content_regression"),
+                required_suites=("skill_ab",),
             ),
         )
         self._skill_admission_validator = (
