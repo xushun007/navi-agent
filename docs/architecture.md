@@ -47,6 +47,10 @@ inputs, but approval and execution policy remain in the runtime.
 derive traces, health data, and user-facing progress without coupling those
 views to the runtime loop.
 
+The local Trace Viewer is a read-only telemetry projection. It reads the event
+and trace stores to display sessions, true event order, and Skill loading; it
+does not participate in runtime execution or mutate recorded state.
+
 ### Memory and sessions
 
 The session store is authoritative for conversation history. Memory provides

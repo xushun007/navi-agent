@@ -100,3 +100,13 @@ Case 文件使用刻意保持精简的格式：
 
 可按照 [Skill A/B 实际评测操作](skill-evaluation.md)运行一个使用冻结 Navi Agent
 场景的 `internal-comms` 完整实验。
+
+## 本地 Trace Viewer
+
+```bash
+navi-agent trace serve
+navi-agent trace render TRACE_ID
+```
+
+服务是只读的，并且只绑定 `127.0.0.1`。关于 Skill 字段、安全边界和单文件输出，
+参见[本地 Trace Viewer](trace-viewer.md)。
