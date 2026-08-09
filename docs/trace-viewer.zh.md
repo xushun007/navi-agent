@@ -39,6 +39,13 @@ uv run navi-agent trace render TRACE_ID --output /tmp/trace.html
 时间线读取 Runtime Events，而不是 Langfuse 导出器当前分组后的 Model/Tool 数组，
 因此能够保留 Model Response 与 Tool Execution 的真实交错顺序。
 
+## Usage 字段
+
+Trace 和 Session 页面会汇总 Model Call 已记录的 input、output、cache-read、
+cache-write 和 reasoning token；时间线中的每个 Model Event 也会显示本次 Usage。
+只有汇总范围内的每次 Model Call 都记录了 Cost 时才展示总成本，否则显示 `—`，
+避免把不完整成本误报为总成本。
+
 ## 数据与限制
 
 - Viewer 会向本机浏览器展示已记录的 Prompt、Reasoning、工具参数和结果；应把当前

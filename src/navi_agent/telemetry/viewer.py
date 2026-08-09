@@ -5,13 +5,14 @@ from html import escape
 import json
 from pathlib import Path
 import re
+from typing import Iterable
 from urllib.parse import quote
 
 from navi_agent.events import RuntimeEvent
 from navi_agent.logging import redact_sensitive_data
 
 from .events import RuntimeEventStore
-from .models import RuntimeTrace
+from .models import ModelCallTrace, RuntimeTrace
 from .store import TraceStore
 
 
@@ -36,6 +37,16 @@ class SessionViewerRecord:
     @property
     def latest_trace(self) -> RuntimeTrace:
         return self.traces[0]
+
+
+@dataclass(frozen=True, slots=True)
+class _UsageSummary:
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+    reasoning_tokens: int
+    cost_usd: float | None
 
 
 class TraceViewerService:
@@ -117,6 +128,7 @@ class TraceViewerService:
 
 def render_trace_html(record: TraceViewerRecord) -> str:
     trace = record.trace
+    usage = _summarize_usage(trace.model_calls)
     event_cards = "".join(_render_event(event) for event in record.events)
     return f"""<!doctype html>
 <html lang="en">
@@ -158,6 +170,7 @@ pre {{ margin:8px 0 0; padding:13px; max-height:55vh; overflow:auto; white-space
     <span class="pill">model calls: {len(trace.model_calls)}</span>
     <span class="pill">tool calls: {len(trace.tool_executions)}</span>
   </div>
+  {_render_usage(usage)}
   <p class="message"><strong>Session</strong><br>{escape(trace.session_id)}</p>
   <p class="message"><strong>User</strong><br>{escape(redact_sensitive_data(trace.user_message))}</p>
   <p class="message"><strong>Final response</strong></p>
@@ -178,8 +191,8 @@ def render_session_index_html(sessions: list[SessionViewerRecord]) -> str:
   <p class="muted">Local read-only view of recorded runtime sessions.</p>
 </section>
 <section class="panel table-wrap">
-  <table><thead><tr><th>Session</th><th>Status</th><th>Runs</th><th>Skills</th><th>Latest</th></tr></thead>
-  <tbody>{rows or '<tr><td colspan="5">No recorded sessions.</td></tr>'}</tbody></table>
+  <table><thead><tr><th>Session</th><th>Status</th><th>Runs</th><th>Usage</th><th>Skills</th><th>Latest</th></tr></thead>
+  <tbody>{rows or '<tr><td colspan="6">No recorded sessions.</td></tr>'}</tbody></table>
 </section>""",
     )
 
@@ -192,10 +205,11 @@ def render_session_html(session: SessionViewerRecord) -> str:
 <section class="panel">
   <h1>Session</h1>
   <p class="mono">{escape(session.session_id)}</p>
+  {_render_usage(_summarize_usage(call for trace in session.traces for call in trace.model_calls))}
   <div class="skills">{_pills(session.loaded_skill_names)}</div>
 </section>
 <section class="panel table-wrap">
-  <table><thead><tr><th>Trace</th><th>Status</th><th>Message</th><th>Calls</th><th>Duration</th></tr></thead>
+  <table><thead><tr><th>Trace</th><th>Status</th><th>Message</th><th>Calls</th><th>Usage</th><th>Duration</th></tr></thead>
   <tbody>{rows}</tbody></table>
 </section>""",
     )
@@ -221,10 +235,14 @@ a {{ color:var(--link); text-decoration:none }} a:hover {{ text-decoration:under
 
 def _render_session_row(session: SessionViewerRecord) -> str:
     latest = session.latest_trace
+    usage = _summarize_usage(
+        call for trace in session.traces for call in trace.model_calls
+    )
     href = f"/session/{quote(session.session_id, safe='')}"
     return f"""<tr>
   <td><a class="mono" href="{href}">{escape(_compact(session.session_id, 70))}</a><br><span class="muted">{escape(redact_sensitive_data(latest.user_message)[:120])}</span></td>
   <td>{escape(latest.status)}</td><td>{len(session.traces)}</td>
+  <td>{_format_usage(usage)}</td>
   <td><div class="skills">{_pills(session.loaded_skill_names)}</div></td>
   <td>{escape(latest.completed_at or latest.started_at or 'n/a')}</td>
 </tr>"""
@@ -233,11 +251,12 @@ def _render_session_row(session: SessionViewerRecord) -> str:
 def _render_trace_row(trace: RuntimeTrace) -> str:
     href = f"/trace/{quote(trace.trace_id, safe='')}"
     calls = f"{len(trace.model_calls)} model / {len(trace.tool_executions)} tool"
+    usage = _summarize_usage(trace.model_calls)
     return f"""<tr>
   <td><a class="mono" href="{href}">{escape(trace.trace_id)}</a></td>
   <td>{escape(trace.status)}</td>
   <td>{escape(_compact(redact_sensitive_data(trace.user_message), 120))}</td>
-  <td>{calls}</td><td>{trace.duration_ms} ms</td>
+  <td>{calls}</td><td>{_format_usage(usage)}</td><td>{trace.duration_ms} ms</td>
 </tr>"""
 
 
@@ -292,7 +311,8 @@ def _event_summary(event: RuntimeEvent) -> str:
         name = str(event.metadata.get("tool_name") or "unknown")
         status = str(event.metadata.get("status") or "unknown")
         return f" · {escape(name)} [{escape(status)}]"
-    if event.name == "model.response":
+    if event.name in {"model.response", "model.discarded"}:
+        parts = []
         tool_calls = event.metadata.get("tool_calls")
         if isinstance(tool_calls, list):
             names = [
@@ -301,8 +321,72 @@ def _event_summary(event: RuntimeEvent) -> str:
                 if isinstance(item, dict) and item.get("name")
             ]
             if names:
-                return f" · calls {escape(', '.join(names))}"
+                parts.append(f"calls {escape(', '.join(names))}")
+        usage = event.metadata.get("usage")
+        if isinstance(usage, dict):
+            parts.append(_format_event_usage(usage))
+        if parts:
+            return f" · {' · '.join(part for part in parts if part)}"
     return ""
+
+
+def _summarize_usage(model_calls: Iterable[ModelCallTrace]) -> _UsageSummary:
+    calls: tuple[ModelCallTrace, ...] = tuple(model_calls)
+    costs = [call.cost_usd for call in calls]
+    cost_usd = sum(cost for cost in costs if cost is not None) if costs and all(
+        cost is not None for cost in costs
+    ) else None
+    return _UsageSummary(
+        input_tokens=sum(call.input_tokens for call in calls),
+        output_tokens=sum(call.output_tokens for call in calls),
+        cache_read_tokens=sum(call.cache_read_tokens for call in calls),
+        cache_write_tokens=sum(call.cache_write_tokens for call in calls),
+        reasoning_tokens=sum(call.reasoning_tokens for call in calls),
+        cost_usd=cost_usd,
+    )
+
+
+def _render_usage(usage: _UsageSummary) -> str:
+    return f'<div class="meta message">{_format_usage(usage, pills=True)}</div>'
+
+
+def _format_usage(usage: _UsageSummary, *, pills: bool = False) -> str:
+    values = (
+        f"input: {usage.input_tokens:,}",
+        f"output: {usage.output_tokens:,}",
+        f"cache read: {usage.cache_read_tokens:,}",
+        f"cache write: {usage.cache_write_tokens:,}",
+        f"reasoning: {usage.reasoning_tokens:,}",
+        f"cost: {_format_cost(usage.cost_usd)}",
+    )
+    if pills:
+        return "".join(f'<span class="pill">{value}</span>' for value in values)
+    return "<br>".join(values)
+
+
+def _format_event_usage(usage: dict) -> str:
+    return (
+        f"input {_integer(usage.get('input_tokens')):,} / "
+        f"output {_integer(usage.get('output_tokens')):,} / "
+        f"cache read {_integer(usage.get('cache_read_tokens')):,} / "
+        f"cache write {_integer(usage.get('cache_write_tokens')):,} / "
+        f"reasoning {_integer(usage.get('reasoning_tokens')):,} / "
+        f"cost {_format_cost(_optional_number(usage.get('cost_usd')))}"
+    )
+
+
+def _format_cost(cost_usd: float | None) -> str:
+    return "—" if cost_usd is None else f"${cost_usd:.6f}"
+
+
+def _integer(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _optional_number(value) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
 
 
 def _available_skill_names(system_prompt: str | None) -> tuple[str, ...]:

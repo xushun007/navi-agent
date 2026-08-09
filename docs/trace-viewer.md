@@ -46,6 +46,14 @@ The event timeline comes from Runtime Events, not the grouped Model/Tool arrays
 used by the current Langfuse exporter. It therefore preserves the actual
 interleaving of model responses and tool execution.
 
+## Usage fields
+
+Trace and Session pages sum the usage already recorded for their model calls:
+input, output, cache-read, cache-write, and reasoning tokens. Each model event
+also shows its own usage in the timeline. Cost is shown only when every model
+call in the displayed total has a recorded cost; otherwise it is `—` rather
+than a misleading partial total.
+
 ## Data and limitations
 
 - The viewer exposes locally recorded prompts, reasoning, tool arguments, and

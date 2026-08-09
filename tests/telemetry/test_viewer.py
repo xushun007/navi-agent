@@ -31,7 +31,18 @@ def test_trace_viewer_renders_real_event_order_and_skill_usage(tmp_path: Path) -
             "    - internal-comms: Write updates\n"
             "[Workspace]\nroot"
         ),
-        model_calls=[ModelCallTrace(iteration=1, response_content="")],
+        model_calls=[
+            ModelCallTrace(
+                iteration=1,
+                response_content="",
+                input_tokens=1_200,
+                output_tokens=300,
+                cache_read_tokens=800,
+                cache_write_tokens=40,
+                reasoning_tokens=50,
+                cost_usd=0.012345,
+            )
+        ],
         tool_executions=[
             ToolExecutionTrace(
                 iteration=1,
@@ -69,7 +80,20 @@ def test_trace_viewer_renders_real_event_order_and_skill_usage(tmp_path: Path) -
                 kind="observation",
                 source=source,
                 name=name,
-                metadata={"tool_name": "skill_view"},
+                metadata=(
+                    {
+                        "usage": {
+                            "input_tokens": 1_200,
+                            "output_tokens": 300,
+                            "cache_read_tokens": 800,
+                            "cache_write_tokens": 40,
+                            "reasoning_tokens": 50,
+                            "cost_usd": 0.012345,
+                        }
+                    }
+                    if name == "model.response"
+                    else {"tool_name": "skill_view"}
+                ),
             )
         )
     service = TraceViewerService(trace_store=trace_store, event_store=event_store)
@@ -84,6 +108,13 @@ def test_trace_viewer_renders_real_event_order_and_skill_usage(tmp_path: Path) -
         "internal-comms/references/3p-updates.md",
     )
     assert html.index("model.response") < html.index("tool.call") < html.index("tool.result")
+    assert "input: 1,200" in html
+    assert "output: 300" in html
+    assert "cost: $0.012345" in html
+    assert (
+        "input 1,200 / output 300 / cache read 800 / cache write 40 / reasoning 50"
+        in html
+    )
 
     output = service.write_trace("trace-1", tmp_path / "trace.html")
     assert output.exists()
@@ -138,6 +169,22 @@ def test_trace_viewer_lists_sessions_and_links_traces() -> None:
             user_message="Write update",
             final_response="Done",
             status="success",
+            model_calls=[
+                ModelCallTrace(
+                    iteration=1,
+                    response_content="Done",
+                    input_tokens=900,
+                    output_tokens=100,
+                    cost_usd=0.02,
+                ),
+                ModelCallTrace(
+                    iteration=2,
+                    response_content="Done",
+                    input_tokens=1_100,
+                    output_tokens=200,
+                    cost_usd=0.03,
+                ),
+            ],
             tool_executions=[
                 ToolExecutionTrace(
                     iteration=1,
@@ -163,3 +210,46 @@ def test_trace_viewer_lists_sessions_and_links_traces() -> None:
     assert '/session/session%2Fone' in index_html
     assert '/trace/trace-1' in session_html
     assert "internal-comms" in index_html
+    assert "input: 2,000" in session_html
+    assert "output: 300" in session_html
+    assert "cost: $0.050000" in session_html
+    assert "input: 2,000<br>output: 300" in index_html
+
+
+def test_trace_viewer_does_not_report_partial_cost_as_total() -> None:
+    trace = RuntimeTrace(
+        trace_id="trace-cost",
+        session_id="session-cost",
+        user_id="user-1",
+        user_message="Hello",
+        final_response="Hi",
+        status="success",
+        model_calls=[
+            ModelCallTrace(
+                iteration=1,
+                response_content="",
+                input_tokens=10,
+                output_tokens=2,
+                cost_usd=0.01,
+            ),
+            ModelCallTrace(
+                iteration=2,
+                response_content="Hi",
+                input_tokens=20,
+                output_tokens=4,
+            ),
+        ],
+    )
+    trace_store = InMemoryTraceStore()
+    trace_store.record(trace)
+    record = TraceViewerService(
+        trace_store=trace_store,
+        event_store=InMemoryRuntimeEventStore(),
+    ).get_trace("trace-cost")
+
+    assert record is not None
+    html = render_trace_html(record)
+    assert "input: 30" in html
+    assert "output: 6" in html
+    assert "cost: —" in html
+    assert "$0.010000" not in html
