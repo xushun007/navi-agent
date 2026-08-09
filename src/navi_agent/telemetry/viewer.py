@@ -5,6 +5,7 @@ from html import escape
 import json
 from pathlib import Path
 import re
+from urllib.parse import quote
 
 from navi_agent.events import RuntimeEvent
 from navi_agent.logging import redact_sensitive_data
@@ -24,6 +25,17 @@ class TraceViewerRecord:
     available_skill_names: tuple[str, ...]
     loaded_skill_names: tuple[str, ...]
     loaded_skill_references: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionViewerRecord:
+    session_id: str
+    traces: tuple[RuntimeTrace, ...]
+    loaded_skill_names: tuple[str, ...]
+
+    @property
+    def latest_trace(self) -> RuntimeTrace:
+        return self.traces[0]
 
 
 class TraceViewerService:
@@ -65,6 +77,42 @@ class TraceViewerService:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(render_trace_html(record), encoding="utf-8")
         return output_path
+
+    def list_sessions(self, *, limit: int = 100) -> list[SessionViewerRecord]:
+        grouped: dict[str, list[RuntimeTrace]] = {}
+        for trace in self._trace_store.list_traces(limit=None):
+            grouped.setdefault(trace.session_id, []).append(trace)
+        sessions = [
+            SessionViewerRecord(
+                session_id=session_id,
+                traces=tuple(traces),
+                loaded_skill_names=tuple(
+                    dict.fromkeys(
+                        name
+                        for trace in traces
+                        for name in _loaded_skill_names(trace)
+                    )
+                ),
+            )
+            for session_id, traces in grouped.items()
+        ]
+        return sessions[:limit]
+
+    def get_session(self, session_id: str) -> SessionViewerRecord | None:
+        traces = list(reversed(self._trace_store.get_session_traces(session_id)))
+        if not traces:
+            return None
+        return SessionViewerRecord(
+            session_id=session_id,
+            traces=tuple(traces),
+            loaded_skill_names=tuple(
+                dict.fromkeys(
+                    name
+                    for trace in traces
+                    for name in _loaded_skill_names(trace)
+                )
+            ),
+        )
 
 
 def render_trace_html(record: TraceViewerRecord) -> str:
@@ -119,6 +167,83 @@ pre {{ margin:8px 0 0; padding:13px; max-height:55vh; overflow:auto; white-space
 <h2>Runtime event timeline</h2>
 {event_cards or '<section class="panel">No runtime events recorded for this trace.</section>'}
 </main></body></html>"""
+
+
+def render_session_index_html(sessions: list[SessionViewerRecord]) -> str:
+    rows = "".join(_render_session_row(session) for session in sessions)
+    return _page(
+        title="Navi Sessions",
+        body=f"""<section class="panel">
+  <h1>Navi Sessions</h1>
+  <p class="muted">Local read-only view of recorded runtime sessions.</p>
+</section>
+<section class="panel table-wrap">
+  <table><thead><tr><th>Session</th><th>Status</th><th>Runs</th><th>Skills</th><th>Latest</th></tr></thead>
+  <tbody>{rows or '<tr><td colspan="5">No recorded sessions.</td></tr>'}</tbody></table>
+</section>""",
+    )
+
+
+def render_session_html(session: SessionViewerRecord) -> str:
+    rows = "".join(_render_trace_row(trace) for trace in session.traces)
+    return _page(
+        title=f"Session · {session.session_id}",
+        body=f"""<p><a href="/">← Sessions</a></p>
+<section class="panel">
+  <h1>Session</h1>
+  <p class="mono">{escape(session.session_id)}</p>
+  <div class="skills">{_pills(session.loaded_skill_names)}</div>
+</section>
+<section class="panel table-wrap">
+  <table><thead><tr><th>Trace</th><th>Status</th><th>Message</th><th>Calls</th><th>Duration</th></tr></thead>
+  <tbody>{rows}</tbody></table>
+</section>""",
+    )
+
+
+def _page(*, title: str, body: str) -> str:
+    return f"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title)}</title>
+<style>
+:root {{ color-scheme:light dark; --bg:#f5f7fb; --panel:#fff; --text:#172033; --muted:#667085; --line:#d8dee9; --link:#3157d5 }}
+* {{ box-sizing:border-box }} body {{ margin:0; background:var(--bg); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,sans-serif }}
+main {{ width:min(1180px,95vw); margin:28px auto 60px }} h1,p {{ margin-top:0 }}
+.panel {{ background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:20px; margin-bottom:16px; box-shadow:0 8px 24px #1018280d }}
+.muted {{ color:var(--muted) }} .mono {{ font-family:ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere }}
+a {{ color:var(--link); text-decoration:none }} a:hover {{ text-decoration:underline }}
+.table-wrap {{ overflow:auto }} table {{ width:100%; border-collapse:collapse }} th,td {{ padding:11px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top }} th {{ color:var(--muted) }}
+.skills {{ display:flex; flex-wrap:wrap; gap:6px }} .pill {{ border:1px solid var(--line); border-radius:999px; padding:2px 8px; color:var(--muted) }}
+@media (prefers-color-scheme:dark) {{ :root {{--bg:#0e1420;--panel:#151d2c;--text:#e7ecf4;--muted:#9aa7ba;--line:#2c374a;--link:#8aa4ff}} }}
+</style></head><body><main>{body}</main></body></html>"""
+
+
+def _render_session_row(session: SessionViewerRecord) -> str:
+    latest = session.latest_trace
+    href = f"/session/{quote(session.session_id, safe='')}"
+    return f"""<tr>
+  <td><a class="mono" href="{href}">{escape(_compact(session.session_id, 70))}</a><br><span class="muted">{escape(redact_sensitive_data(latest.user_message)[:120])}</span></td>
+  <td>{escape(latest.status)}</td><td>{len(session.traces)}</td>
+  <td><div class="skills">{_pills(session.loaded_skill_names)}</div></td>
+  <td>{escape(latest.completed_at or latest.started_at or 'n/a')}</td>
+</tr>"""
+
+
+def _render_trace_row(trace: RuntimeTrace) -> str:
+    href = f"/trace/{quote(trace.trace_id, safe='')}"
+    calls = f"{len(trace.model_calls)} model / {len(trace.tool_executions)} tool"
+    return f"""<tr>
+  <td><a class="mono" href="{href}">{escape(trace.trace_id)}</a></td>
+  <td>{escape(trace.status)}</td>
+  <td>{escape(_compact(redact_sensitive_data(trace.user_message), 120))}</td>
+  <td>{calls}</td><td>{trace.duration_ms} ms</td>
+</tr>"""
+
+
+def _compact(value: str, limit: int) -> str:
+    compacted = " ".join(value.split())
+    return compacted if len(compacted) <= limit else f"{compacted[: limit - 1]}…"
 
 
 def _render_skills(record: TraceViewerRecord) -> str:

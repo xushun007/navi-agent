@@ -1947,6 +1947,20 @@ class CliTests(unittest.TestCase):
         self.assertEqual(render.call_args.args[0], "trace-1")
         self.assertIn("trace_viewer_path: /tmp/trace.html", stdout.getvalue())
 
+    def test_main_serves_local_trace_viewer(self) -> None:
+        with patch(
+            "navi_agent.telemetry.viewer_server.serve_trace_viewer",
+        ) as serve:
+            with patch(
+                "sys.argv",
+                ["navi-agent", "trace", "serve", "--port", "9876", "--limit", "25"],
+            ):
+                exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(serve.call_args.kwargs["port"], 9876)
+        self.assertEqual(serve.call_args.kwargs["session_limit"], 25)
+
     def test_main_lists_skills(self) -> None:
         stdout = io.StringIO()
         records = [

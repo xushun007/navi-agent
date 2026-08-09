@@ -195,6 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-dir", type=Path)
     parser.add_argument("--case-file", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--source-kind", choices=["human", "external"], default="external")
     return parser
 
@@ -489,13 +490,29 @@ def _run_skill_command(args, *, parser: argparse.ArgumentParser) -> int:
 def _run_trace_command(args, *, parser: argparse.ArgumentParser) -> int:
     from navi_agent.telemetry.viewer import TraceViewerService
 
-    if args.subcommand != "render" or not args.command_target:
-        parser.error("trace command requires: navi-agent trace render TRACE_ID")
-    output = args.output or get_trace_viewer_dir() / f"{args.command_target}.html"
     service = TraceViewerService(
         trace_store=JsonlTraceStore(get_trace_store_path()),
         event_store=JsonlRuntimeEventStore(get_runtime_event_store_path()),
     )
+    if args.subcommand == "serve":
+        from navi_agent.telemetry.viewer_server import serve_trace_viewer
+
+        try:
+            serve_trace_viewer(
+                service,
+                port=args.port,
+                session_limit=args.limit or 100,
+            )
+        except (OSError, ValueError) as error:
+            print(f"trace_viewer_error: {error}")
+            return 1
+        return 0
+    if args.subcommand != "render" or not args.command_target:
+        parser.error(
+            "trace command requires `render TRACE_ID` or `serve`: "
+            "navi-agent trace render TRACE_ID"
+        )
+    output = args.output or get_trace_viewer_dir() / f"{args.command_target}.html"
     try:
         path = service.write_trace(args.command_target, output.resolve())
     except (OSError, ValueError) as error:

@@ -8,7 +8,12 @@ from navi_agent.telemetry import (
     RuntimeTrace,
     ToolExecutionTrace,
 )
-from navi_agent.telemetry.viewer import TraceViewerService, render_trace_html
+from navi_agent.telemetry.viewer import (
+    TraceViewerService,
+    render_session_html,
+    render_session_index_html,
+    render_trace_html,
+)
 
 
 def test_trace_viewer_renders_real_event_order_and_skill_usage(tmp_path: Path) -> None:
@@ -121,3 +126,40 @@ def test_trace_viewer_escapes_and_redacts_recorded_content() -> None:
     assert "top-secret" not in html
     assert "secret-value" not in html
     assert "&lt;redacted&gt;" in html
+
+
+def test_trace_viewer_lists_sessions_and_links_traces() -> None:
+    trace_store = InMemoryTraceStore()
+    trace_store.record(
+        RuntimeTrace(
+            trace_id="trace-1",
+            session_id="session/one",
+            user_id="user-1",
+            user_message="Write update",
+            final_response="Done",
+            status="success",
+            tool_executions=[
+                ToolExecutionTrace(
+                    iteration=1,
+                    tool_call_id="call-1",
+                    tool_name="skill_view",
+                    status="success",
+                    arguments={"skill_name": "internal-comms"},
+                )
+            ],
+        )
+    )
+    service = TraceViewerService(
+        trace_store=trace_store,
+        event_store=InMemoryRuntimeEventStore(),
+    )
+
+    sessions = service.list_sessions()
+    assert len(sessions) == 1
+    assert sessions[0].loaded_skill_names == ("internal-comms",)
+
+    index_html = render_session_index_html(sessions)
+    session_html = render_session_html(sessions[0])
+    assert '/session/session%2Fone' in index_html
+    assert '/trace/trace-1' in session_html
+    assert "internal-comms" in index_html
