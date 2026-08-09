@@ -41,6 +41,9 @@ flowchart LR
 `RuntimeEvent` 是执行事实流。Subscriber 负责持久化事件，或派生 Trace、健康数据和
 面向用户的进度，避免这些视图与运行时循环耦合。
 
+本地 Trace Viewer 是只读的 Telemetry 投影视图。它读取 Event Store 与 Trace Store，
+展示 Session、真实事件顺序和 Skill 加载情况，不参与 Runtime 执行，也不修改记录状态。
+
 ### 记忆与会话
 
 会话存储是对话历史的权威来源。记忆提供跨会话 Recall，并按用户隔离。

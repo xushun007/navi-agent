@@ -38,6 +38,7 @@ nav:
       - Permissions: permissions.md
       - Sessions and Memory: sessions-and-memory.md
       - Skill Evaluation: skill-evaluation.md
+      - Local Trace Viewer: trace-viewer.md
   - Gateway: gateway.md
   - Configuration: configuration.md
   - Architecture: architecture.md
@@ -68,6 +69,7 @@ plugins:
             Permissions: 权限
             Sessions and Memory: 会话与记忆
             Skill Evaluation: Skill 评测
+            Local Trace Viewer: 本地 Trace Viewer
             Gateway: 网关
             Configuration: 配置
             Architecture: 架构

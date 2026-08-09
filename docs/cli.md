@@ -102,3 +102,14 @@ The viewer can download human judgments as `feedback.json`; importing that
 feedback into an automated revision loop is intentionally outside activation.
 See [Skill A/B Evaluation Walkthrough](skill-evaluation.md) for a concrete
 `internal-comms` experiment using frozen Navi Agent scenarios.
+
+## Local Trace Viewer
+
+```bash
+navi-agent trace serve
+navi-agent trace render TRACE_ID
+```
+
+The server is read-only and binds to `127.0.0.1`. See
+[Local Trace Viewer](trace-viewer.md) for Skill fields, security boundaries, and
+single-file output options.
