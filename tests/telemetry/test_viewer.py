@@ -108,9 +108,9 @@ def test_trace_viewer_renders_real_event_order_and_skill_usage(tmp_path: Path) -
         "internal-comms/references/3p-updates.md",
     )
     assert html.index("model.response") < html.index("tool.call") < html.index("tool.result")
-    assert "input: 1,200" in html
-    assert "output: 300" in html
-    assert "cost: $0.012345" in html
+    assert "<strong>1,200</strong>input" in html
+    assert "<strong>300</strong>output" in html
+    assert "<strong>$0.012345</strong>cost" in html
     assert (
         "input 1,200 / output 300 / cache read 800 / cache write 40 / reasoning 50"
         in html
@@ -210,10 +210,11 @@ def test_trace_viewer_lists_sessions_and_links_traces() -> None:
     assert '/session/session%2Fone' in index_html
     assert '/trace/trace-1' in session_html
     assert "internal-comms" in index_html
-    assert "input: 2,000" in session_html
-    assert "output: 300" in session_html
-    assert "cost: $0.050000" in session_html
-    assert "input: 2,000<br>output: 300" in index_html
+    assert "<strong>2,000</strong>input" in session_html
+    assert "<strong>300</strong>output" in session_html
+    assert "<strong>$0.050000</strong>cost" in session_html
+    assert "2,000 input · 300 output" in index_html
+    assert "input:<br>" not in index_html
 
 
 def test_trace_viewer_does_not_report_partial_cost_as_total() -> None:
@@ -249,7 +250,7 @@ def test_trace_viewer_does_not_report_partial_cost_as_total() -> None:
 
     assert record is not None
     html = render_trace_html(record)
-    assert "input: 30" in html
-    assert "output: 6" in html
-    assert "cost: —" in html
+    assert "<strong>30</strong>input" in html
+    assert "<strong>6</strong>output" in html
+    assert "<strong>—</strong>cost" in html
     assert "$0.010000" not in html

@@ -143,16 +143,18 @@ body {{ margin:0; background:var(--bg); color:var(--text); font:14px/1.5 ui-sans
 main {{ width:min(1180px,95vw); margin:28px auto 60px }}
 h1,h2,h3,p {{ margin-top:0 }}
 .panel,.event {{ background:var(--panel); border:1px solid var(--line); border-radius:13px; box-shadow:0 8px 24px #1018280d }}
-.panel {{ padding:20px; margin-bottom:16px }}
+.panel {{ padding:16px; margin-bottom:12px }}
 .meta,.skills {{ display:flex; flex-wrap:wrap; gap:8px; color:var(--muted) }}
 .pill {{ border:1px solid var(--line); border-radius:999px; padding:3px 9px }}
-.message {{ margin-top:14px }}
-.event {{ display:grid; grid-template-columns:72px 1fr; margin:10px 0; overflow:hidden }}
-.seq {{ padding:14px; color:var(--muted); border-right:1px solid var(--line); text-align:center }}
-.event-body {{ padding:14px 16px; min-width:0 }}
+.usage-summary {{ display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:10px; color:var(--muted) }}
+.usage-stat {{ white-space:nowrap }} .usage-stat strong {{ color:var(--text); margin-right:4px }}
+.message {{ margin-top:10px }}
+.event {{ display:grid; grid-template-columns:64px 1fr; margin:6px 0; overflow:hidden }}
+.seq {{ padding:10px; color:var(--muted); border-right:1px solid var(--line); text-align:center }}
+.event-body {{ padding:10px 13px; min-width:0 }}
 .event-head {{ display:flex; justify-content:space-between; gap:12px; align-items:start }}
 .event-model {{ border-left:4px solid var(--model) }} .event-tool {{ border-left:4px solid var(--tool) }} .event-error {{ border-left:4px solid var(--error) }}
-.summary {{ color:var(--muted); margin:6px 0 0 }}
+.summary {{ color:var(--muted); margin:3px 0 0 }}
 details {{ margin-top:9px }} summary {{ cursor:pointer; color:var(--muted) }}
 pre {{ margin:8px 0 0; padding:13px; max-height:55vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:#111827; color:#e5e7eb; border-radius:8px; font:12px/1.5 ui-monospace,SFMono-Regular,monospace }}
 @media (prefers-color-scheme:dark) {{ :root {{--bg:#0e1420;--panel:#151d2c;--text:#e7ecf4;--muted:#9aa7ba;--line:#2c374a}} }}
@@ -224,10 +226,13 @@ def _page(*, title: str, body: str) -> str:
 :root {{ color-scheme:light dark; --bg:#f5f7fb; --panel:#fff; --text:#172033; --muted:#667085; --line:#d8dee9; --link:#3157d5 }}
 * {{ box-sizing:border-box }} body {{ margin:0; background:var(--bg); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,sans-serif }}
 main {{ width:min(1180px,95vw); margin:28px auto 60px }} h1,p {{ margin-top:0 }}
-.panel {{ background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:20px; margin-bottom:16px; box-shadow:0 8px 24px #1018280d }}
+.panel {{ background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:16px; margin-bottom:12px; box-shadow:0 8px 24px #1018280d }}
 .muted {{ color:var(--muted) }} .mono {{ font-family:ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere }}
 a {{ color:var(--link); text-decoration:none }} a:hover {{ text-decoration:underline }}
-.table-wrap {{ overflow:auto }} table {{ width:100%; border-collapse:collapse }} th,td {{ padding:11px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top }} th {{ color:var(--muted) }}
+.table-wrap {{ overflow:auto }} table {{ width:100%; border-collapse:collapse; line-height:1.3 }} th,td {{ padding:7px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle }} th {{ color:var(--muted) }}
+.row-note {{ display:block; margin-top:2px; line-height:1.2 }}
+.usage-summary {{ display:flex; flex-wrap:wrap; gap:4px 16px; margin:8px 0; color:var(--muted) }}
+.usage-stat,.usage-inline {{ white-space:nowrap }} .usage-stat strong {{ color:var(--text); margin-right:4px }}
 .skills {{ display:flex; flex-wrap:wrap; gap:6px }} .pill {{ border:1px solid var(--line); border-radius:999px; padding:2px 8px; color:var(--muted) }}
 @media (prefers-color-scheme:dark) {{ :root {{--bg:#0e1420;--panel:#151d2c;--text:#e7ecf4;--muted:#9aa7ba;--line:#2c374a;--link:#8aa4ff}} }}
 </style></head><body><main>{body}</main></body></html>"""
@@ -240,7 +245,7 @@ def _render_session_row(session: SessionViewerRecord) -> str:
     )
     href = f"/session/{quote(session.session_id, safe='')}"
     return f"""<tr>
-  <td><a class="mono" href="{href}">{escape(_compact(session.session_id, 70))}</a><br><span class="muted">{escape(redact_sensitive_data(latest.user_message)[:120])}</span></td>
+  <td><a class="mono" href="{href}">{escape(_compact(session.session_id, 70))}</a><span class="muted row-note">{escape(redact_sensitive_data(latest.user_message)[:120])}</span></td>
   <td>{escape(latest.status)}</td><td>{len(session.traces)}</td>
   <td>{_format_usage(usage)}</td>
   <td><div class="skills">{_pills(session.loaded_skill_names)}</div></td>
@@ -347,21 +352,29 @@ def _summarize_usage(model_calls: Iterable[ModelCallTrace]) -> _UsageSummary:
 
 
 def _render_usage(usage: _UsageSummary) -> str:
-    return f'<div class="meta message">{_format_usage(usage, pills=True)}</div>'
-
-
-def _format_usage(usage: _UsageSummary, *, pills: bool = False) -> str:
-    values = (
-        f"input: {usage.input_tokens:,}",
-        f"output: {usage.output_tokens:,}",
-        f"cache read: {usage.cache_read_tokens:,}",
-        f"cache write: {usage.cache_write_tokens:,}",
-        f"reasoning: {usage.reasoning_tokens:,}",
-        f"cost: {_format_cost(usage.cost_usd)}",
+    items = "".join(
+        f'<span class="usage-stat"><strong>{value}</strong>{label}</span>'
+        for label, value in _usage_values(usage)
     )
-    if pills:
-        return "".join(f'<span class="pill">{value}</span>' for value in values)
-    return "<br>".join(values)
+    return f'<div class="usage-summary">{items}</div>'
+
+
+def _format_usage(usage: _UsageSummary) -> str:
+    values = " · ".join(
+        f"{value} {label}" for label, value in _usage_values(usage)
+    )
+    return f'<span class="usage-inline">{values}</span>'
+
+
+def _usage_values(usage: _UsageSummary) -> tuple[tuple[str, str], ...]:
+    return (
+        ("input", f"{usage.input_tokens:,}"),
+        ("output", f"{usage.output_tokens:,}"),
+        ("cache read", f"{usage.cache_read_tokens:,}"),
+        ("cache write", f"{usage.cache_write_tokens:,}"),
+        ("reasoning", f"{usage.reasoning_tokens:,}"),
+        ("cost", _format_cost(usage.cost_usd)),
+    )
 
 
 def _format_event_usage(usage: dict) -> str:
