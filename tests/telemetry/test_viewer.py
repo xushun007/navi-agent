@@ -213,8 +213,11 @@ def test_trace_viewer_lists_sessions_and_links_traces() -> None:
     assert "<strong>2,000</strong>input" in session_html
     assert "<strong>300</strong>output" in session_html
     assert "<strong>$0.050000</strong>cost" in session_html
-    assert "2,000 input · 300 output" in index_html
+    assert "2,000 in · 300 out · 0/0 cache r/w" in index_html
     assert "input:<br>" not in index_html
+    assert 'class="session-line"' in index_html
+    assert 'class="timestamp"' in index_html
+    assert 'class="message-line"' in session_html
 
 
 def test_trace_viewer_does_not_report_partial_cost_as_total() -> None:

@@ -229,11 +229,12 @@ main {{ width:min(1180px,95vw); margin:28px auto 60px }} h1,p {{ margin-top:0 }}
 .panel {{ background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:16px; margin-bottom:12px; box-shadow:0 8px 24px #1018280d }}
 .muted {{ color:var(--muted) }} .mono {{ font-family:ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere }}
 a {{ color:var(--link); text-decoration:none }} a:hover {{ text-decoration:underline }}
-.table-wrap {{ overflow:auto }} table {{ width:100%; border-collapse:collapse; line-height:1.3 }} th,td {{ padding:7px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle }} th {{ color:var(--muted) }}
-.row-note {{ display:block; margin-top:2px; line-height:1.2 }}
+.table-wrap {{ overflow:auto }} table {{ width:100%; min-width:1250px; border-collapse:collapse; line-height:1.25 }} th,td {{ padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; white-space:nowrap }} th {{ color:var(--muted) }}
+.session-line,.message-line {{ max-width:620px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }}
+.message-line {{ max-width:420px }} .timestamp {{ white-space:nowrap }}
 .usage-summary {{ display:flex; flex-wrap:wrap; gap:4px 16px; margin:8px 0; color:var(--muted) }}
 .usage-stat,.usage-inline {{ white-space:nowrap }} .usage-stat strong {{ color:var(--text); margin-right:4px }}
-.skills {{ display:flex; flex-wrap:wrap; gap:6px }} .pill {{ border:1px solid var(--line); border-radius:999px; padding:2px 8px; color:var(--muted) }}
+.skills {{ display:flex; flex-wrap:nowrap; gap:6px }} .pill {{ border:1px solid var(--line); border-radius:999px; padding:2px 8px; color:var(--muted); white-space:nowrap }}
 @media (prefers-color-scheme:dark) {{ :root {{--bg:#0e1420;--panel:#151d2c;--text:#e7ecf4;--muted:#9aa7ba;--line:#2c374a;--link:#8aa4ff}} }}
 </style></head><body><main>{body}</main></body></html>"""
 
@@ -244,12 +245,13 @@ def _render_session_row(session: SessionViewerRecord) -> str:
         call for trace in session.traces for call in trace.model_calls
     )
     href = f"/session/{quote(session.session_id, safe='')}"
+    message = _compact(redact_sensitive_data(latest.user_message), 120)
     return f"""<tr>
-  <td><a class="mono" href="{href}">{escape(_compact(session.session_id, 70))}</a><span class="muted row-note">{escape(redact_sensitive_data(latest.user_message)[:120])}</span></td>
+  <td><div class="session-line" title="{escape(session.session_id)} · {escape(message)}"><a class="mono" href="{href}">{escape(_compact(session.session_id, 54))}</a><span class="muted"> · {escape(message)}</span></div></td>
   <td>{escape(latest.status)}</td><td>{len(session.traces)}</td>
   <td>{_format_usage(usage)}</td>
   <td><div class="skills">{_pills(session.loaded_skill_names)}</div></td>
-  <td>{escape(latest.completed_at or latest.started_at or 'n/a')}</td>
+  <td class="timestamp">{escape(latest.completed_at or latest.started_at or 'n/a')}</td>
 </tr>"""
 
 
@@ -257,10 +259,11 @@ def _render_trace_row(trace: RuntimeTrace) -> str:
     href = f"/trace/{quote(trace.trace_id, safe='')}"
     calls = f"{len(trace.model_calls)} model / {len(trace.tool_executions)} tool"
     usage = _summarize_usage(trace.model_calls)
+    message = _compact(redact_sensitive_data(trace.user_message), 120)
     return f"""<tr>
   <td><a class="mono" href="{href}">{escape(trace.trace_id)}</a></td>
   <td>{escape(trace.status)}</td>
-  <td>{escape(_compact(redact_sensitive_data(trace.user_message), 120))}</td>
+  <td><div class="message-line" title="{escape(message)}">{escape(message)}</div></td>
   <td>{calls}</td><td>{_format_usage(usage)}</td><td>{trace.duration_ms} ms</td>
 </tr>"""
 
@@ -361,7 +364,13 @@ def _render_usage(usage: _UsageSummary) -> str:
 
 def _format_usage(usage: _UsageSummary) -> str:
     values = " · ".join(
-        f"{value} {label}" for label, value in _usage_values(usage)
+        (
+            f"{usage.input_tokens:,} in",
+            f"{usage.output_tokens:,} out",
+            f"{usage.cache_read_tokens:,}/{usage.cache_write_tokens:,} cache r/w",
+            f"{usage.reasoning_tokens:,} reasoning",
+            f"{_format_cost(usage.cost_usd)} cost",
+        )
     )
     return f'<span class="usage-inline">{values}</span>'
 
