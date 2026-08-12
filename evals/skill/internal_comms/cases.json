@@ -14,10 +14,10 @@
       "id": "navi-skill-governance-faq",
       "prompt": "请为 Navi Agent 使用者写一组简短的内部 FAQ，回答他们对新 Skill 治理流程最可能产生的困惑。只能依据以下冻结事实：Agent 自主生成、人工编写和外部提供的 Skill 都先进入未激活候选区；准入检查包结构和来源，但不代表效果合格；A/B 的 Baseline 是当前已激活 Skill 集合，Variant 是相同集合加候选 Skill；机器检查当前只验证运行成功和 required_output_terms；REVIEW.html 用于人工比较并可导出 feedback.json；feedback.json 当前不会自动触发修改或激活；只有显式执行 skill activate 且已有通过的 skill_ab 证据才会写入正式 Skill Store。输出 4 个 Question/Answer 对，不要虚构已经实现的自动化。",
       "required_output_terms": [
-        "Question",
-        "Answer",
-        "candidate",
-        "activate"
+        "feedback.json",
+        "required_output_terms",
+        "skill_ab",
+        "skill activate"
       ]
     },
     {
@@ -27,7 +27,8 @@
         "Shipped",
         "Risk",
         "Next",
-        "A/B"
+        "Baseline",
+        "Variant"
       ]
     }
   ]
