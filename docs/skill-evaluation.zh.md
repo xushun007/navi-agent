@@ -158,8 +158,16 @@ open /完整路径/REVIEW.html
 - `factuality`：输出虚构事实或错误表述完成状态。
 - `completeness`：遗漏必要内容。
 
-点击 `Download feedback.json` 保存人工反馈。该文件当前不会自动修改或激活 Skill，
-它是后续问题归因和 Skill 修订的输入证据。
+点击 `Download feedback.json` 保存人工反馈，然后将它绑定到本次评测证据：
+
+```bash
+uv run navi-agent skill feedback "$DRAFT_ID" \
+  --report-path /完整路径/20260808-105810 \
+  --feedback-file /完整路径/feedback.json
+```
+
+命令会校验 Draft、报告、Case 集合和人工评审场景是否一致，并保存不可变反馈证据。
+它不会自动修改或激活 Skill；反馈仍然只作为后续问题归因和 Skill 修订的输入。
 
 ## 6. 解释机器结果
 
@@ -209,6 +217,6 @@ uv run navi-agent --list-skills
 
 - 当前每个 Case 每个条件只执行一次，无法自动计算方差。
 - 自动评分只检查关键词，不判断事实性、语气和内容质量。
-- HTML 人工反馈尚未自动导回 Evolution。
+- 人工反馈可显式导回 Evolution，但尚未自动聚合多轮实验或触发 Skill 修订。
 - Baseline 可能受其他已激活 Skill 影响，因此评测前必须记录当前 Skill 列表。
 - 激活命令目前不强制读取 `feedback.json`，人工 Gate 依靠操作者遵守。

@@ -78,6 +78,7 @@ navi-agent skill import PATH --source-kind external
 
 ```bash
 navi-agent skill eval DRAFT_ID --case-file cases.json
+navi-agent skill feedback DRAFT_ID --report-path REPORT_DIR --feedback-file feedback.json
 navi-agent skill activate DRAFT_ID
 ```
 
@@ -96,7 +97,8 @@ Case 文件使用刻意保持精简的格式：
 ```
 
 评测产出 `run.json`、`REPORT.md` 和自包含的 `REVIEW.html`。Viewer 可以把人工判断
-下载为 `feedback.json`；将该反馈自动送入修改循环不属于激活流程，当前刻意保持解耦。
+下载为 `feedback.json`，再通过 `skill feedback` 校验并保存为不可变评审证据；将反馈
+自动送入修改循环不属于激活流程，当前刻意保持解耦。
 
 可按照 [Skill A/B 实际评测操作](skill-evaluation.md)运行一个使用冻结 Navi Agent
 场景的 `internal-comms` 完整实验。

@@ -194,6 +194,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-id", action="append")
     parser.add_argument("--log-dir", type=Path)
     parser.add_argument("--case-file", type=Path)
+    parser.add_argument("--report-path", type=Path)
+    parser.add_argument("--feedback-file", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--source-kind", choices=["human", "external"], default="external")
@@ -449,6 +451,7 @@ def _build_approval_provider(args):
 def _run_skill_command(args, *, parser: argparse.ArgumentParser) -> int:
     from navi_agent.cli.skill import (
         activate_skill_draft,
+        import_skill_feedback,
         run_skill_evaluation,
         stage_skill_directory,
     )
@@ -481,10 +484,27 @@ def _run_skill_command(args, *, parser: argparse.ArgumentParser) -> int:
             status = activate_skill_draft(args.command_target)
             print(f"skill_draft_status: {status}")
             return 0 if status == "promoted" else 1
+        if args.subcommand == "feedback":
+            if args.report_path is None or args.feedback_file is None:
+                parser.error("skill feedback requires --report-path and --feedback-file")
+            imported = import_skill_feedback(
+                args.command_target,
+                report_path=args.report_path,
+                feedback_file=args.feedback_file,
+            )
+            print(f"skill_feedback_id: {imported.feedback.feedback_id}")
+            print(f"skill_feedback_evidence_id: {imported.feedback.evidence_id}")
+            print(
+                "skill_feedback_preferences: "
+                + ", ".join(
+                    f"{key}={value}" for key, value in imported.preference_counts.items()
+                )
+            )
+            return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"skill_command_error: {error}")
         return 1
-    parser.error("skill command requires import, eval, or activate")
+    parser.error("skill command requires import, eval, feedback, or activate")
 
 
 def _run_trace_command(args, *, parser: argparse.ArgumentParser) -> int:

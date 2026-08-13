@@ -24,5 +24,14 @@ conditions, for six model calls.
 
 Machine scoring checks runtime success and required output terms. Review
 `REVIEW.html` for factuality, concision, format adherence, and hallucinations
-before making any activation decision. Human feedback is currently advisory and
-is not enforced by the activation command.
+before making any activation decision. Export the review and bind it to its run:
+
+```bash
+navi-agent skill feedback "$DRAFT_ID" \
+  --report-path /path/to/report \
+  --feedback-file /path/to/feedback.json
+```
+
+The command validates the Draft, report, case set, and reviewed tasks before
+persisting immutable feedback evidence. Human feedback remains advisory and is
+not enforced by the activation command.

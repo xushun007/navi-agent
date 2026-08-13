@@ -19,6 +19,7 @@ from .evals.skill import (
     SkillEvalSummary,
     SkillEvalWorkflowService,
 )
+from .evals.skill_feedback import SkillFeedbackImport, SkillFeedbackImportService
 from .evals.seed import EvalSeed, EvalSeedReportRecord, EvalSeedReportStore, EvalSeedReportWriter, EvalSeedStore
 from .evals.tool_use import (
     ToolUseEvalCase,
@@ -49,6 +50,8 @@ from .skills.governance import (
     SkillDraftProvenance,
     SkillEvaluationEvidence,
     SkillEvaluationResult,
+    SkillHumanFeedback,
+    SkillHumanReview,
     SkillGovernanceService,
     SkillPromotionGate,
     SkillVersionRecord,
@@ -123,6 +126,10 @@ __all__ = [
     "SkillDraftProvenance",
     "SkillEvaluationEvidence",
     "SkillEvaluationResult",
+    "SkillFeedbackImport",
+    "SkillFeedbackImportService",
+    "SkillHumanFeedback",
+    "SkillHumanReview",
     "SkillEvalCase",
     "SkillEvalComparison",
     "SkillEvalRun",

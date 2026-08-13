@@ -1933,6 +1933,49 @@ class CliTests(unittest.TestCase):
         activate.assert_called_once_with("draft-1")
         self.assertIn("skill_draft_status: promoted", stdout.getvalue())
 
+    def test_main_imports_skill_feedback(self) -> None:
+        stdout = io.StringIO()
+        imported = type(
+            "Imported",
+            (),
+            {
+                "feedback": type(
+                    "Feedback",
+                    (),
+                    {"feedback_id": "feedback-1", "evidence_id": "evidence-1"},
+                )(),
+                "preference_counts": {"baseline": 0, "tie": 1, "variant": 2},
+            },
+        )()
+        with patch(
+            "navi_agent.cli.skill.import_skill_feedback",
+            return_value=imported,
+        ) as import_feedback:
+            with patch(
+                "sys.argv",
+                [
+                    "navi-agent",
+                    "skill",
+                    "feedback",
+                    "draft-1",
+                    "--report-path",
+                    "/tmp/report",
+                    "--feedback-file",
+                    "/tmp/feedback.json",
+                ],
+            ):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        import_feedback.assert_called_once_with(
+            "draft-1",
+            report_path=Path("/tmp/report"),
+            feedback_file=Path("/tmp/feedback.json"),
+        )
+        self.assertIn("skill_feedback_id: feedback-1", stdout.getvalue())
+        self.assertIn("baseline=0, tie=1, variant=2", stdout.getvalue())
+
     def test_main_renders_local_trace_viewer(self) -> None:
         stdout = io.StringIO()
         with patch(

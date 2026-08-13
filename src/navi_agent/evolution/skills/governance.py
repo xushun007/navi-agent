@@ -44,6 +44,7 @@ class SkillDraft:
     admission_results: list[SkillAdmissionResult] = field(default_factory=list)
     evaluation_results: list[SkillEvaluationResult] = field(default_factory=list)
     evaluation_evidence_ids: list[str] = field(default_factory=list)
+    human_feedback_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,30 @@ class SkillEvaluationEvidence:
     replay_session_id: str
     trace_ids: tuple[str, ...]
     evaluation_results: tuple[SkillEvaluationResult, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SkillHumanReview:
+    task_name: str
+    preference: str
+    attribution: str = ""
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SkillHumanFeedback:
+    feedback_id: str
+    evidence_id: str
+    draft_id: str
+    skill_name: str
+    imported_at: str
+    schema_version: int
+    workflow_name: str
+    exported_at: str
+    report_hash: str
+    feedback_hash: str
+    source_path: str
+    reviews: tuple[SkillHumanReview, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,6 +424,72 @@ class SkillGovernanceService:
                 records.append(evidence)
         return records
 
+    def record_human_feedback(
+        self,
+        draft_id: str,
+        *,
+        evidence_id: str,
+        schema_version: int,
+        workflow_name: str,
+        exported_at: str,
+        report_hash: str,
+        feedback_hash: str,
+        source_path: str,
+        reviews: tuple[SkillHumanReview, ...],
+    ) -> SkillHumanFeedback:
+        draft = self._require_candidate_draft(draft_id)
+        evidence = self.get_evaluation_evidence(draft_id, evidence_id)
+        if evidence is None:
+            raise ValueError(f"skill evaluation evidence not found: {evidence_id}")
+        for existing in self.list_human_feedback(draft_id):
+            if existing.evidence_id == evidence_id and existing.feedback_hash == feedback_hash:
+                return existing
+        feedback = SkillHumanFeedback(
+            feedback_id=uuid4().hex,
+            evidence_id=evidence_id,
+            draft_id=draft.draft_id,
+            skill_name=draft.skill_name,
+            imported_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            schema_version=schema_version,
+            workflow_name=workflow_name,
+            exported_at=exported_at,
+            report_hash=report_hash,
+            feedback_hash=feedback_hash,
+            source_path=source_path,
+            reviews=reviews,
+        )
+        self._save_human_feedback(feedback)
+        draft.human_feedback_ids.append(feedback.feedback_id)
+        draft.decision_reason = "human evaluation feedback recorded; activation remains pending"
+        self._save_draft(draft)
+        self._record_event(draft, "human_feedback_recorded")
+        return feedback
+
+    def get_human_feedback(
+        self,
+        draft_id: str,
+        feedback_id: str,
+    ) -> SkillHumanFeedback | None:
+        path = self._human_feedback_path(draft_id, feedback_id)
+        if not path.exists():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["reviews"] = tuple(
+            SkillHumanReview(**item) for item in payload.get("reviews", [])
+        )
+        return SkillHumanFeedback(**payload)
+
+    def list_human_feedback(self, draft_id: str) -> list[SkillHumanFeedback]:
+        draft = self.get_draft(draft_id)
+        if draft is None:
+            return []
+        records = []
+        for feedback_id in draft.human_feedback_ids:
+            feedback = self.get_human_feedback(draft_id, feedback_id)
+            if feedback is not None:
+                records.append(feedback)
+        return records
+
     def reject(self, draft_id: str, *, reason: str) -> SkillDraft:
         draft = self._require_pending_draft(draft_id)
         draft.status = "rejected"
@@ -699,6 +790,16 @@ class SkillGovernanceService:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("x", encoding="utf-8") as handle:
             json.dump(asdict(evidence), handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+
+    def _human_feedback_path(self, draft_id: str, feedback_id: str) -> Path:
+        return self._evaluation_evidence_root(draft_id) / "feedback" / f"{feedback_id}.json"
+
+    def _save_human_feedback(self, feedback: SkillHumanFeedback) -> None:
+        path = self._human_feedback_path(feedback.draft_id, feedback.feedback_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8") as handle:
+            json.dump(asdict(feedback), handle, ensure_ascii=False, indent=2, sort_keys=True)
             handle.write("\n")
 
     def _save_version_record(self, version: SkillVersionRecord) -> None:
