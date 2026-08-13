@@ -35,3 +35,13 @@ navi-agent skill feedback "$DRAFT_ID" \
 The command validates the Draft, report, case set, and reviewed tasks before
 persisting immutable feedback evidence. Human feedback remains advisory and is
 not enforced by the activation command.
+
+After importing feedback for three repeated runs, inspect the read-only result:
+
+```bash
+navi-agent skill aggregate "$DRAFT_ID"
+```
+
+Aggregation requires comparable Skill, case, and model fingerprints, passing
+machine gates, and one human feedback record per run. It returns `accepted`,
+`rejected`, or `inconclusive` without changing or activating the candidate.

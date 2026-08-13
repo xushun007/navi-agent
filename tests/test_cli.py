@@ -1976,6 +1976,37 @@ class CliTests(unittest.TestCase):
         self.assertIn("skill_feedback_id: feedback-1", stdout.getvalue())
         self.assertIn("baseline=0, tie=1, variant=2", stdout.getvalue())
 
+    def test_main_aggregates_skill_evaluation(self) -> None:
+        stdout = io.StringIO()
+        aggregate = type(
+            "Aggregate",
+            (),
+            {
+                "status": "accepted",
+                "reason": "Variant won a majority",
+                "run_count": 3,
+                "reviewed_run_count": 3,
+                "machine_passed_run_count": 3,
+                "preference_counts": {"baseline": 1, "tie": 1, "variant": 7},
+            },
+        )()
+        with patch(
+            "navi_agent.cli.skill.aggregate_skill_evaluation",
+            return_value=aggregate,
+        ) as aggregate_skill:
+            with patch(
+                "sys.argv",
+                ["navi-agent", "skill", "aggregate", "draft-1"],
+            ):
+                with redirect_stdout(stdout):
+                    exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        aggregate_skill.assert_called_once_with("draft-1")
+        self.assertIn("skill_eval_status: accepted", stdout.getvalue())
+        self.assertIn("total=3, reviewed=3, machine_passed=3", stdout.getvalue())
+        self.assertIn("baseline=1, tie=1, variant=7", stdout.getvalue())
+
     def test_main_renders_local_trace_viewer(self) -> None:
         stdout = io.StringIO()
         with patch(

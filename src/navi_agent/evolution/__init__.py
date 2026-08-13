@@ -20,6 +20,10 @@ from .evals.skill import (
     SkillEvalWorkflowService,
 )
 from .evals.skill_feedback import SkillFeedbackImport, SkillFeedbackImportService
+from .evals.skill_aggregate import (
+    SkillEvaluationAggregate,
+    SkillEvaluationAggregateService,
+)
 from .evals.seed import EvalSeed, EvalSeedReportRecord, EvalSeedReportStore, EvalSeedReportWriter, EvalSeedStore
 from .evals.tool_use import (
     ToolUseEvalCase,
@@ -125,6 +129,8 @@ __all__ = [
     "SkillAdmissionValidator",
     "SkillDraftProvenance",
     "SkillEvaluationEvidence",
+    "SkillEvaluationAggregate",
+    "SkillEvaluationAggregateService",
     "SkillEvaluationResult",
     "SkillFeedbackImport",
     "SkillFeedbackImportService",

@@ -169,6 +169,16 @@ uv run navi-agent skill feedback "$DRAFT_ID" \
 命令会校验 Draft、报告、Case 集合和人工评审场景是否一致，并保存不可变反馈证据。
 它不会自动修改或激活 Skill；反馈仍然只作为后续问题归因和 Skill 修订的输入。
 
+三轮实验均导入反馈后，查看只读聚合结论：
+
+```bash
+uv run navi-agent skill aggregate "$DRAFT_ID"
+```
+
+聚合仅比较 Skill 内容、Case 和模型配置指纹一致的实验。默认要求至少三轮、每轮机器
+Gate 通过且每轮恰有一份人工反馈；结论为 `accepted`、`rejected` 或 `inconclusive`。
+该结论不修改 Candidate，也不自动执行激活。
+
 ## 6. 解释机器结果
 
 当前自动评分是最小确定性检查：

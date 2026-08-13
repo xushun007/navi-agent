@@ -79,6 +79,7 @@ navi-agent skill import PATH --source-kind external
 ```bash
 navi-agent skill eval DRAFT_ID --case-file cases.json
 navi-agent skill feedback DRAFT_ID --report-path REPORT_DIR --feedback-file feedback.json
+navi-agent skill aggregate DRAFT_ID
 navi-agent skill activate DRAFT_ID
 ```
 

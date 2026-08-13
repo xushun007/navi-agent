@@ -94,6 +94,13 @@ class SkillFeedbackImportService:
         report_cases = str(metadata.get("case_fingerprint") or "")
         source_session_id = str(report.get("source_session_id") or "")
         replay_session_id = str(report.get("replay_session_id") or "")
+        report_trace_ids = {
+            trace_id
+            for item in report.get("step_comparisons", [])
+            if isinstance(item, dict)
+            for trace_id in (item.get("source_trace_id"), item.get("replay_trace_id"))
+            if isinstance(trace_id, str) and trace_id
+        }
         resolved_report = report_path.resolve()
         for evidence in self._governance.list_evaluation_evidence(draft_id):
             if (
@@ -102,6 +109,7 @@ class SkillFeedbackImportService:
                 and evidence.case_fingerprint == report_cases
                 and evidence.source_session_id == source_session_id
                 and evidence.replay_session_id == replay_session_id
+                and set(evidence.trace_ids) == report_trace_ids
             ):
                 return evidence
         raise ValueError("report is not bound to recorded skill evaluation evidence")

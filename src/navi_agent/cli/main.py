@@ -450,6 +450,7 @@ def _build_approval_provider(args):
 
 def _run_skill_command(args, *, parser: argparse.ArgumentParser) -> int:
     from navi_agent.cli.skill import (
+        aggregate_skill_evaluation,
         activate_skill_draft,
         import_skill_feedback,
         run_skill_evaluation,
@@ -501,10 +502,27 @@ def _run_skill_command(args, *, parser: argparse.ArgumentParser) -> int:
                 )
             )
             return 0
+        if args.subcommand == "aggregate":
+            aggregate = aggregate_skill_evaluation(args.command_target)
+            print(f"skill_eval_status: {aggregate.status}")
+            print(f"skill_eval_reason: {aggregate.reason}")
+            print(
+                "skill_eval_runs: "
+                f"total={aggregate.run_count}, "
+                f"reviewed={aggregate.reviewed_run_count}, "
+                f"machine_passed={aggregate.machine_passed_run_count}"
+            )
+            print(
+                "skill_eval_preferences: "
+                + ", ".join(
+                    f"{key}={value}" for key, value in aggregate.preference_counts.items()
+                )
+            )
+            return 0 if aggregate.status == "accepted" else 1
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"skill_command_error: {error}")
         return 1
-    parser.error("skill command requires import, eval, feedback, or activate")
+    parser.error("skill command requires import, eval, feedback, aggregate, or activate")
 
 
 def _run_trace_command(args, *, parser: argparse.ArgumentParser) -> int:

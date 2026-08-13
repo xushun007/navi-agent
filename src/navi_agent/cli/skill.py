@@ -15,6 +15,7 @@ from navi_agent.evolution import (
     SkillEvalCase,
     SkillEvalRun,
     SkillEvalWorkflowService,
+    SkillEvaluationAggregateService,
     SkillFeedbackImportService,
     SkillGovernanceService,
     SkillPromotionGate,
@@ -133,6 +134,10 @@ def import_skill_feedback(
         report_path=report_path,
         feedback_path=feedback_file,
     )
+
+
+def aggregate_skill_evaluation(draft_id: str):
+    return SkillEvaluationAggregateService(_governance()).aggregate(draft_id)
 
 
 def load_skill_eval_cases(path: Path) -> list[SkillEvalCase]:

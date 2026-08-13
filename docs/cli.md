@@ -81,6 +81,7 @@ Evaluate the returned draft ID and activate it only after the A/B gate passes:
 ```bash
 navi-agent skill eval DRAFT_ID --case-file cases.json
 navi-agent skill feedback DRAFT_ID --report-path REPORT_DIR --feedback-file feedback.json
+navi-agent skill aggregate DRAFT_ID
 navi-agent skill activate DRAFT_ID
 ```
 
