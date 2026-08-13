@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
@@ -87,6 +88,21 @@ def run_skill_evaluation(
     governance.record_evaluation(
         draft_id,
         evaluation_results=[summary.evaluation_result],
+        case_fingerprint=str(summary.comparison.eval_case.metadata["case_fingerprint"]),
+        model_config_fingerprint=_model_config_fingerprint(
+            model_settings=model_settings,
+            runtime_settings=runtime_settings,
+            system_prompt=system_prompt,
+        ),
+        report_path=str(summary.report_path.resolve()),
+        source_session_id=summary.comparison.source_session_id,
+        replay_session_id=summary.comparison.replay_session_id,
+        trace_ids=tuple(
+            trace_id
+            for step in summary.comparison.step_comparisons
+            for trace_id in (step.source_step.trace_id, step.replay_step.trace_id)
+            if trace_id
+        ),
     )
     return summary.report_path, summary.evaluation_result.passed
 
@@ -134,3 +150,20 @@ def _governance() -> SkillGovernanceService:
         FileSkillStore(get_skills_dir()),
         gate=SkillPromotionGate(required_suites=("skill_ab",)),
     )
+
+
+def _model_config_fingerprint(
+    *,
+    model_settings: ModelSettings,
+    runtime_settings: RuntimeSettings,
+    system_prompt: str | None,
+) -> str:
+    payload = {
+        "base_url": model_settings.base_url or "",
+        "context_limit_tokens": model_settings.context_limit_tokens,
+        "max_iterations": runtime_settings.max_iterations,
+        "model": model_settings.model,
+        "system_prompt": system_prompt or "",
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"sha256:{sha256(encoded.encode('utf-8')).hexdigest()}"

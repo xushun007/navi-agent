@@ -122,6 +122,46 @@ def test_missing_or_failed_evaluation_preserves_active_skill(tmp_path: Path) -> 
     assert store.get("readme-review").content == original
 
 
+def test_evaluation_evidence_is_appended_without_losing_previous_runs(tmp_path: Path) -> None:
+    _, service = _service(tmp_path)
+    draft = service.create_draft(
+        skill_name="readme-review",
+        content=_skill_content("- Read the file."),
+        provenance=_provenance(),
+    )
+    _admit(service, draft.draft_id)
+
+    first = SkillEvaluationResult("targeted", True, 0.5, 0.8)
+    service.record_evaluation(
+        draft.draft_id,
+        evaluation_results=[first],
+        case_fingerprint="sha256:cases",
+        model_config_fingerprint="sha256:model",
+        report_path="/tmp/report-1",
+        source_session_id="baseline-1",
+        replay_session_id="variant-1",
+        trace_ids=("trace-1", "trace-2"),
+    )
+    second = SkillEvaluationResult("targeted", True, 0.6, 0.9)
+    recorded = service.record_evaluation(
+        draft.draft_id,
+        evaluation_results=[second],
+        report_path="/tmp/report-2",
+    )
+
+    evidence = service.list_evaluation_evidence(draft.draft_id)
+    assert len(evidence) == 2
+    assert recorded.evaluation_results == [second]
+    assert recorded.evaluation_evidence_ids == [item.evidence_id for item in evidence]
+    assert evidence[0].evaluation_results == (first,)
+    assert evidence[0].case_fingerprint == "sha256:cases"
+    assert evidence[0].model_config_fingerprint == "sha256:model"
+    assert evidence[0].report_path == "/tmp/report-1"
+    assert evidence[0].trace_ids == ("trace-1", "trace-2")
+    assert evidence[1].evaluation_results == (second,)
+    assert len(evidence[0].skill_content_hash) == 64
+
+
 def test_records_no_improvement_and_regression_without_activation(tmp_path: Path) -> None:
     store, service = _service(tmp_path)
     original = _skill_content("- Keep the active procedure.")

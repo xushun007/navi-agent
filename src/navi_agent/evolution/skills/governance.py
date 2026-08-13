@@ -43,6 +43,7 @@ class SkillDraft:
     decision_reason: str = ""
     admission_results: list[SkillAdmissionResult] = field(default_factory=list)
     evaluation_results: list[SkillEvaluationResult] = field(default_factory=list)
+    evaluation_evidence_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +53,22 @@ class SkillEvaluationResult:
     baseline_score: float
     draft_score: float
     reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SkillEvaluationEvidence:
+    evidence_id: str
+    draft_id: str
+    skill_name: str
+    created_at: str
+    skill_content_hash: str
+    case_fingerprint: str
+    model_config_fingerprint: str
+    report_path: str
+    source_session_id: str
+    replay_session_id: str
+    trace_ids: tuple[str, ...]
+    evaluation_results: tuple[SkillEvaluationResult, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,13 +339,65 @@ class SkillGovernanceService:
         draft_id: str,
         *,
         evaluation_results: list[SkillEvaluationResult],
+        case_fingerprint: str = "",
+        model_config_fingerprint: str = "",
+        report_path: str = "",
+        source_session_id: str = "",
+        replay_session_id: str = "",
+        trace_ids: tuple[str, ...] = (),
     ) -> SkillDraft:
         draft = self._require_candidate_draft(draft_id)
+        draft_skill = self.get_draft_skill(draft_id)
+        if draft_skill is None:
+            raise ValueError(f"skill draft content is missing: {draft_id}")
+        evidence = SkillEvaluationEvidence(
+            evidence_id=uuid4().hex,
+            draft_id=draft.draft_id,
+            skill_name=draft.skill_name,
+            created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            skill_content_hash=self._content_hash(draft_skill.path.parent),
+            case_fingerprint=case_fingerprint,
+            model_config_fingerprint=model_config_fingerprint,
+            report_path=report_path,
+            source_session_id=source_session_id,
+            replay_session_id=replay_session_id,
+            trace_ids=tuple(trace_ids),
+            evaluation_results=tuple(evaluation_results),
+        )
+        self._save_evaluation_evidence(evidence)
         draft.evaluation_results = list(evaluation_results)
+        draft.evaluation_evidence_ids.append(evidence.evidence_id)
         draft.decision_reason = "skill evaluation evidence recorded; activation remains pending"
         self._save_draft(draft)
         self._record_event(draft, "evaluated")
         return draft
+
+    def get_evaluation_evidence(
+        self,
+        draft_id: str,
+        evidence_id: str,
+    ) -> SkillEvaluationEvidence | None:
+        path = self._evaluation_evidence_path(draft_id, evidence_id)
+        if not path.exists():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["trace_ids"] = tuple(payload.get("trace_ids") or ())
+        payload["evaluation_results"] = tuple(
+            SkillEvaluationResult(**item)
+            for item in payload.get("evaluation_results", [])
+        )
+        return SkillEvaluationEvidence(**payload)
+
+    def list_evaluation_evidence(self, draft_id: str) -> list[SkillEvaluationEvidence]:
+        draft = self.get_draft(draft_id)
+        if draft is None:
+            return []
+        records = []
+        for evidence_id in draft.evaluation_evidence_ids:
+            evidence = self.get_evaluation_evidence(draft_id, evidence_id)
+            if evidence is not None:
+                records.append(evidence)
+        return records
 
     def reject(self, draft_id: str, *, reason: str) -> SkillDraft:
         draft = self._require_pending_draft(draft_id)
@@ -618,6 +687,19 @@ class SkillGovernanceService:
 
     def _version_metadata_path(self, skill_name: str, version_id: str) -> Path:
         return self._version_root(skill_name, version_id) / "version.json"
+
+    def _evaluation_evidence_root(self, draft_id: str) -> Path:
+        return self._root / "evaluations" / draft_id
+
+    def _evaluation_evidence_path(self, draft_id: str, evidence_id: str) -> Path:
+        return self._evaluation_evidence_root(draft_id) / f"{evidence_id}.json"
+
+    def _save_evaluation_evidence(self, evidence: SkillEvaluationEvidence) -> None:
+        path = self._evaluation_evidence_path(evidence.draft_id, evidence.evidence_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8") as handle:
+            json.dump(asdict(evidence), handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
 
     def _save_version_record(self, version: SkillVersionRecord) -> None:
         self._write_json(
