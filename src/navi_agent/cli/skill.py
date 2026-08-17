@@ -16,6 +16,7 @@ from navi_agent.evolution import (
     SkillEvalRun,
     SkillEvalWorkflowService,
     SkillEvaluationAggregateService,
+    SkillEvaluationResult,
     SkillFeedbackImportService,
     SkillGovernanceService,
     SkillPromotionGate,
@@ -114,11 +115,28 @@ def activate_skill_draft(draft_id: str) -> str:
     draft = governance.get_draft(draft_id)
     if draft is None:
         raise ValueError(f"draft not found: {draft_id}")
-    if not draft.evaluation_results:
-        raise ValueError("skill draft has no recorded evaluation evidence")
+    aggregate = SkillEvaluationAggregateService(governance).aggregate(draft_id)
+    if aggregate.status != "accepted":
+        raise ValueError(
+            f"skill evaluation is {aggregate.status}: {aggregate.reason}"
+        )
+    decisive_preferences = (
+        aggregate.preference_counts["baseline"]
+        + aggregate.preference_counts["variant"]
+    )
+    baseline_score = aggregate.preference_counts["baseline"] / decisive_preferences
+    variant_score = aggregate.preference_counts["variant"] / decisive_preferences
     activated = governance.activate(
         draft_id,
-        evaluation_results=draft.evaluation_results,
+        evaluation_results=[
+            SkillEvaluationResult(
+                suite="skill_ab",
+                passed=True,
+                baseline_score=baseline_score,
+                draft_score=variant_score,
+                reason=aggregate.reason,
+            )
+        ],
     )
     return activated.status
 

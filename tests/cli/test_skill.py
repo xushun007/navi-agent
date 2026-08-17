@@ -12,6 +12,7 @@ from navi_agent.evolution import (
     FileSkillStore,
     SkillEvaluationResult,
     SkillGovernanceService,
+    SkillHumanReview,
     SkillPromotionGate,
 )
 
@@ -115,7 +116,10 @@ def test_imports_standard_skill_without_navi_specific_sections(
     assert draft.status == "candidate"
 
 
-def test_activation_requires_recorded_eval_evidence(tmp_path: Path, monkeypatch) -> None:
+def test_activation_requires_accepted_evaluation_aggregate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     active_root = tmp_path / "active"
     source = tmp_path / "human-review"
     source.mkdir()
@@ -133,17 +137,68 @@ def test_activation_requires_recorded_eval_evidence(tmp_path: Path, monkeypatch)
     monkeypatch.setattr("navi_agent.cli.skill.get_skills_dir", lambda: active_root)
     draft_id = stage_skill_directory(source, source_kind="human")
 
-    with pytest.raises(ValueError, match="no recorded evaluation"):
+    with pytest.raises(ValueError, match="inconclusive.*at least 3"):
         activate_skill_draft(draft_id)
 
     governance = SkillGovernanceService(
         FileSkillStore(active_root),
         gate=SkillPromotionGate(required_suites=("skill_ab",)),
     )
-    governance.record_evaluation(
-        draft_id,
-        evaluation_results=[SkillEvaluationResult("skill_ab", True, 0.0, 1.0)],
-    )
+    for index, preferences in enumerate(
+        (
+            ("variant", "variant"),
+            ("variant", "tie"),
+            ("tie", "baseline"),
+        ),
+        start=1,
+    ):
+        evaluated = governance.record_evaluation(
+            draft_id,
+            evaluation_results=[SkillEvaluationResult("skill_ab", True, 1.0, 1.0)],
+            case_fingerprint="sha256:cases",
+            model_config_fingerprint="sha256:model",
+            report_path=f"/tmp/report-{index}",
+        )
+        governance.record_human_feedback(
+            draft_id,
+            evidence_id=evaluated.evaluation_evidence_ids[-1],
+            schema_version=1,
+            workflow_name="skill:human-review",
+            exported_at=f"2026-08-17T10:00:0{index}Z",
+            report_hash=f"sha256:report-{index}",
+            feedback_hash=f"sha256:feedback-{index}",
+            source_path=f"/tmp/feedback-{index}.json",
+            reviews=tuple(
+                SkillHumanReview(f"case-{case_index}", preference)
+                for case_index, preference in enumerate(preferences)
+            ),
+        )
 
     assert activate_skill_draft(draft_id) == "promoted"
     assert FileSkillStore(active_root).get("human-review") is not None
+
+
+def test_failed_activation_keeps_skill_candidate(tmp_path: Path, monkeypatch) -> None:
+    active_root = tmp_path / "active"
+    source = tmp_path / "human-review"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\n"
+        "name: human-review\n"
+        "description: Review human-authored documents.\n"
+        "---\n\n"
+        "# Human Review\n\nVerify the document.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("navi_agent.cli.skill.get_skills_dir", lambda: active_root)
+    draft_id = stage_skill_directory(source, source_kind="human")
+
+    with pytest.raises(ValueError, match="inconclusive"):
+        activate_skill_draft(draft_id)
+
+    draft = SkillGovernanceService(
+        FileSkillStore(active_root),
+        gate=SkillPromotionGate(required_suites=("skill_ab",)),
+    ).get_draft(draft_id)
+    assert draft is not None
+    assert draft.status == "candidate"
