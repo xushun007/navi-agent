@@ -36,6 +36,9 @@ Issues = "https://github.com/xushun007/navi-agent/issues"
 Repository = "https://github.com/xushun007/navi-agent"
 
 [project.optional-dependencies]
+mcp = [
+    "mcp>=2.0,<3",
+]
 eval = [
     "inspect-ai>=0.3.249",
 ]
