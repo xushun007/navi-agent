@@ -1,5 +1,7 @@
 from .settings import (
     LangfuseSettings,
+    MCPServerSettings,
+    MCPSettings,
     ModelSettings,
     RuntimeSettings,
     WebSettings,
@@ -9,6 +11,8 @@ from .settings import (
 
 __all__ = [
     "LangfuseSettings",
+    "MCPServerSettings",
+    "MCPSettings",
     "ModelSettings",
     "RuntimeSettings",
     "WebSettings",

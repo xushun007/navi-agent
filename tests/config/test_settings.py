@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from navi_agent.config import (
+    MCPSettings,
     ModelSettings,
     RuntimeSettings,
     WebSettings,
@@ -14,6 +15,38 @@ from navi_agent.config import (
 
 
 class SettingsTests(unittest.TestCase):
+    def test_mcp_settings_loads_enabled_stdio_servers(self) -> None:
+        settings = MCPSettings.from_sources(
+            {
+                "mcp": {
+                    "servers": {
+                        "files": {
+                            "command": ["uvx", "mcp-server-filesystem", "."],
+                            "environment": {"LOG_LEVEL": "warning"},
+                            "startup_timeout_seconds": 5,
+                            "tool_timeout_seconds": 20,
+                        },
+                        "disabled": {
+                            "enabled": False,
+                            "command": ["ignored"],
+                        },
+                    }
+                }
+            }
+        )
+
+        self.assertEqual(len(settings.servers), 1)
+        server = settings.servers[0]
+        self.assertEqual(server.name, "files")
+        self.assertEqual(server.command, ("uvx", "mcp-server-filesystem", "."))
+        self.assertEqual(server.environment, {"LOG_LEVEL": "warning"})
+        self.assertEqual(server.startup_timeout_seconds, 5.0)
+        self.assertEqual(server.tool_timeout_seconds, 20.0)
+
+    def test_mcp_settings_rejects_invalid_server_config(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires a command list"):
+            MCPSettings.from_sources({"mcp": {"servers": {"files": {}}}})
+
     def test_model_settings_reads_navi_env_first(self) -> None:
         with patch.dict(
             os.environ,

@@ -96,6 +96,56 @@ class WebSettings:
         return cls.from_sources()
 
 
+@dataclass(frozen=True, slots=True)
+class MCPServerSettings:
+    name: str
+    command: tuple[str, ...]
+    environment: dict[str, str]
+    startup_timeout_seconds: float = 10.0
+    tool_timeout_seconds: float = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class MCPSettings:
+    servers: tuple[MCPServerSettings, ...] = ()
+
+    @classmethod
+    def from_sources(cls, config: dict | None = None) -> "MCPSettings":
+        config = config or {}
+        mcp_cfg = config.get("mcp") or {}
+        raw_servers = mcp_cfg.get("servers") or {}
+        if not isinstance(raw_servers, dict):
+            raise ValueError("mcp.servers must be an object")
+
+        servers = []
+        for name, value in raw_servers.items():
+            if not isinstance(value, dict):
+                raise ValueError(f"mcp server {name!r} must be an object")
+            if not _as_bool(value.get("enabled"), True):
+                continue
+            command = value.get("command")
+            if not isinstance(command, list) or not command:
+                raise ValueError(f"mcp server {name!r} requires a command list")
+            arguments = tuple(str(item).strip() for item in command)
+            if not str(name).strip() or any(not item for item in arguments):
+                raise ValueError(f"mcp server {name!r} has an invalid name or command")
+            environment = value.get("environment") or {}
+            if not isinstance(environment, dict):
+                raise ValueError(f"mcp server {name!r} environment must be an object")
+            servers.append(
+                MCPServerSettings(
+                    name=str(name).strip(),
+                    command=arguments,
+                    environment={str(key): str(item) for key, item in environment.items()},
+                    startup_timeout_seconds=float(
+                        value.get("startup_timeout_seconds", 10.0)
+                    ),
+                    tool_timeout_seconds=float(value.get("tool_timeout_seconds", 30.0)),
+                )
+            )
+        return cls(servers=tuple(servers))
+
+
 @dataclass(slots=True)
 class WeixinGatewaySettings:
     token: str | None = None
