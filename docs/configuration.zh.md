@@ -17,6 +17,9 @@ runtime:
 web:
   search_api_key: replace-with-your-brave-search-api-key
 
+mcp:
+  servers: {}
+
 gateway:
   weixin:
     token: replace-with-your-weixin-token
@@ -33,6 +36,35 @@ telemetry:
     secret_key: replace-with-your-langfuse-secret-key
     host: https://cloud.langfuse.com
 ```
+
+## MCP 工具
+
+第一版 MCP 仅支持本地 `stdio` Server，并只接入其 Tools。先安装可选依赖：
+
+```bash
+uv sync --extra mcp
+```
+
+然后在配置中声明 Server：
+
+```yaml
+mcp:
+  servers:
+    files:
+      command:
+        - npx
+        - -y
+        - "@modelcontextprotocol/server-filesystem"
+        - /absolute/path/to/project
+      environment:
+        ACCESS_TOKEN: "${ACCESS_TOKEN}"
+      startup_timeout_seconds: 10
+      tool_timeout_seconds: 30
+```
+
+环境变量引用只接受完整的 `${NAME}` 形式，实际值不会写入配置。发现的工具以
+`mcp__files__工具名` 注册。某个 Server 启动失败时只禁用该 Server，不阻断 Navi
+启动。当前不支持 remote HTTP、resources、prompts、OAuth 或 sampling。
 
 ## 环境变量
 

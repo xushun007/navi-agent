@@ -18,6 +18,9 @@ runtime:
 web:
   search_api_key: replace-with-your-brave-search-api-key
 
+mcp:
+  servers: {}
+
 gateway:
   weixin:
     token: replace-with-your-weixin-token
@@ -34,6 +37,38 @@ telemetry:
     secret_key: replace-with-your-langfuse-secret-key
     host: https://cloud.langfuse.com
 ```
+
+## MCP tools
+
+The first MCP integration supports local `stdio` servers and their tools only.
+Install the optional dependency first:
+
+```bash
+uv sync --extra mcp
+```
+
+Then declare a server in the configuration:
+
+```yaml
+mcp:
+  servers:
+    files:
+      command:
+        - npx
+        - -y
+        - "@modelcontextprotocol/server-filesystem"
+        - /absolute/path/to/project
+      environment:
+        ACCESS_TOKEN: "${ACCESS_TOKEN}"
+      startup_timeout_seconds: 10
+      tool_timeout_seconds: 30
+```
+
+Environment references must use the complete `${NAME}` form, so the actual value
+does not need to be stored in the file. Discovered tools are registered as
+`mcp__files__tool_name`. A broken server disables only that server and does not
+prevent Navi from starting. Remote HTTP, resources, prompts, OAuth, and sampling
+are not supported yet.
 
 ## Environment variables
 

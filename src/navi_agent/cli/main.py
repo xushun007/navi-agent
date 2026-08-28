@@ -113,6 +113,9 @@ runtime:
 web:
   search_api_key:
 
+mcp:
+  servers: {}
+
 gateway:
   weixin:
     token: replace-with-your-weixin-token
