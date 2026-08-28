@@ -7,6 +7,7 @@ from pathlib import Path
 from navi_agent.app import ApplicationService
 from navi_agent.config import (
     LangfuseSettings,
+    MCPSettings,
     ModelSettings,
     RuntimeSettings,
     WebSettings,
@@ -27,6 +28,7 @@ from navi_agent.evolution import (
 )
 from navi_agent.logging import setup_logging
 from navi_agent.memory import FileMemoryStore
+from navi_agent.mcp import MCPToolProvider
 from navi_agent.paths import (
     get_app_log_path,
     get_candidate_store_path,
@@ -80,6 +82,8 @@ def build_runtime(
     model_settings = model_settings or ModelSettings.from_sources(config)
     runtime_settings = runtime_settings or RuntimeSettings.from_sources(config)
     web_settings = WebSettings.from_sources(config)
+    mcp_provider = MCPToolProvider(MCPSettings.from_sources(config))
+    mcp_tools = mcp_provider.discover()
 
     setup_logging(
         level="INFO",
@@ -139,6 +143,7 @@ def build_runtime(
                 additional_roots=added_roots,
                 interaction_store=interaction_store if include_delegation else None,
                 web_search_api_key=web_settings.search_api_key,
+                mcp_tools=mcp_tools,
             ),
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
@@ -147,6 +152,7 @@ def build_runtime(
             parent_session_id=parent_session_id,
             model=model_settings.model,
             cwd=str(resolved_workspace_root),
+            close_callbacks=[mcp_provider.close] if include_delegation else None,
         )
 
     subagent_service = SubagentService(

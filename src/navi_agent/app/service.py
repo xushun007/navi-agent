@@ -264,6 +264,10 @@ class ApplicationService:
     def add_background_task_listener(self, listener: Callable[[BackgroundTask], None]) -> bool:
         return self._runtime.add_background_task_listener(listener)
 
+    def close(self) -> None:
+        self.wait_for_background_reviews()
+        self._runtime.close()
+
     def has_session(self, session_id: str, user_id: str) -> bool:
         return self._runtime.has_session(session_id, user_id)
 

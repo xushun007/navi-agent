@@ -276,6 +276,9 @@ class ILinkGateway:
                 "Weixin shutdown drain timed out: timeout_seconds=%s",
                 self.shutdown_drain_seconds,
             )
+        close_app = getattr(self.app, "close", None)
+        if callable(close_app):
+            close_app()
 
     def _accept_message(self, message: ILinkMessage) -> bool:
         if message.message_id and message.message_id in self.seen_message_ids:

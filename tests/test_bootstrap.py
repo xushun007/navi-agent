@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from navi_agent.app.bootstrap import build_runtime
-from navi_agent.config import LangfuseSettings, ModelSettings, RuntimeSettings
+from navi_agent.config import LangfuseSettings, MCPSettings, ModelSettings, RuntimeSettings
 from navi_agent.memory import FileMemoryStore
 from navi_agent.runtime import ToolCall, ToolContext
 from navi_agent.runtime.tools.approval import AutoApproveApprovalProvider
@@ -15,6 +15,27 @@ from navi_agent.app.bootstrap import build_application
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_build_runtime_discovers_mcp_tools_and_closes_provider(self) -> None:
+        mcp_tool = object()
+        with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.app.bootstrap.setup_logging"):
+                with patch("navi_agent.app.bootstrap.build_default_tool_registry") as registry:
+                    with patch("navi_agent.app.bootstrap.MCPToolProvider") as provider_cls:
+                        provider_cls.return_value.discover.return_value = (mcp_tool,)
+                        with patch(
+                            "navi_agent.app.bootstrap.MCPSettings.from_sources",
+                            return_value=MCPSettings(),
+                        ):
+                            runtime = build_runtime(
+                                model_settings=ModelSettings(model="demo", api_key="x"),
+                                runtime_settings=RuntimeSettings(max_iterations=3),
+                            )
+
+        self.assertEqual(registry.call_args.kwargs["mcp_tools"], (mcp_tool,))
+        runtime.close()
+        runtime.close()
+        provider_cls.return_value.close.assert_called_once_with()
+
     def test_build_runtime_wires_transport_session_store_and_iterations(self) -> None:
         model_settings = ModelSettings(
             model="gpt-4o-mini",

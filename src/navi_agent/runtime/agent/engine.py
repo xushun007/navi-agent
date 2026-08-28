@@ -203,6 +203,7 @@ class AgentRuntime:
         parent_session_id: str | None = None,
         model: str | None = None,
         cwd: str | None = None,
+        close_callbacks: Sequence[Callable[[], None]] | None = None,
     ) -> None:
         self._transport = transport
         self._tool_registry = tool_registry or ToolRegistry()
@@ -227,6 +228,20 @@ class AgentRuntime:
         self._parent_session_id = parent_session_id
         self._model = model
         self._cwd = cwd
+        self._close_callbacks = tuple(close_callbacks or ())
+        self._close_lock = Lock()
+        self._closed = False
+
+    def close(self) -> None:
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+        for callback in reversed(self._close_callbacks):
+            try:
+                callback()
+            except Exception:
+                logger.exception("Runtime close callback failed")
 
     def add_background_task_listener(self, listener: Callable[[BackgroundTask], None]) -> bool:
         if self._background_task_manager is None:
