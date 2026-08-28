@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 
 from navi_agent.runtime import SubagentService, ToolCall, ToolContext
+from navi_agent.tooling import ToolResult
+from navi_agent.tools.base import FunctionTool
 from navi_agent.tools.defaults import build_default_tool_registry
 
 
@@ -87,3 +89,22 @@ class DefaultsTest(unittest.TestCase):
             {schema["name"] for schema in schemas},
             {"web_search", "web_fetch"},
         )
+
+    def test_mcp_tools_are_registered_in_dedicated_toolset(self) -> None:
+        tool = FunctionTool(
+            name="mcp__files__read_file",
+            description="Read a remote file.",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda: ToolResult.ok(name="mcp__files__read_file", content="ok"),
+        )
+        registry = build_default_tool_registry(mcp_tools=[tool])
+
+        mcp_names = {
+            schema["name"] for schema in registry.schemas(enabled_toolsets=["mcp"])
+        }
+        core_names = {
+            schema["name"] for schema in registry.schemas(enabled_toolsets=["core"])
+        }
+
+        self.assertEqual(mcp_names, {"mcp__files__read_file"})
+        self.assertIn("mcp__files__read_file", core_names)

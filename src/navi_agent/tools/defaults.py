@@ -16,8 +16,9 @@ from navi_agent.runtime.tasks.cron import CronJobStore
 from navi_agent.runtime.tools.approval import ApprovalProvider
 from navi_agent.runtime.tools.policy import BashCommandPolicy, SensitiveToolPolicy
 
-from .bash_tool import BashTool
 from .ask_user_tool import AskUserTool
+from .base import BaseTool
+from .bash_tool import BashTool
 from .background_task_tool import BackgroundTaskTool
 from .code_executor_tool import CodeExecutorTool
 from .cron_tool import CronTool
@@ -46,11 +47,13 @@ def build_default_tool_registry(
     additional_roots: Iterable[Path] | None = None,
     interaction_store: JsonPendingInteractionStore | None = None,
     web_search_api_key: str | None = None,
+    mcp_tools: Iterable[BaseTool] | None = None,
 ) -> ToolRegistry:
     workspace_root = root or Path.cwd()
     added_roots = tuple(additional_roots or ())
     shared_memory_store = memory_store or InMemoryMemoryStore()
     background_task_manager = background_task_manager or BackgroundTaskManager()
+    resolved_mcp_tools = tuple(mcp_tools or ())
     return ToolRegistry(
         registered_tools=[
             (
@@ -93,6 +96,7 @@ def build_default_tool_registry(
             ("todo", TodoTool()),
             ("web", WebFetchTool()),
             ("web", WebSearchTool(api_key=web_search_api_key)),
+            *[("mcp", tool) for tool in resolved_mcp_tools],
             *(
                 [("interaction", AskUserTool(interaction_store))]
                 if interaction_store is not None
@@ -113,6 +117,10 @@ def build_default_tool_registry(
             ToolsetDefinition(name="skills", tools=["skill_list", "skill_view"]),
             ToolsetDefinition(name="todo", tools=["todo"]),
             ToolsetDefinition(name="web", tools=["web_search", "web_fetch"]),
+            ToolsetDefinition(
+                name="mcp",
+                tools=[tool.name for tool in resolved_mcp_tools],
+            ),
             ToolsetDefinition(name="interaction", tools=["ask_user"]),
             ToolsetDefinition(
                 name="core",
@@ -128,6 +136,7 @@ def build_default_tool_registry(
                     "delegation",
                     "interaction",
                     "web",
+                    "mcp",
                 ],
             ),
         ],
