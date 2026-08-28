@@ -117,14 +117,14 @@ class MCPStdioClient:
             self._stop_event = None
 
     async def _serve(self) -> None:
-        Client, StdioServerParameters, stdio_client = _load_sdk()
+        Client, StdioServerParameters = _load_sdk()
         command, *args = self.settings.command
         parameters = StdioServerParameters(
             command=command,
             args=args,
             env=_resolve_environment(self.settings.environment),
         )
-        async with Client(stdio_client(parameters)) as client:
+        async with Client(parameters) as client:
             tools_result = await client.list_tools()
             self._loop = asyncio.get_running_loop()
             self._stop_event = asyncio.Event()
@@ -142,12 +142,11 @@ class MCPStdioClient:
 def _load_sdk():
     try:
         from mcp import Client, StdioServerParameters
-        from mcp.client.stdio import stdio_client
     except ImportError as error:
         raise MCPClientError(
             "MCP support requires the optional dependency: uv sync --extra mcp"
         ) from error
-    return Client, StdioServerParameters, stdio_client
+    return Client, StdioServerParameters
 
 
 def _resolve_environment(environment: dict[str, str]) -> dict[str, str]:

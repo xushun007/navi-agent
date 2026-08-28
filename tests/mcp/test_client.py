@@ -16,20 +16,15 @@ class _FakeParameters:
     env: dict[str, str]
 
 
-class _FakeTransport:
+class _FakeClient:
+    last_parameters = None
+    calls = []
+
     def __init__(self, parameters) -> None:
         self.parameters = parameters
 
-
-class _FakeClient:
-    last_transport = None
-    calls = []
-
-    def __init__(self, transport) -> None:
-        self.transport = transport
-
     async def __aenter__(self):
-        type(self).last_transport = self.transport
+        type(self).last_parameters = self.parameters
         return self
 
     async def __aexit__(self, *_args):
@@ -71,7 +66,7 @@ def _settings(**overrides) -> MCPServerSettings:
 
 
 def _fake_sdk():
-    return _FakeClient, _FakeParameters, _FakeTransport
+    return _FakeClient, _FakeParameters
 
 
 def test_discovers_and_calls_stdio_tools(monkeypatch) -> None:
@@ -87,9 +82,9 @@ def test_discovers_and_calls_stdio_tools(monkeypatch) -> None:
 
     assert tools[0].name == "read-file"
     assert tools[0].input_schema["properties"]["path"]["type"] == "string"
-    assert _FakeClient.last_transport.parameters.command == "server"
-    assert _FakeClient.last_transport.parameters.args == ["--root", "."]
-    assert _FakeClient.last_transport.parameters.env == {"TOKEN": "secret"}
+    assert _FakeClient.last_parameters.command == "server"
+    assert _FakeClient.last_parameters.args == ["--root", "."]
+    assert _FakeClient.last_parameters.env == {"TOKEN": "secret"}
     assert _FakeClient.calls[-1] == ("read-file", {"path": "README.md"})
     assert result.content == "contents"
     assert result.structured_content == {"path": "README.md"}
