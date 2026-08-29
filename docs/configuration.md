@@ -40,8 +40,8 @@ telemetry:
 
 ## MCP tools
 
-The first MCP integration supports local `stdio` servers and their tools only.
-Install the optional dependency first:
+MCP supports local `stdio` and remote Streamable HTTP servers, exposing their
+tools only. Install the optional dependency first:
 
 ```bash
 uv sync --extra mcp
@@ -62,13 +62,22 @@ mcp:
         ACCESS_TOKEN: "${ACCESS_TOKEN}"
       startup_timeout_seconds: 10
       tool_timeout_seconds: 30
+
+    projects:
+      type: http
+      url: https://mcp.example.com/api
+      headers:
+        Authorization: "Bearer ${MCP_PROJECT_TOKEN}"
+      startup_timeout_seconds: 10
+      tool_timeout_seconds: 30
 ```
 
-Environment references must use the complete `${NAME}` form, so the actual value
-does not need to be stored in the file. Discovered tools are registered as
-`mcp__files__tool_name`. A broken server disables only that server and does not
-prevent Navi from starting. Remote HTTP, resources, prompts, OAuth, and sampling
-are not supported yet.
+`${NAME}` references inside configuration values are resolved from the environment
+when connecting, so secrets do not need to be stored in the file. Remote endpoints
+must use HTTPS; HTTP is accepted only for localhost and loopback addresses.
+Discovered tools are registered as `mcp__files__tool_name`. A broken server disables
+only that server and does not prevent Navi from starting. Resources, prompts, OAuth,
+sampling, and legacy SSE fallback are not supported yet.
 
 ## Environment variables
 

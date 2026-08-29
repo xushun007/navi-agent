@@ -39,7 +39,7 @@ telemetry:
 
 ## MCP 工具
 
-第一版 MCP 仅支持本地 `stdio` Server，并只接入其 Tools。先安装可选依赖：
+MCP 支持本地 `stdio` 和远程 Streamable HTTP Server，并只接入其 Tools。先安装可选依赖：
 
 ```bash
 uv sync --extra mcp
@@ -60,11 +60,20 @@ mcp:
         ACCESS_TOKEN: "${ACCESS_TOKEN}"
       startup_timeout_seconds: 10
       tool_timeout_seconds: 30
+
+    projects:
+      type: http
+      url: https://mcp.example.com/api
+      headers:
+        Authorization: "Bearer ${MCP_PROJECT_TOKEN}"
+      startup_timeout_seconds: 10
+      tool_timeout_seconds: 30
 ```
 
-环境变量引用只接受完整的 `${NAME}` 形式，实际值不会写入配置。发现的工具以
+配置值中的 `${NAME}` 会在连接时从环境变量解析，实际值不会写入配置。远程地址
+必须使用 HTTPS；只有 `localhost` 和回环地址允许 HTTP。发现的工具以
 `mcp__files__工具名` 注册。某个 Server 启动失败时只禁用该 Server，不阻断 Navi
-启动。当前不支持 remote HTTP、resources、prompts、OAuth 或 sampling。
+启动。当前不支持 resources、prompts、OAuth、sampling 或旧 SSE fallback。
 
 ## 环境变量
 
