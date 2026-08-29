@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import TimeoutError as FutureTimeoutError
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import json
 import os
@@ -12,7 +13,7 @@ from typing import Any
 from navi_agent.config import MCPServerSettings
 
 
-_ENV_REFERENCE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 class MCPClientError(RuntimeError):
@@ -33,8 +34,8 @@ class MCPCallResult:
     structured_content: dict[str, Any] | None = None
 
 
-class MCPStdioClient:
-    """Persistent synchronous facade over one async MCP stdio session."""
+class _PersistentMCPClient:
+    """Persistent synchronous facade over one async MCP session."""
 
     def __init__(self, settings: MCPServerSettings) -> None:
         self.settings = settings
@@ -117,14 +118,7 @@ class MCPStdioClient:
             self._stop_event = None
 
     async def _serve(self) -> None:
-        Client, StdioServerParameters = _load_sdk()
-        command, *args = self.settings.command
-        parameters = StdioServerParameters(
-            command=command,
-            args=args,
-            env=_resolve_environment(self.settings.environment),
-        )
-        async with Client(parameters) as client:
+        async with self._open_client() as client:
             tools_result = await client.list_tools()
             self._loop = asyncio.get_running_loop()
             self._stop_event = asyncio.Event()
@@ -138,6 +132,46 @@ class MCPStdioClient:
                 self._stop_event.set()
             await self._stop_event.wait()
 
+    def _open_client(self):
+        raise NotImplementedError
+
+
+class MCPStdioClient(_PersistentMCPClient):
+    """Persistent MCP client for a local stdio server."""
+
+    @asynccontextmanager
+    async def _open_client(self):
+        Client, StdioServerParameters = _load_sdk()
+        command, *args = self.settings.command
+        parameters = StdioServerParameters(
+            command=command,
+            args=args,
+            env=_resolve_environment(self.settings.environment),
+        )
+        async with Client(parameters) as client:
+            yield client
+
+
+class MCPHTTPClient(_PersistentMCPClient):
+    """Persistent MCP client for a Streamable HTTP server."""
+
+    @asynccontextmanager
+    async def _open_client(self):
+        Client, streamable_http_client, httpx2 = _load_http_sdk()
+        headers = _resolve_references(self.settings.headers)
+        timeout = httpx2.Timeout(self.settings.tool_timeout_seconds)
+        async with httpx2.AsyncClient(
+            headers=headers,
+            follow_redirects=True,
+            timeout=timeout,
+        ) as http_client:
+            transport = streamable_http_client(
+                self.settings.url,
+                http_client=http_client,
+            )
+            async with Client(transport) as client:
+                yield client
+
 
 def _load_sdk():
     try:
@@ -149,21 +183,36 @@ def _load_sdk():
     return Client, StdioServerParameters
 
 
+def _load_http_sdk():
+    try:
+        import httpx2
+        from mcp import Client
+        from mcp.client.streamable_http import streamable_http_client
+    except ImportError as error:
+        raise MCPClientError(
+            "MCP support requires the optional dependency: uv sync --extra mcp"
+        ) from error
+    return Client, streamable_http_client, httpx2
+
+
 def _resolve_environment(environment: dict[str, str]) -> dict[str, str]:
-    resolved = {}
-    for name, value in environment.items():
-        match = _ENV_REFERENCE.fullmatch(value)
-        if match is None:
-            resolved[name] = value
-            continue
+    return _resolve_references(environment)
+
+
+def _resolve_references(values: dict[str, str]) -> dict[str, str]:
+    def replace(match: re.Match[str]) -> str:
         source_name = match.group(1)
         source_value = os.getenv(source_name)
         if source_value is None:
             raise MCPClientError(
                 f"MCP environment variable {source_name!r} is not set"
             )
-        resolved[name] = source_value
-    return resolved
+        return source_value
+
+    return {
+        name: _ENV_REFERENCE.sub(replace, value)
+        for name, value in values.items()
+    }
 
 
 def _result_items(result: Any, attribute: str) -> list[Any]:

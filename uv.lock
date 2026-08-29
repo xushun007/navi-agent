@@ -2334,6 +2334,7 @@ eval = [
     { name = "inspect-ai" },
 ]
 mcp = [
+    { name = "httpx2" },
     { name = "mcp" },
 ]
 swe-bench = [
@@ -2354,6 +2355,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "ddgs", specifier = ">=9.14.4" },
+    { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.12,<3" },
     { name = "inspect-ai", marker = "extra == 'eval'", specifier = ">=0.3.249" },
     { name = "inspect-ai", marker = "extra == 'swe-bench'", specifier = ">=0.3.249" },
     { name = "inspect-evals", extras = ["swe-bench"], marker = "extra == 'swe-bench'", specifier = ">=0.16.0" },

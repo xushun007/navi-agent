@@ -37,6 +37,7 @@ Repository = "https://github.com/xushun007/navi-agent"
 
 [project.optional-dependencies]
 mcp = [
+    "httpx2>=2.12,<3",
     "mcp>=2.0,<3",
 ]
 eval = [
