@@ -173,6 +173,14 @@ class MCPHTTPClient(_PersistentMCPClient):
                 yield client
 
 
+def create_mcp_client(
+    settings: MCPServerSettings,
+) -> MCPStdioClient | MCPHTTPClient:
+    if settings.transport == "http":
+        return MCPHTTPClient(settings)
+    return MCPStdioClient(settings)
+
+
 def _load_sdk():
     try:
         from mcp import Client, StdioServerParameters

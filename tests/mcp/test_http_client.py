@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from navi_agent.config import MCPServerSettings
-from navi_agent.mcp import MCPHTTPClient
+from navi_agent.mcp import MCPHTTPClient, MCPStdioClient, create_mcp_client
 
 
 class _FakeTimeout:
@@ -94,3 +94,15 @@ def test_discovers_and_calls_streamable_http_tools(monkeypatch) -> None:
     assert _FakeHTTPClient.last.kwargs["follow_redirects"] is True
     assert _FakeHTTPClient.last.kwargs["timeout"].seconds == 4
     assert _FakeMCPClient.last_transport[0] == "https://mcp.example.com/api"
+
+
+def test_selects_client_from_server_transport() -> None:
+    http = create_mcp_client(
+        MCPServerSettings(name="remote", transport="http", url="https://example.com")
+    )
+    stdio = create_mcp_client(
+        MCPServerSettings(name="local", command=("server",))
+    )
+
+    assert isinstance(http, MCPHTTPClient)
+    assert isinstance(stdio, MCPStdioClient)

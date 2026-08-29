@@ -10,7 +10,13 @@ from navi_agent.config import MCPSettings
 from navi_agent.tooling import ToolContext, ToolResult
 from navi_agent.tools.base import BaseTool
 
-from .client import MCPClientError, MCPStdioClient, MCPToolDescription
+from .client import (
+    MCPClientError,
+    MCPHTTPClient,
+    MCPStdioClient,
+    MCPToolDescription,
+    create_mcp_client,
+)
 
 
 logger = logging.getLogger("navi_agent.mcp")
@@ -24,7 +30,7 @@ class MCPTool(BaseTool):
         *,
         server_name: str,
         remote: MCPToolDescription,
-        client: MCPStdioClient,
+        client: MCPStdioClient | MCPHTTPClient,
     ) -> None:
         self._server_name = server_name
         self._remote = remote
@@ -74,11 +80,13 @@ class MCPToolProvider:
         self,
         settings: MCPSettings,
         *,
-        client_factory: Callable[[Any], MCPStdioClient] = MCPStdioClient,
+        client_factory: Callable[
+            [Any], MCPStdioClient | MCPHTTPClient
+        ] = create_mcp_client,
     ) -> None:
         self._settings = settings
         self._client_factory = client_factory
-        self._clients: list[MCPStdioClient] = []
+        self._clients: list[MCPStdioClient | MCPHTTPClient] = []
         self._tools: tuple[MCPTool, ...] | None = None
         self.errors: dict[str, str] = {}
 
