@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from navi_agent.paths import get_config_path
 import yaml
@@ -142,6 +144,8 @@ class MCPSettings:
             url = str(value.get("url") or "").strip()
             if transport == "http" and not url:
                 raise ValueError(f"mcp server {name!r} requires a url")
+            if transport == "http":
+                _validate_mcp_http_url(server_name, url)
             headers = value.get("headers") or {}
             if not isinstance(headers, dict):
                 raise ValueError(f"mcp server {name!r} headers must be an object")
@@ -160,6 +164,24 @@ class MCPSettings:
                 )
             )
         return cls(servers=tuple(servers))
+
+
+def _validate_mcp_http_url(server_name: str, url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"mcp server {server_name!r} has an invalid http url")
+    if parsed.username or parsed.password:
+        raise ValueError(f"mcp server {server_name!r} url must not contain credentials")
+    if parsed.scheme == "https" or parsed.hostname == "localhost":
+        return
+    try:
+        is_loopback = ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        is_loopback = False
+    if not is_loopback:
+        raise ValueError(
+            f"mcp server {server_name!r} requires https outside localhost"
+        )
 
 
 @dataclass(slots=True)

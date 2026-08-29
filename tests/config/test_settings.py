@@ -78,6 +78,37 @@ class SettingsTests(unittest.TestCase):
                 {"mcp": {"servers": {"remote": {"type": "http"}}}}
             )
 
+    def test_mcp_settings_rejects_plaintext_remote_http(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires https"):
+            MCPSettings.from_sources(
+                {
+                    "mcp": {
+                        "servers": {
+                            "remote": {
+                                "type": "http",
+                                "url": "http://mcp.example.com/api",
+                            }
+                        }
+                    }
+                }
+            )
+
+    def test_mcp_settings_allows_local_http(self) -> None:
+        settings = MCPSettings.from_sources(
+            {
+                "mcp": {
+                    "servers": {
+                        "local": {
+                            "type": "http",
+                            "url": "http://127.0.0.1:8000/mcp",
+                        }
+                    }
+                }
+            }
+        )
+
+        self.assertEqual(settings.servers[0].url, "http://127.0.0.1:8000/mcp")
+
     def test_model_settings_reads_navi_env_first(self) -> None:
         with patch.dict(
             os.environ,
