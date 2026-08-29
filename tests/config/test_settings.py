@@ -38,6 +38,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(len(settings.servers), 1)
         server = settings.servers[0]
         self.assertEqual(server.name, "files")
+        self.assertEqual(server.transport, "stdio")
         self.assertEqual(server.command, ("uvx", "mcp-server-filesystem", "."))
         self.assertEqual(server.environment, {"LOG_LEVEL": "warning"})
         self.assertEqual(server.startup_timeout_seconds, 5.0)
@@ -46,6 +47,36 @@ class SettingsTests(unittest.TestCase):
     def test_mcp_settings_rejects_invalid_server_config(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires a command list"):
             MCPSettings.from_sources({"mcp": {"servers": {"files": {}}}})
+
+    def test_mcp_settings_loads_http_server(self) -> None:
+        settings = MCPSettings.from_sources(
+            {
+                "mcp": {
+                    "servers": {
+                        "project": {
+                            "type": "http",
+                            "url": "https://mcp.example.com/api",
+                            "headers": {"Authorization": "Bearer ${MCP_TOKEN}"},
+                            "startup_timeout_seconds": 8,
+                        }
+                    }
+                }
+            }
+        )
+
+        server = settings.servers[0]
+        self.assertEqual(server.transport, "http")
+        self.assertEqual(server.url, "https://mcp.example.com/api")
+        self.assertEqual(
+            server.headers,
+            {"Authorization": "Bearer ${MCP_TOKEN}"},
+        )
+
+    def test_mcp_settings_requires_http_url(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires a url"):
+            MCPSettings.from_sources(
+                {"mcp": {"servers": {"remote": {"type": "http"}}}}
+            )
 
     def test_model_settings_reads_navi_env_first(self) -> None:
         with patch.dict(

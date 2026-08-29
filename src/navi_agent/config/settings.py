@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from navi_agent.paths import get_config_path
@@ -99,8 +99,11 @@ class WebSettings:
 @dataclass(frozen=True, slots=True)
 class MCPServerSettings:
     name: str
-    command: tuple[str, ...]
-    environment: dict[str, str]
+    transport: str = "stdio"
+    command: tuple[str, ...] = ()
+    environment: dict[str, str] = field(default_factory=dict)
+    url: str = ""
+    headers: dict[str, str] = field(default_factory=dict)
     startup_timeout_seconds: float = 10.0
     tool_timeout_seconds: float = 30.0
 
@@ -123,20 +126,33 @@ class MCPSettings:
                 raise ValueError(f"mcp server {name!r} must be an object")
             if not _as_bool(value.get("enabled"), True):
                 continue
-            command = value.get("command")
-            if not isinstance(command, list) or not command:
+            server_name = str(name).strip()
+            transport = str(value.get("type") or "stdio").strip().lower()
+            if not server_name or transport not in {"stdio", "http"}:
+                raise ValueError(f"mcp server {name!r} has an invalid name or type")
+            command = value.get("command") or []
+            if transport == "stdio" and (not isinstance(command, list) or not command):
                 raise ValueError(f"mcp server {name!r} requires a command list")
             arguments = tuple(str(item).strip() for item in command)
-            if not str(name).strip() or any(not item for item in arguments):
-                raise ValueError(f"mcp server {name!r} has an invalid name or command")
+            if any(not item for item in arguments):
+                raise ValueError(f"mcp server {name!r} has an invalid command")
             environment = value.get("environment") or {}
             if not isinstance(environment, dict):
                 raise ValueError(f"mcp server {name!r} environment must be an object")
+            url = str(value.get("url") or "").strip()
+            if transport == "http" and not url:
+                raise ValueError(f"mcp server {name!r} requires a url")
+            headers = value.get("headers") or {}
+            if not isinstance(headers, dict):
+                raise ValueError(f"mcp server {name!r} headers must be an object")
             servers.append(
                 MCPServerSettings(
-                    name=str(name).strip(),
+                    name=server_name,
+                    transport=transport,
                     command=arguments,
                     environment={str(key): str(item) for key, item in environment.items()},
+                    url=url,
+                    headers={str(key): str(item) for key, item in headers.items()},
                     startup_timeout_seconds=float(
                         value.get("startup_timeout_seconds", 10.0)
                     ),
