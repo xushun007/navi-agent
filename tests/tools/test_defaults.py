@@ -5,10 +5,19 @@ from pathlib import Path
 from navi_agent.runtime import SubagentService, ToolCall, ToolContext
 from navi_agent.tooling import ToolResult
 from navi_agent.tools.base import FunctionTool
-from navi_agent.tools.defaults import build_default_tool_registry
+from navi_agent.tools.defaults import BuiltinToolProvider, build_default_tool_registry
 
 
 class DefaultsTest(unittest.TestCase):
+    def test_builtin_provider_marks_tool_source_and_toolset(self) -> None:
+        registrations = BuiltinToolProvider().load_tools()
+
+        by_name = {registration.tool.name: registration for registration in registrations}
+
+        self.assertEqual(by_name["bash"].source, "builtin")
+        self.assertEqual(by_name["bash"].toolsets, ("terminal",))
+        self.assertEqual(by_name["read_file"].toolsets, ("file",))
+
     def test_read_only_file_count_runs_without_approval(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
