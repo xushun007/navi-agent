@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from navi_agent.config import MCPSettings
+from navi_agent.runtime.resources import ToolRegistration
 from navi_agent.tooling import ToolContext, ToolResult
 from navi_agent.tools.base import BaseTool
 
@@ -44,6 +45,10 @@ class MCPTool(BaseTool):
     @property
     def description(self) -> str:
         return self._remote.description
+
+    @property
+    def server_name(self) -> str:
+        return self._server_name
 
     def schema(self) -> dict[str, Any]:
         return self._remote.input_schema
@@ -123,6 +128,16 @@ class MCPToolProvider:
                 tools.append(tool)
         self._tools = tuple(tools)
         return self._tools
+
+    def load_tools(self) -> tuple[ToolRegistration, ...]:
+        return tuple(
+            ToolRegistration(
+                tool=tool,
+                toolsets=("mcp",),
+                source=f"mcp:{tool.server_name}",
+            )
+            for tool in self.discover()
+        )
 
     def close(self) -> None:
         for client in reversed(self._clients):

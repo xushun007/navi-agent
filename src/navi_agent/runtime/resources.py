@@ -31,6 +31,19 @@ class ToolProvider(Protocol):
     def close(self) -> None: ...
 
 
+class StaticToolProvider:
+    """Expose already-resolved tools without taking ownership of them."""
+
+    def __init__(self, tools: Iterable[ToolRegistration]) -> None:
+        self._tools = tuple(tools)
+
+    def load_tools(self) -> tuple[ToolRegistration, ...]:
+        return self._tools
+
+    def close(self) -> None:
+        return None
+
+
 @dataclass(slots=True)
 class RuntimeResources:
     """Resolved runtime capabilities with one idempotent cleanup boundary."""

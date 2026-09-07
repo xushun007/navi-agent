@@ -5,23 +5,53 @@ from pathlib import Path
 from unittest.mock import patch
 
 from navi_agent.app.bootstrap import build_runtime
-from navi_agent.config import LangfuseSettings, MCPSettings, ModelSettings, RuntimeSettings
+from navi_agent.config import (
+    LangfuseSettings,
+    MCPSettings,
+    ModelSettings,
+    RuntimeSettings,
+)
 from navi_agent.memory import FileMemoryStore
-from navi_agent.runtime import ToolCall, ToolContext
+from navi_agent.runtime import ToolCall, ToolContext, ToolRegistration
 from navi_agent.runtime.tools.approval import AutoApproveApprovalProvider
 from navi_agent.telemetry import CompositeTraceStore, JsonlTraceStore
-from navi_agent.evolution import FileSkillStore, JsonlCandidateStore, JsonlEvalCaseStore, PromptOverlayStore
+from navi_agent.evolution import (
+    FileSkillStore,
+    JsonlCandidateStore,
+    JsonlEvalCaseStore,
+    PromptOverlayStore,
+)
 from navi_agent.app.bootstrap import build_application
+from navi_agent.tooling import ToolResult
+from navi_agent.tools.base import FunctionTool
 
 
 class BootstrapTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._home = tempfile.TemporaryDirectory()
+        self._environment = patch.dict(os.environ, {"NAVI_HOME": self._home.name})
+        self._environment.start()
+
+    def tearDown(self) -> None:
+        self._environment.stop()
+        self._home.cleanup()
+
     def test_build_runtime_discovers_mcp_tools_and_closes_provider(self) -> None:
-        mcp_tool = object()
+        mcp_tool = FunctionTool(
+            name="mcp__files__read",
+            description="Read a remote file.",
+            handler=lambda: ToolResult.ok(name="mcp__files__read", content="ok"),
+        )
+        registration = ToolRegistration(
+            tool=mcp_tool,
+            toolsets=("mcp",),
+            source="mcp:files",
+        )
         with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
             with patch("navi_agent.app.bootstrap.setup_logging"):
-                with patch("navi_agent.app.bootstrap.build_default_tool_registry") as registry:
+                with patch("navi_agent.app.bootstrap.build_tool_registry") as registry:
                     with patch("navi_agent.app.bootstrap.MCPToolProvider") as provider_cls:
-                        provider_cls.return_value.discover.return_value = (mcp_tool,)
+                        provider_cls.return_value.load_tools.return_value = (registration,)
                         with patch(
                             "navi_agent.app.bootstrap.MCPSettings.from_sources",
                             return_value=MCPSettings(),
@@ -31,7 +61,8 @@ class BootstrapTests(unittest.TestCase):
                                 runtime_settings=RuntimeSettings(max_iterations=3),
                             )
 
-        self.assertEqual(registry.call_args.kwargs["mcp_tools"], (mcp_tool,))
+        registrations = registry.call_args.args[0]
+        self.assertIn(registration, registrations)
         runtime.close()
         runtime.close()
         provider_cls.return_value.close.assert_called_once_with()
@@ -48,7 +79,7 @@ class BootstrapTests(unittest.TestCase):
         with patch("navi_agent.app.bootstrap.build_transport") as build_transport_mock:
             with patch("navi_agent.app.bootstrap.SQLiteSessionStore") as store_cls:
                     with patch("navi_agent.app.bootstrap.setup_logging") as setup_logging_mock:
-                        with patch("navi_agent.app.bootstrap.build_default_tool_registry") as build_registry_mock:
+                        with patch("navi_agent.app.bootstrap.build_tool_registry") as build_registry_mock:
                             runtime = build_runtime(model_settings, runtime_settings)
 
         build_transport_mock.assert_called_once_with(model_settings)
@@ -64,14 +95,14 @@ class BootstrapTests(unittest.TestCase):
             {
                 "NAVI_MODEL": "gpt-4o-mini",
                 "NAVI_API_KEY": "test-key",
-                "NAVI_HOME": "/tmp/navi-home",
+                "NAVI_HOME": self._home.name,
             },
             clear=True,
         ):
             with patch("navi_agent.app.bootstrap.build_transport") as build_transport_mock:
                 with patch("navi_agent.app.bootstrap.SQLiteSessionStore") as store_cls:
                     with patch("navi_agent.app.bootstrap.setup_logging") as setup_logging_mock:
-                        with patch("navi_agent.app.bootstrap.build_default_tool_registry") as build_registry_mock:
+                        with patch("navi_agent.app.bootstrap.build_tool_registry") as build_registry_mock:
                             build_runtime()
 
         build_transport_mock.assert_called_once()
@@ -102,24 +133,30 @@ class BootstrapTests(unittest.TestCase):
 
         with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
             with patch("navi_agent.app.bootstrap.setup_logging"):
-                with patch("navi_agent.app.bootstrap.build_default_tool_registry") as build_registry_mock:
-                    runtime = build_runtime(
-                        model_settings=ModelSettings(model="demo", api_key="x"),
-                        runtime_settings=RuntimeSettings(max_iterations=3),
-                        approval_provider=provider,
-                    )
+                with patch("navi_agent.app.bootstrap.BuiltinToolProvider") as builtin_cls:
+                    builtin_cls.return_value.load_tools.return_value = ()
+                    with patch("navi_agent.app.bootstrap.build_tool_registry") as build_registry_mock:
+                        runtime = build_runtime(
+                            model_settings=ModelSettings(model="demo", api_key="x"),
+                            runtime_settings=RuntimeSettings(max_iterations=3),
+                            approval_provider=provider,
+                        )
 
         _, kwargs = build_registry_mock.call_args
         self.assertIs(kwargs["approval_provider"], provider)
-        self.assertIsInstance(kwargs["memory_store"], FileMemoryStore)
-        self.assertIsInstance(kwargs["skill_store"], FileSkillStore)
-        self.assertIs(kwargs["background_task_manager"], runtime._background_task_manager)
+        provider_kwargs = builtin_cls.call_args.kwargs
+        self.assertIsInstance(provider_kwargs["memory_store"], FileMemoryStore)
+        self.assertIsInstance(provider_kwargs["skill_store"], FileSkillStore)
+        self.assertIs(
+            provider_kwargs["background_task_manager"], runtime._background_task_manager
+        )
 
     def test_build_runtime_passes_workspace_roots_to_registry_and_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as workspace, tempfile.TemporaryDirectory() as added:
             with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
                 with patch("navi_agent.app.bootstrap.setup_logging"):
-                    with patch("navi_agent.app.bootstrap.build_default_tool_registry") as build_registry_mock:
+                    with patch("navi_agent.app.bootstrap.BuiltinToolProvider") as builtin_cls:
+                        builtin_cls.return_value.load_tools.return_value = ()
                         runtime = build_runtime(
                             model_settings=ModelSettings(model="demo", api_key="x"),
                             runtime_settings=RuntimeSettings(max_iterations=3),
@@ -127,7 +164,7 @@ class BootstrapTests(unittest.TestCase):
                             additional_workspace_roots=[Path(added)],
                         )
 
-        _, kwargs = build_registry_mock.call_args
+        kwargs = builtin_cls.call_args.kwargs
         self.assertEqual(kwargs["root"], Path(workspace).resolve())
         self.assertEqual(kwargs["additional_roots"], (Path(added).resolve(),))
         self.assertEqual(

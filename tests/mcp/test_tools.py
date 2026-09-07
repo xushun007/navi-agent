@@ -70,6 +70,22 @@ def test_discovers_namespaced_tools_and_maps_results() -> None:
     assert _FakeClient.instances[0].closed is True
 
 
+def test_loads_runtime_tool_registrations_with_server_source() -> None:
+    _FakeClient.instances.clear()
+    provider = MCPToolProvider(
+        MCPSettings(servers=(_server("local files"),)),
+        client_factory=_FakeClient,
+    )
+
+    registrations = provider.load_tools()
+
+    assert len(registrations) == 1
+    assert registrations[0].tool.name == "mcp__local_files__read_file"
+    assert registrations[0].toolsets == ("mcp",)
+    assert registrations[0].source == "mcp:local files"
+    provider.close()
+
+
 def test_isolates_broken_servers() -> None:
     _FakeClient.instances.clear()
     provider = MCPToolProvider(

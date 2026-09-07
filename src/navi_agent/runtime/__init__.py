@@ -24,6 +24,7 @@ from .replay import (
 )
 from .resources import (
     RuntimeResources,
+    StaticToolProvider,
     ToolProvider,
     ToolRegistration,
     load_runtime_resources,
@@ -125,6 +126,7 @@ __all__ = [
     "RuntimeEventSubscriber",
     "RuntimeResult",
     "RuntimeResources",
+    "StaticToolProvider",
     "ReplayDivergence",
     "RuntimeRunRecord",
     "RunCancellationToken",

@@ -51,9 +51,11 @@ from navi_agent.runtime import (
     LLMContextSummarizer,
     JsonPendingInteractionStore,
     PromptBuilder,
+    StaticToolProvider,
     SQLiteSessionStore,
     SubagentService,
     build_transport,
+    load_runtime_resources,
 )
 from navi_agent.runtime.tools.approval import ApprovalProvider, DenyAllApprovalProvider
 from navi_agent.telemetry import (
@@ -62,7 +64,7 @@ from navi_agent.telemetry import (
     JsonlTraceStore,
     LangfuseTraceExporter,
 )
-from navi_agent.tools.defaults import build_default_tool_registry
+from navi_agent.tools.defaults import BuiltinToolProvider, build_tool_registry
 
 logger = logging.getLogger("navi_agent.app.bootstrap")
 
@@ -83,7 +85,6 @@ def build_runtime(
     runtime_settings = runtime_settings or RuntimeSettings.from_sources(config)
     web_settings = WebSettings.from_sources(config)
     mcp_provider = MCPToolProvider(MCPSettings.from_sources(config))
-    mcp_tools = mcp_provider.discover()
 
     setup_logging(
         level="INFO",
@@ -114,6 +115,26 @@ def build_runtime(
         runtime_background_tasks = (
             background_task_manager if include_delegation else BackgroundTaskManager()
         )
+        builtin_provider = BuiltinToolProvider(
+            memory_store=memory_store,
+            session_store=session_store,
+            skill_store=skill_store,
+            background_task_manager=runtime_background_tasks,
+            subagent_service=subagent_service if include_delegation else None,
+            root=resolved_workspace_root,
+            additional_roots=added_roots,
+            interaction_store=interaction_store if include_delegation else None,
+            web_search_api_key=web_settings.search_api_key,
+        )
+        tool_providers = [builtin_provider]
+        if include_delegation:
+            tool_providers.append(mcp_provider)
+        else:
+            tool_providers.append(StaticToolProvider(mcp_provider.load_tools()))
+        resources = load_runtime_resources(tool_providers)
+        runtime_approval_provider = (
+            DenyAllApprovalProvider() if non_interactive else approval_provider
+        )
         return AgentRuntime(
             transport=transport,
             session_store=session_store,
@@ -130,20 +151,9 @@ def build_runtime(
                 context_limit_tokens=model_settings.context_limit_tokens,
                 summarizer=LLMContextSummarizer(transport),
             ),
-            tool_registry=build_default_tool_registry(
-                memory_store=memory_store,
-                session_store=session_store,
-                approval_provider=(
-                    DenyAllApprovalProvider() if non_interactive else approval_provider
-                ),
-                skill_store=skill_store,
-                background_task_manager=runtime_background_tasks,
-                subagent_service=subagent_service if include_delegation else None,
-                root=resolved_workspace_root,
-                additional_roots=added_roots,
-                interaction_store=interaction_store if include_delegation else None,
-                web_search_api_key=web_settings.search_api_key,
-                mcp_tools=mcp_tools,
+            tool_registry=build_tool_registry(
+                resources.tools,
+                approval_provider=runtime_approval_provider,
             ),
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
@@ -152,7 +162,7 @@ def build_runtime(
             parent_session_id=parent_session_id,
             model=model_settings.model,
             cwd=str(resolved_workspace_root),
-            close_callbacks=[mcp_provider.close] if include_delegation else None,
+            close_callbacks=[resources.close],
         )
 
     subagent_service = SubagentService(

@@ -4,6 +4,7 @@ import unittest
 
 from navi_agent.runtime.resources import (
     RuntimeResources,
+    StaticToolProvider,
     ToolRegistration,
     load_runtime_resources,
 )
@@ -40,6 +41,15 @@ class FakeToolProvider:
 
 
 class RuntimeResourcesTests(unittest.TestCase):
+    def test_static_provider_does_not_own_resolved_tools(self) -> None:
+        registration = ToolRegistration(
+            tool=make_tool("shared"), toolsets=("mcp",), source="mcp:shared"
+        )
+        provider = StaticToolProvider([registration])
+
+        self.assertEqual(provider.load_tools(), (registration,))
+        self.assertIsNone(provider.close())
+
     def test_loads_tool_providers_in_order(self) -> None:
         first = FakeToolProvider("builtin", "read_file", "write_file")
         second = FakeToolProvider("mcp:files", "mcp__files__search")
