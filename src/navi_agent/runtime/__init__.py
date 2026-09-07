@@ -22,6 +22,12 @@ from .replay import (
     OfflineRuntimeReplay,
     ReplayDivergence,
 )
+from .resources import (
+    RuntimeResources,
+    ToolProvider,
+    ToolRegistration,
+    load_runtime_resources,
+)
 from .models import (
     ContextCompactionCheckpoint,
     ConversationState,
@@ -118,6 +124,7 @@ __all__ = [
     "RuntimeEventPublisherHealth",
     "RuntimeEventSubscriber",
     "RuntimeResult",
+    "RuntimeResources",
     "ReplayDivergence",
     "RuntimeRunRecord",
     "RunCancellationToken",
@@ -143,9 +150,12 @@ __all__ = [
     "ToolDefinition",
     "ToolExecutor",
     "ToolRegistry",
+    "ToolProvider",
+    "ToolRegistration",
     "ToolResultRenderer",
     "ToolResult",
     "ToolsetDefinition",
     "HostYoloApprovalProvider",
     "build_transport",
+    "load_runtime_resources",
 ]
