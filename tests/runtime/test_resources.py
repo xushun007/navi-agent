@@ -41,6 +41,13 @@ class FakeToolProvider:
 
 
 class RuntimeResourcesTests(unittest.TestCase):
+    def test_keeps_prompt_contributors_in_the_resolved_snapshot(self) -> None:
+        contributor = object()
+
+        resources = load_runtime_resources([], prompt_contributors=[contributor])
+
+        self.assertEqual(resources.prompt_contributors, (contributor,))
+
     def test_static_provider_does_not_own_resolved_tools(self) -> None:
         registration = ToolRegistration(
             tool=make_tool("shared"), toolsets=("mcp",), source="mcp:shared"

@@ -10,12 +10,36 @@ from navi_agent.runtime.agent.prompt import (
     SKILL_GUIDANCE,
     PromptBuilder,
 )
+from navi_agent.runtime.agent.prompt_pipeline import (
+    PromptLayer,
+    PromptRequest,
+    PromptSection,
+)
+
+
+class CustomContributor:
+    name = "custom"
+
+    def contribute(self, request: PromptRequest) -> PromptSection:
+        return PromptSection(
+            source=self.name,
+            layer=PromptLayer.CONTEXT,
+            content=f"Custom for {request.user_id}",
+        )
 
 
 class PromptBuilderTest(unittest.TestCase):
     def setUp(self) -> None:
         self.memory = InMemoryMemoryStore()
         self.builder = PromptBuilder(memory_store=self.memory)
+
+    def test_accepts_an_explicit_contributor_set(self) -> None:
+        builder = PromptBuilder(contributors=[CustomContributor()])
+
+        prompt = builder.build_system_prompt(user_id="u1", user_message="hello")
+
+        self.assertEqual(prompt.stable, "")
+        self.assertEqual(prompt.context, "Custom for u1")
 
     def test_new_session_with_system_prompt(self) -> None:
         message = self.builder.build_run_system_message(

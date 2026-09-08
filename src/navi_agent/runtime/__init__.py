@@ -59,6 +59,7 @@ from navi_agent.events import (
     RuntimeEventSubscriber,
 )
 from .agent.prompt import PromptBuilder
+from .agent.prompt_contributors import build_default_prompt_contributors
 from .agent.prompt_pipeline import (
     PromptBuildResult,
     PromptContributionError,
@@ -177,5 +178,6 @@ __all__ = [
     "ToolsetDefinition",
     "HostYoloApprovalProvider",
     "build_transport",
+    "build_default_prompt_contributors",
     "load_runtime_resources",
 ]

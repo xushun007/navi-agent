@@ -167,10 +167,12 @@ class BootstrapTests(unittest.TestCase):
         kwargs = builtin_cls.call_args.kwargs
         self.assertEqual(kwargs["root"], Path(workspace).resolve())
         self.assertEqual(kwargs["additional_roots"], (Path(added).resolve(),))
-        self.assertEqual(
-            runtime._prompt_builder._additional_workspace_roots,
-            (Path(added).resolve(),),
+        prompt = runtime._prompt_builder.build_run_system_message(
+            user_id="u1",
+            user_message="inspect workspace",
         )
+        self.assertIn(f"Primary workspace: {Path(workspace).resolve()}", prompt.content)
+        self.assertIn(str(Path(added).resolve()), prompt.content)
 
     def test_build_runtime_uses_composite_trace_store_when_langfuse_enabled(self) -> None:
         with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):

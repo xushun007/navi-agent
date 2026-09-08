@@ -7,7 +7,12 @@ from typing import Protocol
 from navi_agent.memory import MemoryStore
 from navi_agent.memory.validation import sanitize_memory_for_prompt
 
-from .prompt_pipeline import PromptLayer, PromptRequest, PromptSection
+from .prompt_pipeline import (
+    PromptContributor,
+    PromptLayer,
+    PromptRequest,
+    PromptSection,
+)
 
 
 BASE_SYSTEM_PROMPT = "\n".join(
@@ -246,3 +251,29 @@ class SkillIndexPromptContributor:
             layer=PromptLayer.VOLATILE,
             content="\n".join(lines),
         )
+
+
+def build_default_prompt_contributors(
+    *,
+    memory_store: MemoryStore | None = None,
+    profile_memory_limit: int = 3,
+    relevant_memory_limit: int = 5,
+    skill_store: SkillIndexStore | None = None,
+    project_context_root: Path | None = None,
+    additional_workspace_roots: Iterable[Path] = (),
+) -> tuple[PromptContributor, ...]:
+    return (
+        BaseGuidanceContributor(),
+        RequestedSystemPromptContributor(),
+        WorkspacePromptContributor(
+            project_root=project_context_root,
+            additional_roots=additional_workspace_roots,
+        ),
+        ProjectContextContributor(project_context_root),
+        MemoryPromptContributor(
+            memory_store,
+            profile_limit=profile_memory_limit,
+            relevant_limit=relevant_memory_limit,
+        ),
+        SkillIndexPromptContributor(skill_store),
+    )

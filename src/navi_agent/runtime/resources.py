@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from navi_agent.runtime.agent.prompt_pipeline import PromptContributor
     from navi_agent.tools.base import BaseTool
 
 
@@ -49,6 +50,7 @@ class RuntimeResources:
     """Resolved runtime capabilities with one idempotent cleanup boundary."""
 
     tools: tuple[ToolRegistration, ...] = ()
+    prompt_contributors: tuple[PromptContributor, ...] = ()
     close_callbacks: tuple[Callable[[], None], ...] = ()
     _closed: bool = field(default=False, init=False, repr=False)
 
@@ -60,7 +62,11 @@ class RuntimeResources:
             callback()
 
 
-def load_runtime_resources(providers: Iterable[ToolProvider]) -> RuntimeResources:
+def load_runtime_resources(
+    providers: Iterable[ToolProvider],
+    *,
+    prompt_contributors: Iterable[PromptContributor] = (),
+) -> RuntimeResources:
     """Resolve providers once and reject ambiguous public tool names."""
 
     registrations: list[ToolRegistration] = []
@@ -85,5 +91,6 @@ def load_runtime_resources(providers: Iterable[ToolProvider]) -> RuntimeResource
 
     return RuntimeResources(
         tools=tuple(registrations),
+        prompt_contributors=tuple(prompt_contributors),
         close_callbacks=tuple(provider.close for provider in loaded_providers),
     )

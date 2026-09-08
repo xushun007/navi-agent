@@ -10,15 +10,16 @@ from .prompt_contributors import (
     BASE_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
     SKILL_GUIDANCE,
-    BaseGuidanceContributor,
-    MemoryPromptContributor,
     ProjectContextContributor,
-    RequestedSystemPromptContributor,
-    SkillIndexPromptContributor,
     SkillIndexStore,
-    WorkspacePromptContributor,
+    build_default_prompt_contributors,
 )
-from .prompt_pipeline import PromptParts, PromptPipeline, PromptRequest
+from .prompt_pipeline import (
+    PromptContributor,
+    PromptParts,
+    PromptPipeline,
+    PromptRequest,
+)
 
 
 class PromptBuilder:
@@ -30,7 +31,12 @@ class PromptBuilder:
         skill_store: SkillIndexStore | None = None,
         project_context_root: Path | None = None,
         additional_workspace_roots: Iterable[Path] | None = None,
+        contributors: Iterable[PromptContributor] | None = None,
     ) -> None:
+        if profile_memory_limit <= 0:
+            raise ValueError("profile_memory_limit must be positive")
+        if relevant_memory_limit <= 0:
+            raise ValueError("relevant_memory_limit must be positive")
         self._memory_store = memory_store
         self._profile_memory_limit = profile_memory_limit
         self._relevant_memory_limit = relevant_memory_limit
@@ -39,23 +45,19 @@ class PromptBuilder:
         self._additional_workspace_roots = tuple(
             Path(root).resolve() for root in additional_workspace_roots or ()
         )
-        self._pipeline = PromptPipeline(
-            [
-                BaseGuidanceContributor(),
-                RequestedSystemPromptContributor(),
-                WorkspacePromptContributor(
-                    project_root=self._project_context_root,
-                    additional_roots=self._additional_workspace_roots,
-                ),
-                ProjectContextContributor(self._project_context_root),
-                MemoryPromptContributor(
-                    self._memory_store,
-                    profile_limit=self._profile_memory_limit,
-                    relevant_limit=self._relevant_memory_limit,
-                ),
-                SkillIndexPromptContributor(self._skill_store),
-            ]
+        resolved_contributors = (
+            contributors
+            if contributors is not None
+            else build_default_prompt_contributors(
+                memory_store=self._memory_store,
+                profile_memory_limit=self._profile_memory_limit,
+                relevant_memory_limit=self._relevant_memory_limit,
+                skill_store=self._skill_store,
+                project_context_root=self._project_context_root,
+                additional_workspace_roots=self._additional_workspace_roots,
+            )
         )
+        self._pipeline = PromptPipeline(resolved_contributors)
         self._last_injected_skill_names: list[str] = []
         self._last_injected_context_files: list[str] = []
 

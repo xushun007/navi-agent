@@ -54,6 +54,7 @@ from navi_agent.runtime import (
     StaticToolProvider,
     SQLiteSessionStore,
     SubagentService,
+    build_default_prompt_contributors,
     build_transport,
     load_runtime_resources,
 )
@@ -131,19 +132,22 @@ def build_runtime(
             tool_providers.append(mcp_provider)
         else:
             tool_providers.append(StaticToolProvider(mcp_provider.load_tools()))
-        resources = load_runtime_resources(tool_providers)
+        resources = load_runtime_resources(
+            tool_providers,
+            prompt_contributors=build_default_prompt_contributors(
+                memory_store=memory_store,
+                skill_store=skill_store,
+                project_context_root=resolved_workspace_root,
+                additional_workspace_roots=added_roots,
+            ),
+        )
         runtime_approval_provider = (
             DenyAllApprovalProvider() if non_interactive else approval_provider
         )
         return AgentRuntime(
             transport=transport,
             session_store=session_store,
-            prompt_builder=PromptBuilder(
-                memory_store=memory_store,
-                skill_store=skill_store,
-                project_context_root=resolved_workspace_root,
-                additional_workspace_roots=added_roots,
-            ),
+            prompt_builder=PromptBuilder(contributors=resources.prompt_contributors),
             trace_store=trace_store,
             event_store=event_store,
             background_task_manager=runtime_background_tasks,

@@ -8,6 +8,7 @@ from .context import (
 from .control import ActiveRunRegistry, RunCancellationToken, RunCancelledError
 from .engine import AgentRuntime
 from .prompt import PromptBuilder
+from .prompt_contributors import build_default_prompt_contributors
 from .prompt_pipeline import (
     PromptBuildResult,
     PromptContributionError,
@@ -28,6 +29,7 @@ __all__ = [
     "ContextSummaryCall",
     "LLMContextSummarizer",
     "PromptBuilder",
+    "build_default_prompt_contributors",
     "PromptBuildResult",
     "PromptContributionError",
     "PromptContributor",
