@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
+from navi_agent.memory import MemoryStore
+from navi_agent.memory.validation import sanitize_memory_for_prompt
+
 from .prompt_pipeline import PromptLayer, PromptRequest, PromptSection
 
 
@@ -152,4 +155,53 @@ class ProjectContextContributor:
                 "[... project context truncated ...]",
                 content[-tail_size:].lstrip(),
             ]
+        )
+
+
+class MemoryPromptContributor:
+    name = "memory"
+
+    def __init__(
+        self,
+        store: MemoryStore | None,
+        *,
+        profile_limit: int = 3,
+        relevant_limit: int = 5,
+    ) -> None:
+        if profile_limit <= 0:
+            raise ValueError("profile_memory_limit must be positive")
+        if relevant_limit <= 0:
+            raise ValueError("relevant_memory_limit must be positive")
+        self._store = store
+        self._profile_limit = profile_limit
+        self._relevant_limit = relevant_limit
+
+    def contribute(self, request: PromptRequest) -> PromptSection | None:
+        if self._store is None:
+            return None
+        recall = self._store.recall_for_user(
+            request.user_id,
+            request.user_message,
+            profile_limit=self._profile_limit,
+            relevant_limit=self._relevant_limit,
+        )
+        if not recall.profile and not recall.relevant:
+            return None
+        lines = ["[Memory]"]
+        if recall.profile:
+            lines.append("User Profile:")
+            lines.extend(
+                f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}"
+                for record in recall.profile
+            )
+        if recall.relevant:
+            lines.append("Relevant Facts:")
+            lines.extend(
+                f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}"
+                for record in recall.relevant
+            )
+        return PromptSection(
+            source=self.name,
+            layer=PromptLayer.VOLATILE,
+            content="\n".join(lines),
         )

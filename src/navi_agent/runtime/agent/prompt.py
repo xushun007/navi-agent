@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Protocol
 
 from navi_agent.memory import MemoryStore
-from navi_agent.memory.validation import sanitize_memory_for_prompt
 
 from ..models import Message
 from .prompt_contributors import (
@@ -13,6 +12,7 @@ from .prompt_contributors import (
     MEMORY_GUIDANCE,
     SKILL_GUIDANCE,
     BaseGuidanceContributor,
+    MemoryPromptContributor,
     ProjectContextContributor,
     RequestedSystemPromptContributor,
     WorkspacePromptContributor,
@@ -34,10 +34,6 @@ class PromptBuilder:
         project_context_root: Path | None = None,
         additional_workspace_roots: Iterable[Path] | None = None,
     ) -> None:
-        if profile_memory_limit <= 0:
-            raise ValueError("profile_memory_limit must be positive")
-        if relevant_memory_limit <= 0:
-            raise ValueError("relevant_memory_limit must be positive")
         self._memory_store = memory_store
         self._profile_memory_limit = profile_memory_limit
         self._relevant_memory_limit = relevant_memory_limit
@@ -55,6 +51,11 @@ class PromptBuilder:
                     additional_roots=self._additional_workspace_roots,
                 ),
                 ProjectContextContributor(self._project_context_root),
+                MemoryPromptContributor(
+                    self._memory_store,
+                    profile_limit=self._profile_memory_limit,
+                    relevant_limit=self._relevant_memory_limit,
+                ),
             ]
         )
         self._last_injected_skill_names: list[str] = []
@@ -101,10 +102,7 @@ class PromptBuilder:
         self._last_injected_context_files = list(
             result.references_from(ProjectContextContributor.name)
         )
-        volatile_parts = []
-        memory_block = self._build_memory_block(user_id, user_message)
-        if memory_block:
-            volatile_parts.append(memory_block)
+        volatile_parts = [result.parts.volatile] if result.parts.volatile else []
         skill_block = self._build_skill_block()
         if skill_block:
             volatile_parts.append(skill_block)
@@ -113,32 +111,6 @@ class PromptBuilder:
             context=result.parts.context,
             volatile="\n\n".join(volatile_parts),
         )
-
-    def _build_memory_block(self, user_id: str, user_message: str) -> str | None:
-        if self._memory_store is None:
-            return None
-        recall = self._memory_store.recall_for_user(
-            user_id,
-            user_message,
-            profile_limit=self._profile_memory_limit,
-            relevant_limit=self._relevant_memory_limit,
-        )
-        if not recall.profile and not recall.relevant:
-            return None
-        lines = ["[Memory]"]
-        if recall.profile:
-            lines.append("User Profile:")
-            lines.extend(
-                f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}"
-                for record in recall.profile
-            )
-        if recall.relevant:
-            lines.append("Relevant Facts:")
-            lines.extend(
-                f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}"
-                for record in recall.relevant
-            )
-        return "\n".join(lines)
 
     def _build_skill_block(self) -> str | None:
         if self._skill_store is None:
