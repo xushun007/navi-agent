@@ -59,6 +59,16 @@ from navi_agent.events import (
     RuntimeEventSubscriber,
 )
 from .agent.prompt import PromptBuilder
+from .agent.prompt_pipeline import (
+    PromptBuildResult,
+    PromptContributionError,
+    PromptContributor,
+    PromptLayer,
+    PromptParts,
+    PromptPipeline,
+    PromptRequest,
+    PromptSection,
+)
 from .tasks.scheduler import SessionTaskScheduler
 from .agent.control import ActiveRunRegistry, RunCancellationToken
 from .events.state import RuntimeRunState, RunStateTracker
@@ -117,6 +127,14 @@ __all__ = [
     "OfflineReplayService",
     "OfflineRuntimeReplay",
     "PromptBuilder",
+    "PromptBuildResult",
+    "PromptContributionError",
+    "PromptContributor",
+    "PromptLayer",
+    "PromptParts",
+    "PromptPipeline",
+    "PromptRequest",
+    "PromptSection",
     "PendingInteraction",
     "RuntimeEvent",
     "RuntimeMode",
