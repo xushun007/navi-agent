@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Protocol
 
 from navi_agent.memory import MemoryStore
 from navi_agent.memory.validation import sanitize_memory_for_prompt
@@ -48,6 +49,10 @@ SKILL_GUIDANCE = (
 
 PROJECT_CONTEXT_MAX_CHARS = 20_000
 PROJECT_CONTEXT_FILE_NAMES = (".navi.md", "AGENTS.md")
+
+
+class SkillIndexStore(Protocol):
+    def list(self): ...
 
 
 class BaseGuidanceContributor:
@@ -200,6 +205,42 @@ class MemoryPromptContributor:
                 f"- [{record.kind}] {sanitize_memory_for_prompt(record.content)}"
                 for record in recall.relevant
             )
+        return PromptSection(
+            source=self.name,
+            layer=PromptLayer.VOLATILE,
+            content="\n".join(lines),
+        )
+
+
+class SkillIndexPromptContributor:
+    name = "skill-index"
+
+    def __init__(self, store: SkillIndexStore | None) -> None:
+        self._store = store
+
+    def contribute(self, request: PromptRequest) -> PromptSection | None:
+        if self._store is None:
+            return None
+        records = self._store.list()
+        if not records:
+            return None
+        lines = [
+            "[Skills]",
+            "Available reusable procedures. Scan this index before execution. "
+            "If one matches or is partially relevant, call skill_view(skill_name='<name>') "
+            "to load the full SKILL.md before using it.",
+        ]
+        categories: dict[str, list] = {}
+        for record in records:
+            category = str(getattr(record, "category", "general") or "general")
+            categories.setdefault(category, []).append(record)
+        for category in sorted(categories):
+            lines.append(f"  {category}:")
+            for record in sorted(categories[category], key=lambda item: item.name):
+                if record.description:
+                    lines.append(f"    - {record.name}: {record.description}")
+                else:
+                    lines.append(f"    - {record.name}")
         return PromptSection(
             source=self.name,
             layer=PromptLayer.VOLATILE,

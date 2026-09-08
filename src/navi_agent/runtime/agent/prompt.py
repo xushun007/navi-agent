@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Protocol
 
 from navi_agent.memory import MemoryStore
 
@@ -15,13 +14,11 @@ from .prompt_contributors import (
     MemoryPromptContributor,
     ProjectContextContributor,
     RequestedSystemPromptContributor,
+    SkillIndexPromptContributor,
+    SkillIndexStore,
     WorkspacePromptContributor,
 )
 from .prompt_pipeline import PromptParts, PromptPipeline, PromptRequest
-
-
-class SkillIndexStore(Protocol):
-    def list(self): ...
 
 
 class PromptBuilder:
@@ -56,6 +53,7 @@ class PromptBuilder:
                     profile_limit=self._profile_memory_limit,
                     relevant_limit=self._relevant_memory_limit,
                 ),
+                SkillIndexPromptContributor(self._skill_store),
             ]
         )
         self._last_injected_skill_names: list[str] = []
@@ -102,37 +100,8 @@ class PromptBuilder:
         self._last_injected_context_files = list(
             result.references_from(ProjectContextContributor.name)
         )
-        volatile_parts = [result.parts.volatile] if result.parts.volatile else []
-        skill_block = self._build_skill_block()
-        if skill_block:
-            volatile_parts.append(skill_block)
         return PromptParts(
             stable=result.parts.stable,
             context=result.parts.context,
-            volatile="\n\n".join(volatile_parts),
+            volatile=result.parts.volatile,
         )
-
-    def _build_skill_block(self) -> str | None:
-        if self._skill_store is None:
-            return None
-        records = self._skill_store.list()
-        if not records:
-            return None
-        lines = [
-            "[Skills]",
-            "Available reusable procedures. Scan this index before execution. "
-            "If one matches or is partially relevant, call skill_view(skill_name='<name>') "
-            "to load the full SKILL.md before using it.",
-        ]
-        categories: dict[str, list] = {}
-        for record in records:
-            category = str(getattr(record, "category", "general") or "general")
-            categories.setdefault(category, []).append(record)
-        for category in sorted(categories):
-            lines.append(f"  {category}:")
-            for record in sorted(categories[category], key=lambda item: item.name):
-                if record.description:
-                    lines.append(f"    - {record.name}: {record.description}")
-                else:
-                    lines.append(f"    - {record.name}")
-        return "\n".join(lines)
