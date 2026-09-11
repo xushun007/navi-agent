@@ -25,8 +25,9 @@ from ..models import (
     ToolCall,
 )
 from .prompt import PromptBuilder
-from .control import RunCancellationToken, RunCancelledError
-from .model_invoker import ModelInvoker
+from .control import RunCancellationToken
+from .loop import AgentLoop
+from .model_invoker import ModelInvocation, ModelInvoker
 from ..sessions.memory import InMemorySessionStore
 from ..sessions.store import SessionStore
 from ..tools.rendering import DefaultToolResultRenderer, ToolResultRenderer
@@ -225,6 +226,7 @@ class AgentRuntime:
             )
         self._background_task_manager = background_task_manager
         self._max_iterations = max_iterations
+        self._agent_loop = AgentLoop(max_iterations)
         self._agent_role = agent_role
         self._parent_session_id = parent_session_id
         self._model = model
@@ -722,10 +724,10 @@ class AgentRuntime:
                 checkpoint_run_id=checkpoint_run_id,
             )
 
-        for iteration in range(self._max_iterations):
-            iteration_number = iteration + 1
-            if cancellation_token.is_cancelled:
-                return finish_cancelled(iteration)
+        current_context_messages: list[Message] = []
+
+        def start_iteration(iteration_number: int) -> None:
+            nonlocal current_context_messages
             logger.debug(
                 "Running iteration: session_id=%s iteration=%s",
                 session_id,
@@ -830,59 +832,38 @@ class AgentRuntime:
                         model=self._model,
                     ),
                 )
-            try:
-                model_item_id = f"model:{iteration_number}"
+            current_context_messages = context_result.messages
 
-                def publish_text_delta(delta: str) -> None:
-                    publish_event(
-                        kind="delta",
-                        source="model",
-                        name="model.delta",
-                        iteration=iteration_number,
-                        item_id=model_item_id,
-                        payload={"delta": delta},
-                    )
+        def invoke_model(iteration_number: int) -> ModelInvocation:
+            model_item_id = f"model:{iteration_number}"
 
-                model_invocation = self._model_invoker.invoke(
-                    messages=context_result.messages,
-                    tools=self._tool_registry.schemas(
-                        enabled_toolsets=self._enabled_toolsets,
-                        disabled_toolsets=self._disabled_toolsets,
-                    ),
-                    cancellation_requested=lambda: cancellation_token.is_cancelled,
-                    on_text_delta=publish_text_delta,
-                )
-                response = model_invocation.response
-            except RunCancelledError:
-                return finish_cancelled(iteration_number)
-            except Exception as exc:
-                error_info = classify_exception(exc, error_source="model").to_metadata()
-                logger.exception("Model transport failed: session_id=%s error=%s", session_id, exc)
-                fallback_response = _model_failure_response(error_info)
-                self._session_store.append(session, Message(role="assistant", content=fallback_response))
+            def publish_text_delta(delta: str) -> None:
                 publish_event(
-                    kind="observation",
+                    kind="delta",
                     source="model",
-                    name="model.failed",
+                    name="model.delta",
                     iteration=iteration_number,
-                    payload=error_info,
+                    item_id=model_item_id,
+                    payload={"delta": delta},
                 )
-                result = RuntimeResult(
-                    session_id=session.session_id,
-                    status="failed",
-                    final_response=fallback_response,
-                    run_id=run_id,
-                    messages=self._session_store.snapshot(session),
-                    tool_results=tool_results,
-                )
-                return finish_result(
-                    result,
-                    iteration=iteration_number,
-                    attempt_count=iteration_number,
-                    error_info=error_info,
-                    end_reason=str(error_info["error_type"]),
-                    failure_reason=str(error_info["error_message"]),
-                )
+
+            return self._model_invoker.invoke(
+                messages=current_context_messages,
+                tools=self._tool_registry.schemas(
+                    enabled_toolsets=self._enabled_toolsets,
+                    disabled_toolsets=self._disabled_toolsets,
+                ),
+                cancellation_requested=lambda: cancellation_token.is_cancelled,
+                on_text_delta=publish_text_delta,
+            )
+
+        def record_model_invocation(
+            iteration_number: int,
+            model_invocation: ModelInvocation,
+            discarded: bool,
+        ) -> None:
+            response = model_invocation.response
+            model_item_id = f"model:{iteration_number}"
             model_payload = _model_response_payload(
                 response,
                 purpose="agent",
@@ -891,7 +872,7 @@ class AgentRuntime:
                 duration_ms=model_invocation.duration_ms,
             )
             self._session_store.record_model_response(session, run_id, response)
-            if cancellation_token.is_cancelled:
+            if discarded:
                 publish_event(
                     kind="observation",
                     source="model",
@@ -900,7 +881,7 @@ class AgentRuntime:
                     item_id=model_item_id,
                     payload=model_payload,
                 )
-                return finish_cancelled(iteration_number)
+                return
             if response.tool_calls:
                 publish_event(
                     kind="observation",
@@ -918,38 +899,24 @@ class AgentRuntime:
                 item_id=model_item_id,
                 payload=model_payload,
             )
-
-            assistant_message = Message(
-                role="assistant",
-                content=response.content,
-                reasoning_content=response.reasoning_content,
-                tool_calls=response.tool_calls,
-                provider=response.provider,
-                model=response.model,
-                token_count=response.usage.output_tokens,
-                finish_reason=response.finish_reason,
+            self._session_store.append(
+                session,
+                Message(
+                    role="assistant",
+                    content=response.content,
+                    reasoning_content=response.reasoning_content,
+                    tool_calls=response.tool_calls,
+                    provider=response.provider,
+                    model=response.model,
+                    token_count=response.usage.output_tokens,
+                    finish_reason=response.finish_reason,
+                ),
             )
-            self._session_store.append(session, assistant_message)
 
-            if not response.tool_calls:
-                logger.info(
-                    "Runtime conversation completed: session_id=%s status=success",
-                    session_id,
-                )
-                result = RuntimeResult(
-                    session_id=session.session_id,
-                    status="success",
-                    final_response=response.content,
-                    run_id=run_id,
-                    messages=self._session_store.snapshot(session),
-                    tool_results=tool_results,
-                )
-                return finish_result(
-                    result,
-                    iteration=iteration_number,
-                    attempt_count=iteration_number,
-                )
-
+        def execute_tools(
+            iteration_number: int,
+            model_invocation: ModelInvocation,
+        ) -> ToolResult | None:
             def emit_tool_output(payload: dict[str, object]) -> None:
                 tool_call_id = payload.get("tool_call_id")
                 publish_event(
@@ -971,7 +938,7 @@ class AgentRuntime:
             )
             unique_tool_calls = []
             seen_tool_call_ids = set()
-            for tool_call in response.tool_calls:
+            for tool_call in model_invocation.response.tool_calls:
                 if tool_call.id in seen_tool_call_ids:
                     continue
                 seen_tool_call_ids.add(tool_call.id)
@@ -1019,9 +986,7 @@ class AgentRuntime:
                         tool_result.structured_content.get("interaction_pending") is not True
                     ),
                 )
-            if cancellation_token.is_cancelled:
-                return finish_cancelled(iteration_number)
-            pending_result = next(
+            return next(
                 (
                     item
                     for item in tool_results
@@ -1029,8 +994,83 @@ class AgentRuntime:
                 ),
                 None,
             )
-            if pending_result is not None:
-                return finish_waiting(iteration_number, pending_result)
+
+        loop_outcome = self._agent_loop.run(
+            is_cancelled=lambda: cancellation_token.is_cancelled,
+            on_iteration_started=start_iteration,
+            invoke_model=invoke_model,
+            on_model_response=record_model_invocation,
+            execute_tools=execute_tools,
+        )
+        if loop_outcome.status == "cancelled":
+            return finish_cancelled(loop_outcome.iteration)
+        if loop_outcome.status == "failed":
+            exc = loop_outcome.error
+            if exc is None:
+                raise RuntimeError("Agent loop failed without an error")
+            error_info = classify_exception(exc, error_source="model").to_metadata()
+            logger.exception(
+                "Model transport failed: session_id=%s error=%s",
+                session_id,
+                exc,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+            fallback_response = _model_failure_response(error_info)
+            self._session_store.append(
+                session,
+                Message(role="assistant", content=fallback_response),
+            )
+            publish_event(
+                kind="observation",
+                source="model",
+                name="model.failed",
+                iteration=loop_outcome.iteration,
+                payload=error_info,
+            )
+            result = RuntimeResult(
+                session_id=session.session_id,
+                status="failed",
+                final_response=fallback_response,
+                run_id=run_id,
+                messages=self._session_store.snapshot(session),
+                tool_results=tool_results,
+            )
+            return finish_result(
+                result,
+                iteration=loop_outcome.iteration,
+                attempt_count=loop_outcome.iteration,
+                error_info=error_info,
+                end_reason=str(error_info["error_type"]),
+                failure_reason=str(error_info["error_message"]),
+            )
+        if loop_outcome.status == "completed":
+            if loop_outcome.invocation is None:
+                raise RuntimeError("Agent loop completed without a model response")
+            response = loop_outcome.invocation.response
+            logger.info(
+                "Runtime conversation completed: session_id=%s status=success",
+                session_id,
+            )
+            result = RuntimeResult(
+                session_id=session.session_id,
+                status="success",
+                final_response=response.content,
+                run_id=run_id,
+                messages=self._session_store.snapshot(session),
+                tool_results=tool_results,
+            )
+            return finish_result(
+                result,
+                iteration=loop_outcome.iteration,
+                attempt_count=loop_outcome.iteration,
+            )
+        if loop_outcome.status == "waiting":
+            if loop_outcome.pending_result is None:
+                raise RuntimeError("Agent loop is waiting without a pending result")
+            return finish_waiting(
+                loop_outcome.iteration,
+                loop_outcome.pending_result,
+            )
 
         logger.error("Runtime iteration limit exceeded: session_id=%s", session_id)
         self._session_store.append(
