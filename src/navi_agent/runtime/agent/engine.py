@@ -26,11 +26,12 @@ from ..models import (
 )
 from .prompt import PromptBuilder
 from .control import RunCancellationToken, RunCancelledError
+from .model_invoker import ModelInvoker
 from ..sessions.memory import InMemorySessionStore
 from ..sessions.store import SessionStore
 from ..tools.rendering import DefaultToolResultRenderer, ToolResultRenderer
 from ..tools.registry import ToolRegistry
-from ..transports import ModelRequest, ModelTransport
+from ..transports import ModelTransport
 from navi_agent.telemetry import (
     RuntimeEventStore,
     RuntimeTrace,
@@ -205,7 +206,7 @@ class AgentRuntime:
         cwd: str | None = None,
         close_callbacks: Sequence[Callable[[], None]] | None = None,
     ) -> None:
-        self._transport = transport
+        self._model_invoker = ModelInvoker(transport)
         self._tool_registry = tool_registry or ToolRegistry()
         self._session_store = session_store or InMemorySessionStore()
         self._prompt_builder = prompt_builder or PromptBuilder()
@@ -831,31 +832,27 @@ class AgentRuntime:
                 )
             try:
                 model_item_id = f"model:{iteration_number}"
-                model_started_at = _utc_now_iso()
-                model_started_perf = perf_counter()
-                model_request = ModelRequest(
+
+                def publish_text_delta(delta: str) -> None:
+                    publish_event(
+                        kind="delta",
+                        source="model",
+                        name="model.delta",
+                        iteration=iteration_number,
+                        item_id=model_item_id,
+                        payload={"delta": delta},
+                    )
+
+                model_invocation = self._model_invoker.invoke(
                     messages=context_result.messages,
                     tools=self._tool_registry.schemas(
                         enabled_toolsets=self._enabled_toolsets,
                         disabled_toolsets=self._disabled_toolsets,
                     ),
                     cancellation_requested=lambda: cancellation_token.is_cancelled,
+                    on_text_delta=publish_text_delta,
                 )
-                generate_stream = getattr(self._transport, "generate_stream", None)
-                if callable(generate_stream):
-                    def publish_text_delta(delta: str) -> None:
-                        publish_event(
-                            kind="delta",
-                            source="model",
-                            name="model.delta",
-                            iteration=iteration_number,
-                            item_id=model_item_id,
-                            payload={"delta": delta},
-                        )
-
-                    response = generate_stream(model_request, publish_text_delta)
-                else:
-                    response = self._transport.generate(model_request)
+                response = model_invocation.response
             except RunCancelledError:
                 return finish_cancelled(iteration_number)
             except Exception as exc:
@@ -889,9 +886,9 @@ class AgentRuntime:
             model_payload = _model_response_payload(
                 response,
                 purpose="agent",
-                started_at=model_started_at,
-                completed_at=_utc_now_iso(),
-                duration_ms=_duration_ms(model_started_perf),
+                started_at=model_invocation.started_at,
+                completed_at=model_invocation.completed_at,
+                duration_ms=model_invocation.duration_ms,
             )
             self._session_store.record_model_response(session, run_id, response)
             if cancellation_token.is_cancelled:
