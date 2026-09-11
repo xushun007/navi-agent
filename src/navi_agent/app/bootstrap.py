@@ -44,6 +44,7 @@ from navi_agent.paths import (
     get_eval_case_store_path,
 )
 from navi_agent.runtime import (
+    AgentProfile,
     AgentRuntime,
     BackgroundTaskManager,
     BackgroundTaskStore,
@@ -107,28 +108,26 @@ def build_runtime(
     subagent_service: SubagentService
 
     def create_runtime(
+        profile: AgentProfile,
         *,
-        enabled_toolsets: list[str] | None = None,
-        include_delegation: bool,
         parent_session_id: str | None = None,
-        non_interactive: bool = False,
     ) -> AgentRuntime:
         runtime_background_tasks = (
-            background_task_manager if include_delegation else BackgroundTaskManager()
+            background_task_manager if profile.allow_delegation else BackgroundTaskManager()
         )
         builtin_provider = BuiltinToolProvider(
             memory_store=memory_store,
             session_store=session_store,
             skill_store=skill_store,
             background_task_manager=runtime_background_tasks,
-            subagent_service=subagent_service if include_delegation else None,
+            subagent_service=subagent_service if profile.allow_delegation else None,
             root=resolved_workspace_root,
             additional_roots=added_roots,
-            interaction_store=interaction_store if include_delegation else None,
+            interaction_store=interaction_store if profile.allow_delegation else None,
             web_search_api_key=web_settings.search_api_key,
         )
         tool_providers = [builtin_provider]
-        if include_delegation:
+        if profile.allow_delegation:
             tool_providers.append(mcp_provider)
         else:
             tool_providers.append(StaticToolProvider(mcp_provider.load_tools()))
@@ -142,7 +141,7 @@ def build_runtime(
             ),
         )
         runtime_approval_provider = (
-            DenyAllApprovalProvider() if non_interactive else approval_provider
+            DenyAllApprovalProvider() if profile.non_interactive else approval_provider
         )
         return AgentRuntime(
             transport=transport,
@@ -159,10 +158,18 @@ def build_runtime(
                 resources.tools,
                 approval_provider=runtime_approval_provider,
             ),
-            enabled_toolsets=enabled_toolsets,
-            disabled_toolsets=disabled_toolsets,
-            max_iterations=runtime_settings.max_iterations,
-            agent_role="primary" if include_delegation else "subagent",
+            enabled_toolsets=(
+                list(profile.enabled_toolsets)
+                if profile.enabled_toolsets is not None
+                else None
+            ),
+            disabled_toolsets=(
+                list(profile.disabled_toolsets)
+                if profile.disabled_toolsets is not None
+                else None
+            ),
+            max_iterations=profile.max_iterations,
+            agent_role=profile.role,
             parent_session_id=parent_session_id,
             model=model_settings.model,
             cwd=str(resolved_workspace_root),
@@ -171,13 +178,28 @@ def build_runtime(
 
     subagent_service = SubagentService(
         runtime_factory=lambda enabled_toolsets, parent_session_id, non_interactive: create_runtime(
-            enabled_toolsets=enabled_toolsets,
-            include_delegation=False,
+            AgentProfile(
+                role="subagent",
+                max_iterations=runtime_settings.max_iterations,
+                enabled_toolsets=tuple(enabled_toolsets),
+                disabled_toolsets=(
+                    tuple(disabled_toolsets) if disabled_toolsets is not None else None
+                ),
+                non_interactive=non_interactive,
+            ),
             parent_session_id=parent_session_id,
-            non_interactive=non_interactive,
         )
     )
-    return create_runtime(include_delegation=True)
+    return create_runtime(
+        AgentProfile(
+            role="primary",
+            max_iterations=runtime_settings.max_iterations,
+            disabled_toolsets=(
+                tuple(disabled_toolsets) if disabled_toolsets is not None else None
+            ),
+            allow_delegation=True,
+        )
+    )
 
 
 def build_application(

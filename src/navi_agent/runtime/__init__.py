@@ -16,6 +16,7 @@ from .agent.context import (
     LLMContextSummarizer,
 )
 from .agent.engine import AgentRuntime
+from .agent.profile import AgentProfile
 from .replay import (
     OfflineReplayResult,
     OfflineReplayService,
@@ -93,6 +94,7 @@ from .transports import (
 
 __all__ = [
     "AgentRuntime",
+    "AgentProfile",
     "ActiveRunRegistry",
     "ApprovalDecision",
     "ApprovalProvider",
