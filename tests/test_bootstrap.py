@@ -12,7 +12,16 @@ from navi_agent.config import (
     RuntimeSettings,
 )
 from navi_agent.memory import FileMemoryStore
-from navi_agent.runtime import ToolCall, ToolContext, ToolRegistration
+from navi_agent.runtime import (
+    AgentProfile,
+    ModelResponse,
+    PromptLayer,
+    PromptSection,
+    StaticToolProvider,
+    ToolCall,
+    ToolContext,
+    ToolRegistration,
+)
 from navi_agent.runtime.tools.approval import AutoApproveApprovalProvider
 from navi_agent.telemetry import CompositeTraceStore, JsonlTraceStore
 from navi_agent.evolution import (
@@ -88,6 +97,72 @@ class BootstrapTests(unittest.TestCase):
         build_registry_mock.assert_called_once()
         self.assertEqual(runtime._max_iterations, 12)
         self.assertEqual(runtime._context_engine._threshold_tokens, 93000)
+
+    def test_build_runtime_applies_resolved_primary_profile_extensions(self) -> None:
+        class Transport:
+            def generate(self, _request):
+                return ModelResponse(content="done")
+
+        class Contributor:
+            name = "profile"
+
+            def contribute(self, _request):
+                return PromptSection(
+                    source=self.name,
+                    layer=PromptLayer.CONTEXT,
+                    content="Profile instructions",
+                )
+
+        custom_tool = FunctionTool(
+            name="profile_tool",
+            description="A profile-specific tool.",
+            handler=lambda: ToolResult.ok(name="profile_tool", content="ok"),
+        )
+        profile = AgentProfile(
+            role="specialist",
+            max_iterations=4,
+            transport=Transport(),
+            model="specialist-model",
+            context_limit_tokens=10_000,
+            prompt_contributors=(Contributor(),),
+            tool_providers=(
+                StaticToolProvider(
+                    (
+                        ToolRegistration(
+                            tool=custom_tool,
+                            toolsets=("specialist",),
+                            source="profile",
+                        ),
+                    )
+                ),
+            ),
+        )
+
+        with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
+            with patch("navi_agent.app.bootstrap.setup_logging"):
+                runtime = build_runtime(
+                    model_settings=ModelSettings(model="default"),
+                    runtime_settings=RuntimeSettings(max_iterations=30),
+                    primary_profile=profile,
+                )
+
+        self.assertEqual(runtime._agent_role, "specialist")
+        self.assertEqual(runtime._max_iterations, 4)
+        self.assertEqual(runtime._model, "specialist-model")
+        self.assertIs(runtime._model_invoker._transport, profile.transport)
+        self.assertEqual(runtime._context_engine._threshold_tokens, 4_500)
+        self.assertIn(
+            "profile_tool",
+            {
+                schema["name"]
+                for schema in runtime._tool_registry.schemas()
+            },
+        )
+        prompt = runtime._prompt_builder.build_run_system_message(
+            user_id="u1",
+            user_message="hello",
+        )
+        self.assertIn("Profile instructions", prompt.content)
 
     def test_build_runtime_reads_defaults_from_env(self) -> None:
         with patch.dict(

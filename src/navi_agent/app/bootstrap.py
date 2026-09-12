@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 
 from navi_agent.app import ApplicationService
@@ -81,6 +82,8 @@ def build_runtime(
     workspace_root: Path | None = None,
     additional_workspace_roots: Iterable[Path] | None = None,
     interaction_store: JsonPendingInteractionStore | None = None,
+    primary_profile: AgentProfile | None = None,
+    subagent_profile: AgentProfile | None = None,
 ) -> AgentRuntime:
     config = load_config()
     model_settings = model_settings or ModelSettings.from_sources(config)
@@ -93,7 +96,11 @@ def build_runtime(
         log_path=get_app_log_path(),
     )
 
-    transport = build_transport(model_settings)
+    transport = (
+        primary_profile.transport
+        if primary_profile is not None and primary_profile.transport is not None
+        else build_transport(model_settings)
+    )
     session_store = SQLiteSessionStore(get_state_db_path())
     memory_store = memory_store or FileMemoryStore(get_memories_dir())
     skill_store = skill_store or FileSkillStore(get_skills_dir())
@@ -112,6 +119,7 @@ def build_runtime(
         *,
         parent_session_id: str | None = None,
     ) -> AgentRuntime:
+        runtime_transport = profile.transport or transport
         runtime_background_tasks = (
             background_task_manager if profile.allow_delegation else BackgroundTaskManager()
         )
@@ -131,6 +139,7 @@ def build_runtime(
             tool_providers.append(mcp_provider)
         else:
             tool_providers.append(StaticToolProvider(mcp_provider.load_tools()))
+        tool_providers.extend(profile.tool_providers)
         resources = load_runtime_resources(
             tool_providers,
             prompt_contributors=build_default_prompt_contributors(
@@ -138,21 +147,24 @@ def build_runtime(
                 skill_store=skill_store,
                 project_context_root=resolved_workspace_root,
                 additional_workspace_roots=added_roots,
-            ),
+            )
+            + profile.prompt_contributors,
         )
         runtime_approval_provider = (
             DenyAllApprovalProvider() if profile.non_interactive else approval_provider
         )
         return AgentRuntime(
-            transport=transport,
+            transport=runtime_transport,
             session_store=session_store,
             prompt_builder=PromptBuilder(contributors=resources.prompt_contributors),
             trace_store=trace_store,
             event_store=event_store,
             background_task_manager=runtime_background_tasks,
             context_engine=ContextEngine(
-                context_limit_tokens=model_settings.context_limit_tokens,
-                summarizer=LLMContextSummarizer(transport),
+                context_limit_tokens=(
+                    profile.context_limit_tokens or model_settings.context_limit_tokens
+                ),
+                summarizer=LLMContextSummarizer(runtime_transport),
             ),
             tool_registry=build_tool_registry(
                 resources.tools,
@@ -171,27 +183,31 @@ def build_runtime(
             max_iterations=profile.max_iterations,
             agent_role=profile.role,
             parent_session_id=parent_session_id,
-            model=model_settings.model,
+            model=profile.model or model_settings.model,
             cwd=str(resolved_workspace_root),
             close_callbacks=[resources.close],
         )
 
+    resolved_subagent_profile = subagent_profile or AgentProfile(
+        role="subagent",
+        max_iterations=runtime_settings.max_iterations,
+        disabled_toolsets=(
+            tuple(disabled_toolsets) if disabled_toolsets is not None else None
+        ),
+    )
     subagent_service = SubagentService(
         runtime_factory=lambda enabled_toolsets, parent_session_id, non_interactive: create_runtime(
-            AgentProfile(
-                role="subagent",
-                max_iterations=runtime_settings.max_iterations,
+            replace(
+                resolved_subagent_profile,
                 enabled_toolsets=tuple(enabled_toolsets),
-                disabled_toolsets=(
-                    tuple(disabled_toolsets) if disabled_toolsets is not None else None
-                ),
                 non_interactive=non_interactive,
             ),
             parent_session_id=parent_session_id,
         )
     )
     return create_runtime(
-        AgentProfile(
+        primary_profile
+        or AgentProfile(
             role="primary",
             max_iterations=runtime_settings.max_iterations,
             disabled_toolsets=(

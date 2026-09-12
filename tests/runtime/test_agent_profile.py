@@ -34,3 +34,12 @@ def test_agent_profile_rejects_invalid_execution_choices(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         AgentProfile(role=role, max_iterations=max_iterations)
+
+
+def test_agent_profile_rejects_invalid_context_limit() -> None:
+    with pytest.raises(ValueError, match="agent context_limit_tokens must be positive"):
+        AgentProfile(
+            role="primary",
+            max_iterations=1,
+            context_limit_tokens=0,
+        )
