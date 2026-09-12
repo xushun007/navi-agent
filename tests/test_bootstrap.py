@@ -100,8 +100,18 @@ class BootstrapTests(unittest.TestCase):
 
     def test_build_runtime_applies_resolved_primary_profile_extensions(self) -> None:
         class Transport:
-            def generate(self, _request):
-                return ModelResponse(content="done")
+            def __init__(self) -> None:
+                self.requests = []
+                self.responses = [
+                    ModelResponse(
+                        tool_calls=[ToolCall(id="tc1", name="profile_tool")]
+                    ),
+                    ModelResponse(content="done"),
+                ]
+
+            def generate(self, request):
+                self.requests.append(request)
+                return self.responses.pop(0)
 
         class Contributor:
             name = "profile"
@@ -113,15 +123,22 @@ class BootstrapTests(unittest.TestCase):
                     content="Profile instructions",
                 )
 
+        tool_calls = []
+
+        def run_profile_tool() -> ToolResult:
+            tool_calls.append("profile_tool")
+            return ToolResult.ok(name="profile_tool", content="profile result")
+
+        transport = Transport()
         custom_tool = FunctionTool(
             name="profile_tool",
             description="A profile-specific tool.",
-            handler=lambda: ToolResult.ok(name="profile_tool", content="ok"),
+            handler=run_profile_tool,
         )
         profile = AgentProfile(
             role="specialist",
             max_iterations=4,
-            transport=Transport(),
+            transport=transport,
             model="specialist-model",
             context_limit_tokens=10_000,
             prompt_contributors=(Contributor(),),
@@ -138,31 +155,38 @@ class BootstrapTests(unittest.TestCase):
             ),
         )
 
-        with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
-            with patch("navi_agent.app.bootstrap.setup_logging"):
-                runtime = build_runtime(
-                    model_settings=ModelSettings(model="default"),
-                    runtime_settings=RuntimeSettings(max_iterations=30),
-                    primary_profile=profile,
-                )
+        with patch("navi_agent.app.bootstrap.setup_logging"):
+            runtime = build_runtime(
+                model_settings=ModelSettings(model="default"),
+                runtime_settings=RuntimeSettings(max_iterations=30),
+                primary_profile=profile,
+            )
+        self.addCleanup(runtime.close)
+
+        result = runtime.run_conversation(
+            session_id="profile-session",
+            user_id="u1",
+            user_message="use the profile extension",
+        )
 
         self.assertEqual(runtime._agent_role, "specialist")
         self.assertEqual(runtime._max_iterations, 4)
         self.assertEqual(runtime._model, "specialist-model")
-        self.assertIs(runtime._model_invoker._transport, profile.transport)
+        self.assertIs(runtime._model_invoker._transport, transport)
         self.assertEqual(runtime._context_engine._threshold_tokens, 4_500)
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.final_response, "done")
+        self.assertEqual(tool_calls, ["profile_tool"])
+        self.assertEqual(
+            [(item.name, item.content) for item in result.tool_results],
+            [("profile_tool", "profile result")],
+        )
+        first_request = transport.requests[0]
+        self.assertIn("Profile instructions", first_request.messages[0].content)
         self.assertIn(
             "profile_tool",
-            {
-                schema["name"]
-                for schema in runtime._tool_registry.schemas()
-            },
+            {schema["name"] for schema in first_request.tools},
         )
-        prompt = runtime._prompt_builder.build_run_system_message(
-            user_id="u1",
-            user_message="hello",
-        )
-        self.assertIn("Profile instructions", prompt.content)
 
     def test_build_runtime_reads_defaults_from_env(self) -> None:
         with patch.dict(
