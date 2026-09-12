@@ -11,14 +11,36 @@ session-aware harness, composed resources, and an event stream. It deliberately
 does not copy Pi's monorepo layout, dynamic extension loader, UI extension API,
 or broad set of mutable lifecycle hooks.
 
-The first implementation increment is limited to runtime resources and tool
-providers:
+The implemented foundation now covers runtime resources, prompt composition,
+the model/tool loop, application use-case services, and resolved agent
+profiles:
 
 - represent runtime-owned tools and cleanup callbacks explicitly;
 - load built-in tools through a provider;
 - load MCP tools through the same provider boundary;
+- compose prompts through ordered contributors;
+- isolate model invocation and model/tool iteration from session concerns;
+- expose conversation, session-query, and evolution use cases separately;
+- compose primary and subagent runtimes from explicit profiles;
 - keep existing runtime, CLI, gateway, tool names, toolsets, and policies
   behavior-compatible.
+
+## Implementation status
+
+Completed:
+
+- Increment 1: resource composition;
+- Increment 2: prompt composition;
+- Increment 3: loop extraction;
+- Increment 5: application use-case separation;
+- `AgentProfile` composition for model transport, model identity, context limit,
+  prompt contributors, tool providers, toolsets, approval mode, and iteration
+  limit.
+
+Remaining:
+
+- Increment 4: extract the session-aware `AgentHarness` while retaining
+  `AgentRuntime` as the compatibility facade.
 
 ## Current constraints
 
@@ -34,14 +56,12 @@ The existing architecture already has useful public boundaries:
 The main extensibility constraints are orchestration boundaries rather than
 missing modules:
 
-1. `AgentRuntime._run_conversation()` owns session persistence, context,
-   compaction, model calls, tool iteration, interaction suspension, events,
-   traces, and result assembly.
-2. `ApplicationService` combines online conversation use cases, session
-   queries, interaction recovery, and evolution governance.
-3. `build_runtime()` discovers MCP tools, creates all built-in tools, assembles
+1. `AgentRuntime._run_conversation()` still contains session persistence,
+   context, compaction, interaction suspension, events, traces, and result
+   assembly around the extracted loop.
+2. `build_runtime()` discovers MCP tools, creates all built-in tools, assembles
    stores and telemetry, creates subagent runtimes, and owns cleanup callbacks.
-4. Adding a capability can therefore require coordinated edits to bootstrap,
+3. Adding a capability can therefore require coordinated edits to bootstrap,
    runtime, and a concrete capability module.
 
 ## Target architecture
@@ -76,7 +96,7 @@ Evolution consumes persisted trace, event, and evaluation evidence only.
 
 ### AgentLoop
 
-`AgentLoop` should eventually own only the model/tool iteration:
+`AgentLoop` owns only the model/tool iteration:
 
 ```text
 messages -> model -> tool calls -> tool results -> model -> final response
@@ -106,11 +126,9 @@ The initial resource boundary contains:
 @dataclass(frozen=True, slots=True)
 class RuntimeResources:
     tools: tuple[ToolRegistration, ...]
+    prompt_contributors: tuple[PromptContributor, ...]
     close_callbacks: tuple[Callable[[], None], ...]
 ```
-
-Prompt contributors and event subscribers may join this object in later,
-independently reviewed increments after their behavior is proven.
 
 ## Initial extension points
 
@@ -136,10 +154,17 @@ reverse acquisition order.
 
 ### PromptContributor
 
-This is the planned second extension point, not part of the first increment.
-It will separate workspace, project context, memory, and skill-index prompt
-sections from `PromptBuilder` while preserving the existing stable, context,
-and volatile prompt boundaries.
+Ordered prompt contributors now separate workspace, project context, memory,
+and skill-index sections from `PromptBuilder` while preserving the stable,
+context, and volatile prompt boundaries.
+
+### AgentProfile
+
+`AgentProfile` is a resolved composition object, not another configuration
+system. It lets Bootstrap assemble a primary agent or subagent with a specific
+transport, model identity, context limit, prompt contributors, tool providers,
+toolsets, approval mode, and iteration limit. Defaults preserve the existing
+single-model behavior.
 
 ### RuntimeEventSubscriber
 
@@ -150,20 +175,19 @@ context, transport, or tool-policy interfaces.
 
 ## Application service direction
 
-After the runtime boundary is stable, application use cases should be separated
-into:
+Application use cases are separated into:
 
 - `ConversationService`: handle, cancel, resume interaction, active run state;
 - `SessionQueryService`: sessions, messages, traces, background tasks;
 - `EvolutionService`: candidates, evaluation, review, promotion, rollback.
 
-The current `ApplicationService` should remain temporarily as a thin facade over
-those services. Evolution must continue to consume persisted evidence rather
-than register behavior-changing hooks in the online runtime.
+`ApplicationService` remains the compatibility facade over those services.
+Evolution continues to consume persisted evidence rather than register
+behavior-changing hooks in the online runtime.
 
 ## Incremental delivery
 
-### Increment 1: resource composition
+### Increment 1: resource composition — completed
 
 1. Introduce explicit tool registrations, `ToolProvider`, and
    `RuntimeResources`.
@@ -183,24 +207,24 @@ Acceptance criteria:
 - subagents reuse resolved MCP tools without owning or closing MCP clients;
 - relevant bootstrap, runtime, tools, and MCP tests pass.
 
-### Increment 2: prompt composition
+### Increment 2: prompt composition — completed
 
 Introduce ordered prompt contributors for workspace, project context, memory,
 and skill index. Preserve byte-for-byte prompt ordering where practical and
 preserve provider-cache boundaries.
 
-### Increment 3: loop extraction
+### Increment 3: loop extraction — completed
 
 Extract model/tool iteration from `AgentRuntime._run_conversation()` into an
 `AgentLoop`. Preserve message order, tool-event order, trace payloads, usage,
 cancellation, iteration limits, and interaction suspension.
 
-### Increment 4: harness boundary
+### Increment 4: harness boundary — remaining
 
 Move session, context, persistence, event lifecycle, and result assembly into a
 session-aware harness. Keep `AgentRuntime` as the compatibility facade.
 
-### Increment 5: application use cases
+### Increment 5: application use cases — completed
 
 Split conversation, session-query, and evolution responsibilities behind the
 existing `ApplicationService` interface.
