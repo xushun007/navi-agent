@@ -4,6 +4,7 @@ BUILD_LOG.md
 TODO.md
 .DS_Store
 .navi-agent/
+.worktrees/
 __pycache__/
 .pytest_cache/
 .venv/
