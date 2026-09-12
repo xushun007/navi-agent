@@ -6,10 +6,11 @@ Navi Agent does not need a general-purpose plugin framework yet. It needs a
 stable composition boundary between its runtime core and the capabilities
 assembled around that core.
 
-The target architecture borrows Pi's separation of a minimal agent loop, a
-session-aware harness, composed resources, and an event stream. It deliberately
-does not copy Pi's monorepo layout, dynamic extension loader, UI extension API,
-or broad set of mutable lifecycle hooks.
+The target architecture borrows Pi's separation of a minimal agent loop,
+composed resources, and an event stream. Navi Agent supplies the surrounding
+engineering system without introducing another orchestration layer beside
+`AgentRuntime`. It deliberately does not copy Pi's monorepo layout, dynamic
+extension loader, UI extension API, or broad mutable lifecycle hooks.
 
 The implemented foundation now covers runtime resources, prompt composition,
 the model/tool loop, application use-case services, and resolved agent
@@ -32,17 +33,18 @@ Completed:
 - Increment 1: resource composition;
 - Increment 2: prompt composition;
 - Increment 3: loop extraction;
+- Increment 4: runtime boundary review; keep `AgentRuntime` as the direct and
+  only orchestration boundary above `AgentLoop`;
 - Increment 5: application use-case separation;
 - `AgentProfile` composition for model transport, model identity, context limit,
   prompt contributors, tool providers, toolsets, approval mode, and iteration
   limit.
 
-Remaining:
+No further structural increment is required by this design. Future extraction
+inside `AgentRuntime` must be driven by concrete change pressure rather than
+the goal of making the class smaller.
 
-- Increment 4: extract the session-aware `AgentHarness` while retaining
-  `AgentRuntime` as the compatibility facade.
-
-## Current constraints
+## Current boundaries
 
 The existing architecture already has useful public boundaries:
 
@@ -53,16 +55,14 @@ The existing architecture already has useful public boundaries:
 - evolution reads persisted evidence and stays outside the online execution
   path.
 
-The main extensibility constraints are orchestration boundaries rather than
-missing modules:
+The orchestration boundaries are intentional:
 
-1. `AgentRuntime._run_conversation()` still contains session persistence,
-   context, compaction, interaction suspension, events, traces, and result
-   assembly around the extracted loop.
+1. `AgentRuntime` owns session persistence, context, compaction, interaction
+   suspension, events, traces, and result assembly around the extracted loop.
 2. `build_runtime()` discovers MCP tools, creates all built-in tools, assembles
    stores and telemetry, creates subagent runtimes, and owns cleanup callbacks.
-3. Adding a capability can therefore require coordinated edits to bootstrap,
-   runtime, and a concrete capability module.
+3. Capabilities join through Profile, Provider, Contributor, Store, Policy,
+   Transport, or Event interfaces rather than mutable runtime hooks.
 
 ## Target architecture
 
@@ -73,19 +73,17 @@ Weixin Gateway / CLI
   ConversationService
           |
           v
-     AgentRuntime              compatibility facade
+     AgentRuntime
+ session/run orchestration
           |
-    +-----+------+
-    |            |
-    v            v
-AgentHarness   AgentLoop
-session/run    model/tool
-orchestration  state machine
-    |
-    +-- SessionStore
-    +-- ContextPipeline
-    +-- RuntimeResources
-    +-- EventPublisher
+    +-----+-------------------+
+    |                         |
+    v                         v
+AgentLoop              Runtime dependencies
+model/tool             SessionStore
+state machine          ContextEngine
+                       RuntimeResources
+                       EventPublisher
              |
              +-- Trace
              +-- Telemetry
@@ -105,14 +103,15 @@ messages -> model -> tool calls -> tool results -> model -> final response
 It must not know about SQLite, skill files, memory files, gateways, evolution,
 Langfuse, or background review.
 
-### AgentHarness
+### AgentRuntime
 
-The harness turns the loop into a usable session runtime. It owns session
+`AgentRuntime` turns the loop into a usable session runtime. It owns session
 loading and persistence, prompt and context construction, compaction, run
 lifecycle, pending interactions, event publication, and usage aggregation.
 
-`AgentRuntime` remains the public facade during migration so that CLI, gateway,
-evaluation, and replay callers do not need to migrate together.
+The surrounding Navi Agent system supplies gateways, application services,
+tools, memory, telemetry, evaluation, review, configuration, and lifecycle.
+None of those layers competes with `AgentRuntime` for session ownership.
 
 ### RuntimeResources
 
@@ -219,10 +218,11 @@ Extract model/tool iteration from `AgentRuntime._run_conversation()` into an
 `AgentLoop`. Preserve message order, tool-event order, trace payloads, usage,
 cancellation, iteration limits, and interaction suspension.
 
-### Increment 4: harness boundary — remaining
+### Increment 4: runtime boundary review — completed
 
-Move session, context, persistence, event lifecycle, and result assembly into a
-session-aware harness. Keep `AgentRuntime` as the compatibility facade.
+Keep session, context, persistence, event lifecycle, and result assembly in
+`AgentRuntime`. Extract smaller internal components only when a concrete
+feature or repeated maintenance problem proves the need.
 
 ### Increment 5: application use cases — completed
 
