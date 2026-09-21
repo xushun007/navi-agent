@@ -23,6 +23,7 @@ profiles:
 - isolate model invocation and model/tool iteration from session concerns;
 - expose conversation, session-query, and evolution use cases separately;
 - compose primary and subagent runtimes from explicit profiles;
+- bind each runtime to an explicit, immutable execution environment identity;
 - keep existing runtime, CLI, gateway, tool names, toolsets, and policies
   behavior-compatible.
 
@@ -38,7 +39,9 @@ Completed:
 - Increment 5: application use-case separation;
 - `AgentProfile` composition for model transport, model identity, context limit,
   prompt contributors, tool providers, toolsets, approval mode, and iteration
-  limit.
+  limit;
+- `EnvironmentBinding` composition for workspace roots, declared host execution,
+  filesystem enforcement, network policy, secret policy, and environment identity.
 
 No further structural increment is required by this design. Future extraction
 inside `AgentRuntime` must be driven by concrete change pressure rather than
@@ -63,6 +66,9 @@ The orchestration boundaries are intentional:
    stores and telemetry, creates subagent runtimes, and owns cleanup callbacks.
 3. Capabilities join through Profile, Provider, Contributor, Store, Policy,
    Transport, or Event interfaces rather than mutable runtime hooks.
+4. `EnvironmentBinding` describes the execution boundary shared by a primary
+   runtime and its default subagents. It is persisted and emitted as identity;
+   it does not claim that host execution is sandboxed.
 
 ## Target architecture
 
@@ -164,6 +170,15 @@ system. It lets Bootstrap assemble a primary agent or subagent with a specific
 transport, model identity, context limit, prompt contributors, tool providers,
 toolsets, approval mode, and iteration limit. Defaults preserve the existing
 single-model behavior.
+
+### EnvironmentBinding
+
+`EnvironmentBinding` is the immutable environment description used by runtime
+composition, session records, events, and tool-call context. The initial
+implementation records host execution honestly: workspace file tools enforce
+their configured roots, while shell network and process access remain governed
+by the host. A profile may supply a different binding, but environment changes
+occur when a runtime is composed, not during an iteration.
 
 ### RuntimeEventSubscriber
 

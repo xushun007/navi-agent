@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .prompt_pipeline import PromptContributor
+    from ..environment import EnvironmentBinding
     from ..resources import ToolProvider
     from ..transports import ModelTransport
 
@@ -24,6 +25,7 @@ class AgentProfile:
     context_limit_tokens: int | None = None
     prompt_contributors: tuple[PromptContributor, ...] = ()
     tool_providers: tuple[ToolProvider, ...] = ()
+    environment: EnvironmentBinding | None = None
 
     def __post_init__(self) -> None:
         if not self.role.strip():

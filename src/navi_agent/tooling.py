@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from typing import Protocol
+
+if TYPE_CHECKING:
+    from navi_agent.runtime.environment import EnvironmentBinding
 
 
 @dataclass(slots=True)
@@ -12,6 +15,7 @@ class ToolContext:
     user_id: str
     iteration: int
     run_id: str | None = None
+    environment: EnvironmentBinding | None = None
     emit_output: Callable[[dict[str, Any]], None] | None = None
     cancellation_requested: Callable[[], bool] | None = None
 

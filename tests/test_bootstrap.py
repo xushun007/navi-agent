@@ -14,6 +14,7 @@ from navi_agent.config import (
 from navi_agent.memory import FileMemoryStore
 from navi_agent.runtime import (
     AgentProfile,
+    EnvironmentBinding,
     ModelResponse,
     PromptLayer,
     PromptSection,
@@ -242,12 +243,39 @@ class BootstrapTests(unittest.TestCase):
         kwargs = builtin_cls.call_args.kwargs
         self.assertEqual(kwargs["root"], Path(workspace).resolve())
         self.assertEqual(kwargs["additional_roots"], (Path(added).resolve(),))
+        self.assertEqual(runtime._environment.workspace_root, str(Path(workspace).resolve()))
+        self.assertEqual(
+            runtime._environment.additional_workspace_roots,
+            (str(Path(added).resolve()),),
+        )
         prompt = runtime._prompt_builder.build_run_system_message(
             user_id="u1",
             user_message="inspect workspace",
         )
         self.assertIn(f"Primary workspace: {Path(workspace).resolve()}", prompt.content)
         self.assertIn(str(Path(added).resolve()), prompt.content)
+
+    def test_profile_environment_overrides_default_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            environment = EnvironmentBinding.host(
+                Path(workspace),
+                environment_id="profile-environment",
+            )
+            profile = AgentProfile(
+                role="primary",
+                max_iterations=3,
+                environment=environment,
+            )
+            with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):
+                with patch("navi_agent.app.bootstrap.setup_logging"):
+                    runtime = build_runtime(
+                        model_settings=ModelSettings(model="demo", api_key="x"),
+                        runtime_settings=RuntimeSettings(max_iterations=3),
+                        primary_profile=profile,
+                    )
+
+        self.assertIs(runtime._environment, environment)
+        self.assertEqual(runtime._cwd, environment.workspace_root)
 
     def test_build_runtime_uses_composite_trace_store_when_langfuse_enabled(self) -> None:
         with patch("navi_agent.app.bootstrap.SQLiteSessionStore"):

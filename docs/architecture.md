@@ -36,6 +36,12 @@ and gateway without leaking storage details.
 Owns session loading, context construction, model calls, tool dispatch,
 steering, cancellation, compaction, and final responses.
 
+Each runtime is composed with an immutable `EnvironmentBinding`. It gives the
+workspace and execution boundary a stable identity across session records,
+events, tool calls, and default subagents. The current binding declares host
+execution; workspace validation must not be interpreted as an operating-system
+sandbox.
+
 ### Tools
 
 Expose capabilities through explicit schemas and results. Tools validate their

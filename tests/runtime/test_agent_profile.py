@@ -1,15 +1,20 @@
 import pytest
 
-from navi_agent.runtime import AgentProfile
+from navi_agent.runtime import AgentProfile, EnvironmentBinding
 
 
 def test_agent_profile_holds_resolved_execution_choices() -> None:
+    environment = EnvironmentBinding(
+        environment_id="env-1",
+        workspace_root="/workspace",
+    )
     profile = AgentProfile(
         role="subagent",
         max_iterations=8,
         enabled_toolsets=("file", "skills"),
         disabled_toolsets=("terminal",),
         non_interactive=True,
+        environment=environment,
     )
 
     assert profile.role == "subagent"
@@ -18,6 +23,7 @@ def test_agent_profile_holds_resolved_execution_choices() -> None:
     assert profile.disabled_toolsets == ("terminal",)
     assert profile.allow_delegation is False
     assert profile.non_interactive is True
+    assert profile.environment is environment
 
 
 @pytest.mark.parametrize(

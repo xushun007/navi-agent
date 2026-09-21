@@ -17,6 +17,7 @@ from .agent.context import (
 )
 from .agent.engine import AgentRuntime
 from .agent.profile import AgentProfile
+from .environment import EnvironmentBinding
 from .replay import (
     OfflineReplayResult,
     OfflineReplayService,
@@ -117,6 +118,7 @@ __all__ = [
     "DenyAllApprovalProvider",
     "DemoTransport",
     "DeferredApprovalProvider",
+    "EnvironmentBinding",
     "InMemorySessionStore",
     "JsonPendingInteractionStore",
     "Message",

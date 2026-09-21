@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from threading import Lock
 from time import perf_counter
 from uuid import uuid4
@@ -12,6 +13,7 @@ from navi_agent.logging import log_context, update_log_context
 from navi_agent.tooling import ToolContext, ToolResult
 
 from ..tasks.background import BackgroundTask, BackgroundTaskManager
+from ..environment import EnvironmentBinding
 from .context import ContextBuildResult, ContextEngine, LLMContextSummarizer
 from ..tools.interactions import PendingInteraction
 from ..models import (
@@ -205,6 +207,7 @@ class AgentRuntime:
         parent_session_id: str | None = None,
         model: str | None = None,
         cwd: str | None = None,
+        environment: EnvironmentBinding | None = None,
         close_callbacks: Sequence[Callable[[], None]] | None = None,
     ) -> None:
         self._model_invoker = ModelInvoker(transport)
@@ -230,7 +233,8 @@ class AgentRuntime:
         self._agent_role = agent_role
         self._parent_session_id = parent_session_id
         self._model = model
-        self._cwd = cwd
+        self._environment = environment or EnvironmentBinding.host(Path(cwd or Path.cwd()))
+        self._cwd = self._environment.workspace_root
         self._close_callbacks = tuple(close_callbacks or ())
         self._close_lock = Lock()
         self._closed = False
@@ -360,7 +364,10 @@ class AgentRuntime:
                     name=name,
                     iteration=iteration,
                     item_id=item_id,
-                    metadata=dict(payload or {}),
+                    metadata={
+                        **dict(payload or {}),
+                        "environment_id": self._environment.environment_id,
+                    },
                 )
                 delivery_failures = self._event_publisher.publish(event)
                 critical_event_failures.extend(
@@ -381,6 +388,7 @@ class AgentRuntime:
                 "runtime_mode": mode.value,
                 "model": self._model,
                 "cwd": self._cwd,
+                "environment": self._environment.to_metadata(),
                 "started_at": run_started_at,
             },
         )
@@ -390,6 +398,7 @@ class AgentRuntime:
             parent_session_id=self._parent_session_id,
             model=self._model,
             cwd=self._cwd,
+            environment_id=self._environment.environment_id,
         )
         session = self._session_store.load(
             session_id=session_id,
@@ -678,6 +687,7 @@ class AgentRuntime:
                 user_id=user_id,
                 iteration=0,
                 run_id=run_id,
+                environment=self._environment,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
             )
             checkpoint_run_id = resume_interaction.run_id or run_id
@@ -933,6 +943,7 @@ class AgentRuntime:
                 user_id=user_id,
                 iteration=iteration_number,
                 run_id=run_id,
+                environment=self._environment,
                 emit_output=emit_tool_output,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
             )
