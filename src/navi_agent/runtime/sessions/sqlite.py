@@ -22,6 +22,7 @@ from ..models import (
     SessionRecallResult,
     SessionRecallView,
     SessionSummary,
+    StepSnapshot,
     ToolCall,
 )
 from .schema import SCHEMA_STATEMENTS
@@ -333,6 +334,63 @@ class SQLiteSessionStore:
             trajectory_complete=bool(row["trajectory_complete"]),
             failure_reason=row["failure_reason"],
             completion_reason=row["completion_reason"],
+        )
+
+    def save_step_snapshot(self, snapshot: StepSnapshot) -> None:
+        self._execute_write(
+            lambda connection: connection.execute(
+                """
+                INSERT INTO step_snapshots (
+                    step_id,
+                    run_id,
+                    session_id,
+                    iteration,
+                    model,
+                    environment_id,
+                    context_hash,
+                    tool_schema_hash,
+                    capability_names_json,
+                    prompt_sources_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot.step_id,
+                    snapshot.run_id,
+                    snapshot.session_id,
+                    snapshot.iteration,
+                    snapshot.model,
+                    snapshot.environment_id,
+                    snapshot.context_hash,
+                    snapshot.tool_schema_hash,
+                    json.dumps(snapshot.capability_names, ensure_ascii=False),
+                    json.dumps(snapshot.prompt_sources, ensure_ascii=False),
+                    snapshot.created_at,
+                ),
+            )
+        )
+
+    def get_step_snapshot(self, step_id: str) -> StepSnapshot | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM step_snapshots WHERE step_id = ?",
+                (step_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StepSnapshot(
+            step_id=str(row["step_id"]),
+            run_id=str(row["run_id"]),
+            session_id=str(row["session_id"]),
+            iteration=int(row["iteration"]),
+            model=row["model"],
+            environment_id=str(row["environment_id"]),
+            context_hash=str(row["context_hash"]),
+            tool_schema_hash=str(row["tool_schema_hash"]),
+            capability_names=tuple(json.loads(row["capability_names_json"])),
+            prompt_sources=tuple(json.loads(row["prompt_sources_json"])),
+            created_at=str(row["created_at"]),
         )
 
     def start_tool_call(

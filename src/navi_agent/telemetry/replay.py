@@ -61,6 +61,8 @@ class ReplayToolOutput:
 class ReplayModelStep:
     iteration: int
     purpose: str
+    context_hash: str | None = None
+    tool_schema_hash: str | None = None
     response: ReplayModelOutput | None = None
     failure: ReplayModelFailure | None = None
 
@@ -98,6 +100,11 @@ class RuntimeReplayPlanner:
         user_message = self._exactly_one(events, "user.message")
         completed = self._exactly_one(events, "runtime.completed")
         context_ready = self._optional_one(events, "runtime.context_ready")
+        snapshots = {
+            event.step_id: event
+            for event in events
+            if event.name == "step.snapshot" and event.step_id is not None
+        }
 
         if completed.metadata.get("trajectory_complete") is False:
             raise ReplayPlanError("runtime trajectory is marked incomplete")
@@ -119,7 +126,7 @@ class RuntimeReplayPlanner:
             )
             or "",
             model_steps=tuple(
-                self._model_step(event)
+                self._model_step(event, snapshots.get(event.step_id))
                 for event in events
                 if event.name in {"model.response", "model.failed"}
             ),
@@ -166,12 +173,18 @@ class RuntimeReplayPlanner:
         return matches[0] if matches else None
 
     @staticmethod
-    def _model_step(event: RuntimeEvent) -> ReplayModelStep:
+    def _model_step(
+        event: RuntimeEvent,
+        snapshot: RuntimeEvent | None,
+    ) -> ReplayModelStep:
         metadata = event.metadata
+        snapshot_metadata = snapshot.metadata if snapshot is not None else {}
         if event.name == "model.failed":
             return ReplayModelStep(
                 iteration=event.iteration or 0,
                 purpose=_optional_string(metadata, "purpose") or "agent",
+                context_hash=_optional_string(snapshot_metadata, "context_hash"),
+                tool_schema_hash=_optional_string(snapshot_metadata, "tool_schema_hash"),
                 failure=ReplayModelFailure(
                     error_type=_required_string(metadata, "error_type"),
                     error_message=_required_string(metadata, "error_message"),
@@ -183,6 +196,8 @@ class RuntimeReplayPlanner:
         return ReplayModelStep(
             iteration=event.iteration or 0,
             purpose=_optional_string(metadata, "purpose") or "agent",
+            context_hash=_optional_string(snapshot_metadata, "context_hash"),
+            tool_schema_hash=_optional_string(snapshot_metadata, "tool_schema_hash"),
             response=ReplayModelOutput(
                 content=_optional_string(metadata, "content") or "",
                 reasoning_content=_optional_string(metadata, "reasoning_content"),

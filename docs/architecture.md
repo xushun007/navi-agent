@@ -42,6 +42,12 @@ events, tool calls, and default subagents. The current binding declares host
 execution; workspace validation must not be interpreted as an operating-system
 sandbox.
 
+Before each agent model call, the runtime persists an immutable `StepSnapshot`.
+It binds a unique step identity to the selected model and environment, hashes of
+the exact context and tool-schema projections, visible capability names, and
+prompt-source identities. The same `step_id` is carried by the model request,
+tool context, and runtime events for that iteration.
+
 ### Tools
 
 Expose capabilities through explicit schemas and results. Tools validate their
@@ -53,6 +59,11 @@ inputs, but approval and execution policy remain in the runtime.
 derive traces, health data, and user-facing progress without coupling those
 views to the runtime loop.
 
+The `step.snapshot` event exposes the non-sensitive projection metadata needed
+for diagnosis. Offline replay compares its recorded context and tool-schema
+hashes with the replayed request and reports projection divergence instead of
+silently accepting a different request.
+
 The local Trace Viewer is a read-only telemetry projection. It reads the event
 and trace stores to display sessions, true event order, and Skill loading; it
 does not participate in runtime execution or mutate recorded state.
@@ -61,6 +72,10 @@ does not participate in runtime execution or mutate recorded state.
 
 The session store is authoritative for conversation history. Memory provides
 cross-session recall and remains user-scoped.
+
+Step snapshots are also stored with the run in both session-store
+implementations, so the request boundary remains inspectable independently of
+event-store projections.
 
 ### Evolution
 

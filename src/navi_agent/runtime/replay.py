@@ -18,6 +18,7 @@ from navi_agent.tooling import ToolContext, ToolResult
 from .agent.context import ContextEngine
 from .agent.engine import AgentRuntime
 from .models import ModelResponse, ModelUsage, RuntimeMode, RuntimeResult, ToolCall
+from .steps import context_projection_hash, tool_schema_projection_hash
 from .sessions.memory import InMemorySessionStore
 from .transports.base import ModelRequest
 
@@ -151,6 +152,25 @@ class _RecordedModelTransport:
             return ModelResponse(content="")
         step = self._steps[self._index]
         self._index += 1
+        actual_context_hash = context_projection_hash(request.messages)
+        if step.context_hash is not None and step.context_hash != actual_context_hash:
+            self.divergences.append(
+                ReplayDivergence(
+                    kind="context_projection",
+                    message=f"model context projection differs at iteration {step.iteration}",
+                )
+            )
+        actual_tool_schema_hash = tool_schema_projection_hash(request.tools)
+        if (
+            step.tool_schema_hash is not None
+            and step.tool_schema_hash != actual_tool_schema_hash
+        ):
+            self.divergences.append(
+                ReplayDivergence(
+                    kind="tool_projection",
+                    message=f"tool schema projection differs at iteration {step.iteration}",
+                )
+            )
         if step.failure is not None:
             raise _recorded_exception(step.failure)
         if step.response is None:

@@ -76,6 +76,21 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS step_snapshots (
+        step_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        iteration INTEGER NOT NULL,
+        model TEXT,
+        environment_id TEXT NOT NULL,
+        context_hash TEXT NOT NULL,
+        tool_schema_hash TEXT NOT NULL,
+        capability_names_json TEXT NOT NULL,
+        prompt_sources_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS context_compaction_checkpoints (
         session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
         covered_until_message_id INTEGER NOT NULL REFERENCES messages(id),
@@ -112,6 +127,7 @@ SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)",
     "CREATE INDEX IF NOT EXISTS idx_runs_session_started ON runs(session_id, started_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_runs_status_updated ON runs(status, updated_at)",
+    "CREATE INDEX IF NOT EXISTS idx_step_snapshots_run ON step_snapshots(run_id, iteration)",
     "CREATE INDEX IF NOT EXISTS idx_tool_executions_session ON tool_executions(session_id, started_at)",
     "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content)",
     "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts_trigram USING fts5(content, tokenize='trigram')",

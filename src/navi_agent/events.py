@@ -23,6 +23,7 @@ class RuntimeEvent:
     name: str
     event_id: str = field(default_factory=lambda: uuid4().hex)
     iteration: int | None = None
+    step_id: str | None = None
     item_id: str | None = None
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="milliseconds")

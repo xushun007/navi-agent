@@ -17,6 +17,7 @@ def event(
     metadata: dict[str, object] | None = None,
     *,
     iteration: int | None = None,
+    step_id: str | None = None,
 ) -> RuntimeEvent:
     return RuntimeEvent(
         session_id="s1",
@@ -27,6 +28,7 @@ def event(
         source="runtime",
         name=name,
         iteration=iteration,
+        step_id=step_id,
         metadata=metadata or {},
     )
 
@@ -99,6 +101,51 @@ def write_file_trajectory(path: Path) -> RuntimeTrajectory:
 
 
 class OfflineRuntimeReplayTests(unittest.TestCase):
+    def test_reports_recorded_request_projection_divergence(self) -> None:
+        trajectory = RuntimeTrajectory(
+            session_id="s1",
+            run_id="r1",
+            events=[
+                event(1, "runtime.started"),
+                event(2, "user.message", {"content": "hello"}),
+                event(
+                    3,
+                    "step.snapshot",
+                    {
+                        "context_hash": "recorded-context",
+                        "tool_schema_hash": "recorded-tools",
+                    },
+                    iteration=1,
+                    step_id="step-1",
+                ),
+                event(
+                    4,
+                    "model.response",
+                    {"purpose": "agent", "content": "done", "tool_calls": []},
+                    iteration=1,
+                    step_id="step-1",
+                ),
+                event(
+                    5,
+                    "runtime.completed",
+                    {
+                        "status": "success",
+                        "final_response": "done",
+                        "trajectory_complete": True,
+                    },
+                    iteration=1,
+                ),
+            ],
+        )
+
+        replay = OfflineRuntimeReplay().execute(RuntimeReplayPlanner().build(trajectory))
+
+        self.assertFalse(replay.verified)
+        self.assertEqual(
+            {item.kind for item in replay.divergences},
+            {"context_projection", "tool_projection"},
+        )
+
     def test_service_loads_one_run_from_event_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             trajectory = write_file_trajectory(Path(tmpdir) / "must-not-exist.txt")

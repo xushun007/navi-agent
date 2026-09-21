@@ -102,6 +102,23 @@ class RuntimeRunRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class StepSnapshot:
+    """Immutable projection of the inputs visible to one agent model step."""
+
+    step_id: str
+    run_id: str
+    session_id: str
+    iteration: int
+    model: str | None
+    environment_id: str
+    context_hash: str
+    tool_schema_hash: str
+    capability_names: tuple[str, ...]
+    prompt_sources: tuple[str, ...]
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class ContextCompactionCheckpoint:
     session_id: str
     covered_message_count: int

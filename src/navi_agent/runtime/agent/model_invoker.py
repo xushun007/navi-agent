@@ -32,12 +32,14 @@ class ModelInvoker:
         *,
         messages: list[Message],
         tools: list[dict[str, object]],
+        step_id: str | None = None,
         cancellation_requested: Callable[[], bool],
         on_text_delta: Callable[[str], None],
     ) -> ModelInvocation:
         request = ModelRequest(
             messages=messages,
             tools=tools,
+            step_id=step_id,
             cancellation_requested=cancellation_requested,
         )
         started_at = _utc_now_iso()

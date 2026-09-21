@@ -12,6 +12,7 @@ from ..models import (
     RuntimeRunRecord,
     SessionMetadata,
     SessionSummary,
+    StepSnapshot,
     ToolCall,
 )
 
@@ -22,6 +23,7 @@ class InMemorySessionStore:
         self._compaction_checkpoints: dict[str, ContextCompactionCheckpoint] = {}
         self._runs: dict[str, RuntimeRunRecord] = {}
         self._tool_results: dict[tuple[str, str], ToolResult] = {}
+        self._step_snapshots: dict[str, StepSnapshot] = {}
         self._updated_at: dict[str, float] = {}
 
     def load(
@@ -94,6 +96,12 @@ class InMemorySessionStore:
 
     def get_run(self, run_id: str) -> RuntimeRunRecord | None:
         return self._runs.get(run_id)
+
+    def save_step_snapshot(self, snapshot: StepSnapshot) -> None:
+        self._step_snapshots[snapshot.step_id] = snapshot
+
+    def get_step_snapshot(self, step_id: str) -> StepSnapshot | None:
+        return self._step_snapshots.get(step_id)
 
     def start_tool_call(
         self,
