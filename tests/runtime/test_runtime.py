@@ -12,6 +12,7 @@ from navi_agent.runtime import (
     BackgroundTaskManager,
     ContextEngine,
     DeferredApprovalProvider,
+    EnvironmentBinding,
     InMemorySessionStore,
     JsonPendingInteractionStore,
     LLMContextSummarizer,
@@ -914,10 +915,15 @@ class AgentRuntimeTests(unittest.TestCase):
             ]
         )
         observer = RecordingObserver()
+        environment = EnvironmentBinding(
+            environment_id="env-test",
+            workspace_root="/workspace",
+        )
         runtime = AgentRuntime(
             transport=transport,
             event_subscribers=[observer],
             tool_registry=ToolRegistry(tools={"echo": lambda value: ok_result("echo", f"tool:{value}")}),
+            environment=environment,
         )
 
         runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
@@ -939,6 +945,11 @@ class AgentRuntimeTests(unittest.TestCase):
             ],
         )
         self.assertEqual(observer.events[0].metadata["runtime_mode"], "online")
+        self.assertEqual(observer.events[0].metadata["environment"], environment.to_metadata())
+        self.assertEqual(
+            {event.metadata["environment_id"] for event in observer.events},
+            {"env-test"},
+        )
         self.assertEqual(len(observer.events[4].metadata["tool_calls"]), 1)
         self.assertEqual(observer.events[6].metadata["tool_name"], "echo")
 
@@ -1205,11 +1216,16 @@ class AgentRuntimeTests(unittest.TestCase):
                 ModelResponse(content="done"),
             ]
         )
+        environment = EnvironmentBinding(
+            environment_id="env-tool",
+            workspace_root="/workspace",
+        )
         runtime = AgentRuntime(
             transport=transport,
             tool_registry=ToolRegistry(
                 definitions=[ToolDefinition(name="inspect", handler=inspect, toolset="debug")]
             ),
+            environment=environment,
         )
 
         result = runtime.run_conversation(session_id="s1", user_id="u1", user_message="hello")
@@ -1217,6 +1233,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(result.tool_results[0].content, "iter:1")
         self.assertEqual(len(seen), 1)
         self.assertEqual(seen[0].session_id, "s1")
+        self.assertIs(seen[0].environment, environment)
 
     def test_memory_persists_and_is_recalled_across_runtime_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

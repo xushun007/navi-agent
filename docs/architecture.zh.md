@@ -32,6 +32,10 @@ flowchart LR
 
 负责会话加载、上下文构建、模型调用、工具分发、Steering、取消、压缩和最终响应。
 
+每个运行时都通过不可变的 `EnvironmentBinding` 完成组装。它让 Workspace 与执行边界在
+会话记录、事件、工具调用和默认子 Agent 之间共享稳定身份。当前 Binding 明确声明为
+宿主机执行；Workspace 路径校验不能被解释为操作系统级 Sandbox。
+
 ### 工具
 
 通过明确的 Schema 和结果暴露能力。工具校验自身输入，审批和执行策略仍由运行时负责。

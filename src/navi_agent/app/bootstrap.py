@@ -50,6 +50,7 @@ from navi_agent.runtime import (
     BackgroundTaskManager,
     BackgroundTaskStore,
     ContextEngine,
+    EnvironmentBinding,
     LLMContextSummarizer,
     JsonPendingInteractionStore,
     PromptBuilder,
@@ -110,6 +111,10 @@ def build_runtime(
     )
     resolved_workspace_root = (workspace_root or Path.cwd()).resolve()
     added_roots = tuple(Path(root).resolve() for root in additional_workspace_roots or ())
+    default_environment = EnvironmentBinding.host(
+        resolved_workspace_root,
+        additional_workspace_roots=added_roots,
+    )
 
     event_store = JsonlRuntimeEventStore(get_runtime_event_store_path())
     subagent_service: SubagentService
@@ -120,6 +125,11 @@ def build_runtime(
         parent_session_id: str | None = None,
     ) -> AgentRuntime:
         runtime_transport = profile.transport or transport
+        runtime_environment = profile.environment or default_environment
+        runtime_workspace_root = Path(runtime_environment.workspace_root)
+        runtime_added_roots = tuple(
+            Path(root) for root in runtime_environment.additional_workspace_roots
+        )
         runtime_background_tasks = (
             background_task_manager if profile.allow_delegation else BackgroundTaskManager()
         )
@@ -129,8 +139,8 @@ def build_runtime(
             skill_store=skill_store,
             background_task_manager=runtime_background_tasks,
             subagent_service=subagent_service if profile.allow_delegation else None,
-            root=resolved_workspace_root,
-            additional_roots=added_roots,
+            root=runtime_workspace_root,
+            additional_roots=runtime_added_roots,
             interaction_store=interaction_store if profile.allow_delegation else None,
             web_search_api_key=web_settings.search_api_key,
         )
@@ -145,8 +155,8 @@ def build_runtime(
             prompt_contributors=build_default_prompt_contributors(
                 memory_store=memory_store,
                 skill_store=skill_store,
-                project_context_root=resolved_workspace_root,
-                additional_workspace_roots=added_roots,
+                project_context_root=runtime_workspace_root,
+                additional_workspace_roots=runtime_added_roots,
             )
             + profile.prompt_contributors,
         )
@@ -184,7 +194,7 @@ def build_runtime(
             agent_role=profile.role,
             parent_session_id=parent_session_id,
             model=profile.model or model_settings.model,
-            cwd=str(resolved_workspace_root),
+            environment=runtime_environment,
             close_callbacks=[resources.close],
         )
 

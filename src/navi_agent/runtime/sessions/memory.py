@@ -87,6 +87,7 @@ class InMemorySessionStore:
             status="running",
             started_at=now,
             updated_at=now,
+            environment_id=metadata.environment_id,
             start_message_id=len(session.messages) + 1,
             model=metadata.model,
         )

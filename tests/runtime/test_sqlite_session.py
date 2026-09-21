@@ -110,6 +110,9 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                     row[1]
                     for row in connection.execute("PRAGMA table_info(tool_executions)")
                 }
+                run_columns = {
+                    row[1] for row in connection.execute("PRAGMA table_info(runs)")
+                }
             self.assertTrue(
                 {
                     "source",
@@ -121,8 +124,10 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                     "input_tokens",
                     "estimated_cost_usd",
                     "metadata",
+                    "environment_id",
                 }.issubset(session_columns)
             )
+            self.assertIn("environment_id", run_columns)
             self.assertTrue(
                 {
                     "tool_name",
@@ -261,6 +266,7 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                     source="weixin",
                     model="deepseek-v4-pro",
                     cwd="/workspace",
+                    environment_id="env-parent",
                 ),
             )
             child = store.load(
@@ -272,6 +278,7 @@ class SQLiteSessionStoreTests(unittest.TestCase):
                     parent_session_id=parent.session_id,
                     model="deepseek-v4-pro",
                     cwd="/workspace",
+                    environment_id="env-child",
                 ),
             )
             store.append(child, Message(role="assistant", content="done"))
@@ -287,8 +294,40 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertEqual(row["parent_session_id"], "parent")
             self.assertEqual(row["model"], "deepseek-v4-pro")
             self.assertEqual(row["cwd"], "/workspace")
+            self.assertEqual(row["environment_id"], "env-child")
             self.assertEqual(row["message_count"], 1)
             self.assertEqual(store.get_lineage("child"), ["parent", "child"])
+
+    def test_run_records_environment_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteSessionStore(Path(tmpdir) / "state.db")
+            metadata = SessionMetadata(
+                cwd="/workspace",
+                environment_id="env-run",
+            )
+            session = store.load("session-1", "user-1", metadata=metadata)
+
+            store.start_run(session, "run-1", metadata)
+
+            run = store.get_run("run-1")
+            self.assertIsNotNone(run)
+            self.assertEqual(run.environment_id, "env-run")
+
+    def test_environment_columns_are_added_to_existing_tables(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY)")
+        connection.execute("CREATE TABLE runs (id TEXT PRIMARY KEY)")
+
+        SQLiteSessionStore._migrate_environment_columns(connection)
+
+        for table in ("sessions", "runs"):
+            columns = {
+                row["name"]
+                for row in connection.execute(f"PRAGMA table_info({table})")
+            }
+            self.assertIn("environment_id", columns)
+        connection.close()
 
     def test_store_accumulates_model_usage_and_finalizes_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

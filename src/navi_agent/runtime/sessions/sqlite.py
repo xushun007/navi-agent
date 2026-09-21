@@ -70,10 +70,11 @@ class SQLiteSessionStore:
                         parent_session_id,
                         model,
                         cwd,
+                        environment_id,
                         started_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         session_id,
@@ -83,6 +84,7 @@ class SQLiteSessionStore:
                         metadata.parent_session_id,
                         metadata.model,
                         metadata.cwd,
+                        metadata.environment_id,
                         started_at,
                         started_at,
                     ),
@@ -247,6 +249,7 @@ class SQLiteSessionStore:
                     parent_session_id = ?,
                     model = COALESCE(?, model),
                     cwd = COALESCE(?, cwd),
+                    environment_id = COALESCE(?, environment_id),
                     updated_at = ?,
                     ended_at = NULL,
                     end_reason = NULL
@@ -258,6 +261,7 @@ class SQLiteSessionStore:
                     metadata.parent_session_id,
                     metadata.model,
                     metadata.cwd,
+                    metadata.environment_id,
                     time.time(),
                     session.session_id,
                 ),
@@ -272,11 +276,12 @@ class SQLiteSessionStore:
                     agent_role,
                     status,
                     model,
+                    environment_id,
                     started_at,
                     updated_at,
                     start_message_id
                 )
-                VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -285,6 +290,7 @@ class SQLiteSessionStore:
                     metadata.source,
                     metadata.agent_role,
                     metadata.model,
+                    metadata.environment_id,
                     now,
                     now,
                     int(start_boundary["next_message_id"]),
@@ -308,6 +314,7 @@ class SQLiteSessionStore:
             source=str(row["source"]),
             agent_role=str(row["agent_role"]),
             status=str(row["status"]),
+            environment_id=row["environment_id"],
             provider=row["provider"],
             model=row["model"],
             started_at=float(row["started_at"]),
@@ -1090,6 +1097,7 @@ class SQLiteSessionStore:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
         self._execute_write(self._create_schema)
+        self._execute_write(self._migrate_environment_columns)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._db_path, timeout=self._BUSY_TIMEOUT_MS / 1000)
@@ -1103,6 +1111,18 @@ class SQLiteSessionStore:
     def _create_schema(connection: sqlite3.Connection) -> None:
         for statement in SCHEMA_STATEMENTS:
             connection.execute(statement)
+
+    @staticmethod
+    def _migrate_environment_columns(connection: sqlite3.Connection) -> None:
+        for table in ("sessions", "runs"):
+            columns = {
+                str(row["name"])
+                for row in connection.execute(f"PRAGMA table_info({table})")
+            }
+            if "environment_id" not in columns:
+                connection.execute(
+                    f"ALTER TABLE {table} ADD COLUMN environment_id TEXT"
+                )
 
     def _execute_write(self, operation: Callable[[sqlite3.Connection], T]) -> T:
         last_error: sqlite3.OperationalError | None = None

@@ -64,6 +64,7 @@ class SessionMetadata:
     parent_session_id: str | None = None
     model: str | None = None
     cwd: str | None = None
+    environment_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +84,7 @@ class RuntimeRunRecord:
     status: str
     started_at: float
     updated_at: float
+    environment_id: str | None = None
     completed_at: float | None = None
     start_message_id: int | None = None
     end_message_id: int | None = None
