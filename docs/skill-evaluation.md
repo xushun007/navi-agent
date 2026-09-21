@@ -4,9 +4,6 @@ This walkthrough evaluates Anthropic's `internal-comms` Skill on three frozen,
 real Navi Agent communication scenarios. It is intentionally a small first
 experiment, not a general benchmark.
 
-See the [Chinese walkthrough](skill-evaluation.zh.md) for the complete operating
-instructions used by this scenario.
-
 The experiment keeps the model, prompt, tools, and active Skills fixed:
 
 ```text
