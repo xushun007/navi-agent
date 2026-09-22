@@ -48,6 +48,13 @@ the exact context and tool-schema projections, visible capability names, and
 prompt-source identities. The same `step_id` is carried by the model request,
 tool context, and runtime events for that iteration.
 
+Each tool call is also represented by a durable `OperationRecord`. It binds the
+originating Step and Environment to a stable `operation_id`, capability name,
+and argument/result hashes. Its constrained lifecycle is `planned → running →
+succeeded|failed|awaiting_input`; an awaiting operation may return to `running`
+when the user resolves its interaction. Completed operations are reused by
+`(run_id, tool_call_id)` instead of executing the same side effect again.
+
 ### Tools
 
 Expose capabilities through explicit schemas and results. Tools validate their
@@ -76,6 +83,11 @@ cross-session recall and remains user-scoped.
 Step snapshots are also stored with the run in both session-store
 implementations, so the request boundary remains inspectable independently of
 event-store projections.
+
+Operation records use the existing tool-execution storage boundary. Both
+session-store implementations expose terminal and incomplete operations, which
+makes interrupted `planned` or `running` work visible without coupling recovery
+policy to individual tools.
 
 ### Evolution
 

@@ -20,6 +20,7 @@ from ..models import (
     ContextCompactionCheckpoint,
     Message,
     ModelResponse,
+    OperationStatus,
     RuntimeResult,
     RuntimeMode,
     SessionMetadata,
@@ -351,6 +352,7 @@ class AgentRuntime:
             source: str,
             name: str,
             iteration: int | None = None,
+            operation_id: str | None = None,
             item_id: str | None = None,
             payload: dict[str, object] | None = None,
         ) -> None:
@@ -367,6 +369,7 @@ class AgentRuntime:
                     name=name,
                     iteration=iteration,
                     step_id=active_step_id,
+                    operation_id=operation_id,
                     item_id=item_id,
                     metadata={
                         **dict(payload or {}),
@@ -596,11 +599,16 @@ class AgentRuntime:
                 "interaction_kind": pending_result.structured_content.get("interaction_kind"),
                 "prompt": prompt,
             }
+            operation = self._session_store.get_operation_for_tool_call(
+                run_id,
+                pending_result.tool_call_id,
+            )
             publish_event(
                 kind="observation",
                 source="runtime",
                 name="runtime.waiting",
                 iteration=iteration,
+                operation_id=(operation.operation_id if operation is not None else None),
                 item_id=pending_result.tool_call_id,
                 payload=payload,
             )
@@ -614,8 +622,8 @@ class AgentRuntime:
             tool_result: ToolResult,
             *,
             iteration: int,
+            operation_id: str,
             arguments: dict[str, object],
-            checkpoint_run_id: str = run_id,
             persist_message: bool = True,
         ) -> None:
             tool_metadata, tool_started_at, tool_completed_at, tool_duration_ms = _pop_trace_timing(
@@ -631,16 +639,20 @@ class AgentRuntime:
                 tool_result=tool_result,
                 tool_metadata=tool_metadata,
             )
-            self._session_store.complete_tool_call(
-                session,
-                checkpoint_run_id,
-                tool_result,
-            )
+            operation = self._session_store.get_operation(operation_id)
+            if operation is None:
+                raise RuntimeError(f"missing operation record: {operation_id}")
+            if operation.status not in {
+                OperationStatus.SUCCEEDED,
+                OperationStatus.FAILED,
+            }:
+                self._session_store.complete_operation(operation_id, tool_result)
             publish_event(
                 kind="observation",
                 source="tool",
                 name="tool.result",
                 iteration=iteration,
+                operation_id=operation_id,
                 item_id=tool_result.tool_call_id,
                 payload={
                     "tool_call_id": tool_result.tool_call_id,
@@ -670,10 +682,24 @@ class AgentRuntime:
         if resume_interaction is not None:
             if not resume_interaction.tool_call_id or not resume_interaction.tool_name:
                 raise ValueError("pending interaction is missing its tool-call checkpoint")
+            resumed_call = ToolCall(
+                id=resume_interaction.tool_call_id,
+                name=resume_interaction.tool_name,
+                arguments=dict(resume_interaction.arguments or {}),
+            )
+            checkpoint_run_id = resume_interaction.run_id or run_id
+            resumed_operation = self._session_store.plan_operation(
+                session,
+                checkpoint_run_id,
+                resumed_call,
+                step_id="",
+                environment_id=self._environment.environment_id,
+            )
             publish_event(
                 kind="observation",
                 source="runtime",
                 name="runtime.resumed",
+                operation_id=resumed_operation.operation_id,
                 item_id=resume_interaction.tool_call_id,
                 payload={
                     "interaction_id": resume_interaction.interaction_id,
@@ -681,24 +707,15 @@ class AgentRuntime:
                     "resolution": resume_interaction.status,
                 },
             )
-            resumed_call = ToolCall(
-                id=resume_interaction.tool_call_id,
-                name=resume_interaction.tool_name,
-                arguments=dict(resume_interaction.arguments or {}),
-            )
             resumed_context = ToolContext(
                 session_id=session.session_id,
                 user_id=user_id,
                 iteration=0,
                 run_id=run_id,
+                operation_id=resumed_operation.operation_id,
+                operation_ids={resumed_call.id: resumed_operation.operation_id},
                 environment=self._environment,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
-            )
-            checkpoint_run_id = resume_interaction.run_id or run_id
-            self._session_store.start_tool_call(
-                session,
-                checkpoint_run_id,
-                resumed_call,
             )
             resumed_result = self._session_store.get_tool_result(
                 checkpoint_run_id,
@@ -706,14 +723,22 @@ class AgentRuntime:
             )
             if resumed_result is not None:
                 resumed_result.metadata["deduplicated"] = True
-            elif resume_interaction.kind == "approval" and resume_interaction.status == "approved":
+            else:
+                resumed_operation = self._session_store.mark_operation_running(
+                    resumed_operation.operation_id
+                )
+            if (
+                resumed_result is None
+                and resume_interaction.kind == "approval"
+                and resume_interaction.status == "approved"
+            ):
                 resumed_result = self._tool_registry.dispatch_approved(
                     resumed_call,
                     context=resumed_context,
                     enabled_toolsets=self._enabled_toolsets,
                     disabled_toolsets=self._disabled_toolsets,
                 )
-            elif resume_interaction.kind == "clarification":
+            elif resumed_result is None and resume_interaction.kind == "clarification":
                 resumed_result = ToolResult.ok(
                     name=resume_interaction.tool_name,
                     content=resume_interaction.response or user_message,
@@ -722,7 +747,7 @@ class AgentRuntime:
                         "interaction_resumed": True,
                     },
                 ).bind(resume_interaction.tool_call_id)
-            else:
+            elif resumed_result is None:
                 resumed_result = ToolResult.error(
                     name=resume_interaction.tool_name,
                     content="User denied the pending tool request.",
@@ -734,8 +759,8 @@ class AgentRuntime:
             record_tool_result(
                 resumed_result,
                 iteration=0,
+                operation_id=resumed_operation.operation_id,
                 arguments=dict(resume_interaction.arguments or {}),
-                checkpoint_run_id=checkpoint_run_id,
             )
 
         current_context_messages: list[Message] = []
@@ -964,13 +989,21 @@ class AgentRuntime:
             iteration_number: int,
             model_invocation: ModelInvocation,
         ) -> ToolResult | None:
+            operation_ids: dict[str, str] = {}
+
             def emit_tool_output(payload: dict[str, object]) -> None:
                 tool_call_id = payload.get("tool_call_id")
+                operation_id = (
+                    operation_ids.get(tool_call_id)
+                    if isinstance(tool_call_id, str)
+                    else None
+                )
                 publish_event(
                     kind="delta",
                     source="tool",
                     name="tool.progress",
                     iteration=iteration_number,
+                    operation_id=operation_id,
                     item_id=tool_call_id if isinstance(tool_call_id, str) else None,
                     payload=payload,
                 )
@@ -981,6 +1014,7 @@ class AgentRuntime:
                 iteration=iteration_number,
                 run_id=run_id,
                 step_id=active_step_id,
+                operation_ids=operation_ids,
                 environment=self._environment,
                 emit_output=emit_tool_output,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
@@ -996,11 +1030,22 @@ class AgentRuntime:
             pending_tool_calls = []
             completed_tool_results = {}
             for tool_call in unique_tool_calls:
+                if active_step_id is None:
+                    raise RuntimeError("tool call is missing its step identity")
+                operation = self._session_store.plan_operation(
+                    session,
+                    run_id,
+                    tool_call,
+                    step_id=active_step_id,
+                    environment_id=self._environment.environment_id,
+                )
+                operation_ids[tool_call.id] = operation.operation_id
                 publish_event(
                     kind="action",
                     source="agent",
                     name="tool.call",
                     iteration=iteration_number,
+                    operation_id=operation.operation_id,
                     item_id=tool_call.id,
                     payload={
                         "tool_call_id": tool_call.id,
@@ -1008,9 +1053,9 @@ class AgentRuntime:
                         "arguments": dict(tool_call.arguments),
                     },
                 )
-                self._session_store.start_tool_call(session, run_id, tool_call)
                 completed_result = self._session_store.get_tool_result(run_id, tool_call.id)
                 if completed_result is None:
+                    self._session_store.mark_operation_running(operation.operation_id)
                     pending_tool_calls.append(tool_call)
                 else:
                     completed_result.metadata["deduplicated"] = True
@@ -1030,6 +1075,7 @@ class AgentRuntime:
                 record_tool_result(
                     tool_result,
                     iteration=iteration_number,
+                    operation_id=operation_ids[tool_call.id],
                     arguments=dict(tool_call.arguments),
                     persist_message=(
                         tool_result.structured_content.get("interaction_pending") is not True

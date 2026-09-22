@@ -63,7 +63,11 @@ class ToolExecutor:
     ) -> bool:
         """Keep approval and denial flows on the sequential dispatch path."""
         return all(
-            self._policy.decide(tool_call.name, tool_call.arguments, context).allows_execution
+            self._policy.decide(
+                tool_call.name,
+                tool_call.arguments,
+                _bind_tool_output(context, tool_call),
+            ).allows_execution
             for tool_call in tool_calls
         )
 
@@ -291,8 +295,12 @@ class ToolExecutor:
 
 
 def _bind_tool_output(context: ToolContext | None, tool_call: ToolCall) -> ToolContext | None:
-    if context is None or context.emit_output is None:
+    if context is None:
         return context
+
+    operation_id = context.operation_ids.get(tool_call.id, context.operation_id)
+    if context.emit_output is None:
+        return replace(context, operation_id=operation_id)
 
     def emit_output(payload: dict[str, object]) -> None:
         context.emit_output(
@@ -303,4 +311,8 @@ def _bind_tool_output(context: ToolContext | None, tool_call: ToolCall) -> ToolC
             }
         )
 
-    return replace(context, emit_output=emit_output)
+    return replace(
+        context,
+        operation_id=operation_id,
+        emit_output=emit_output,
+    )
