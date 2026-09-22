@@ -12,6 +12,7 @@ from ..models import (
     RuntimeRunRecord,
     SessionMetadata,
     SessionSummary,
+    StepSnapshot,
     ToolCall,
 )
 
@@ -42,6 +43,10 @@ class SessionStore(Protocol):
     ) -> None: ...
 
     def get_run(self, run_id: str) -> RuntimeRunRecord | None: ...
+
+    def save_step_snapshot(self, snapshot: StepSnapshot) -> None: ...
+
+    def get_step_snapshot(self, step_id: str) -> StepSnapshot | None: ...
 
     def start_tool_call(
         self,

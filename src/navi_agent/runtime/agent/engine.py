@@ -24,8 +24,10 @@ from ..models import (
     RuntimeMode,
     SessionMetadata,
     SessionSummary,
+    StepSnapshot,
     ToolCall,
 )
+from ..steps import capability_names, context_projection_hash, tool_schema_projection_hash
 from .prompt import PromptBuilder
 from .control import RunCancellationToken
 from .loop import AgentLoop
@@ -341,6 +343,7 @@ class AgentRuntime:
         event_publish_lock = Lock()
         request_publisher = RuntimeEventPublisher(event_subscribers or ())
         critical_event_failures = []
+        active_step_id: str | None = None
 
         def publish_event(
             *,
@@ -363,6 +366,7 @@ class AgentRuntime:
                     source=source,
                     name=name,
                     iteration=iteration,
+                    step_id=active_step_id,
                     item_id=item_id,
                     metadata={
                         **dict(payload or {}),
@@ -735,9 +739,11 @@ class AgentRuntime:
             )
 
         current_context_messages: list[Message] = []
+        current_tool_schemas: list[dict[str, object]] = []
 
         def start_iteration(iteration_number: int) -> None:
-            nonlocal current_context_messages
+            nonlocal active_step_id, current_context_messages, current_tool_schemas
+            active_step_id = uuid4().hex
             logger.debug(
                 "Running iteration: session_id=%s iteration=%s",
                 session_id,
@@ -843,6 +849,39 @@ class AgentRuntime:
                     ),
                 )
             current_context_messages = context_result.messages
+            current_tool_schemas = self._tool_registry.schemas(
+                enabled_toolsets=self._enabled_toolsets,
+                disabled_toolsets=self._disabled_toolsets,
+            )
+            snapshot = StepSnapshot(
+                step_id=active_step_id,
+                run_id=run_id,
+                session_id=session.session_id,
+                iteration=iteration_number,
+                model=self._model,
+                environment_id=self._environment.environment_id,
+                context_hash=context_projection_hash(current_context_messages),
+                tool_schema_hash=tool_schema_projection_hash(current_tool_schemas),
+                capability_names=capability_names(current_tool_schemas),
+                prompt_sources=self._prompt_builder.last_prompt_sources,
+                created_at=_utc_now_iso(),
+            )
+            self._session_store.save_step_snapshot(snapshot)
+            publish_event(
+                kind="observation",
+                source="runtime",
+                name="step.snapshot",
+                iteration=iteration_number,
+                item_id=active_step_id,
+                payload={
+                    "model": snapshot.model,
+                    "context_hash": snapshot.context_hash,
+                    "tool_schema_hash": snapshot.tool_schema_hash,
+                    "capability_names": list(snapshot.capability_names),
+                    "prompt_sources": list(snapshot.prompt_sources),
+                    "created_at": snapshot.created_at,
+                },
+            )
 
         def invoke_model(iteration_number: int) -> ModelInvocation:
             model_item_id = f"model:{iteration_number}"
@@ -859,10 +898,8 @@ class AgentRuntime:
 
             return self._model_invoker.invoke(
                 messages=current_context_messages,
-                tools=self._tool_registry.schemas(
-                    enabled_toolsets=self._enabled_toolsets,
-                    disabled_toolsets=self._disabled_toolsets,
-                ),
+                tools=current_tool_schemas,
+                step_id=active_step_id,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,
                 on_text_delta=publish_text_delta,
             )
@@ -943,6 +980,7 @@ class AgentRuntime:
                 user_id=user_id,
                 iteration=iteration_number,
                 run_id=run_id,
+                step_id=active_step_id,
                 environment=self._environment,
                 emit_output=emit_tool_output,
                 cancellation_requested=lambda: cancellation_token.is_cancelled,

@@ -60,6 +60,7 @@ class PromptBuilder:
         self._pipeline = PromptPipeline(resolved_contributors)
         self._last_injected_skill_names: list[str] = []
         self._last_injected_context_files: list[str] = []
+        self._last_prompt_sources: tuple[str, ...] = ()
 
     @property
     def last_injected_skill_names(self) -> list[str]:
@@ -68,6 +69,10 @@ class PromptBuilder:
     @property
     def last_injected_context_files(self) -> list[str]:
         return list(self._last_injected_context_files)
+
+    @property
+    def last_prompt_sources(self) -> tuple[str, ...]:
+        return self._last_prompt_sources
 
     def build_run_system_message(
         self,
@@ -92,6 +97,7 @@ class PromptBuilder:
     ) -> PromptParts:
         self._last_injected_skill_names = []
         self._last_injected_context_files = []
+        self._last_prompt_sources = ()
         result = self._pipeline.build(
             PromptRequest(
                 user_id=user_id,
@@ -102,6 +108,7 @@ class PromptBuilder:
         self._last_injected_context_files = list(
             result.references_from(ProjectContextContributor.name)
         )
+        self._last_prompt_sources = tuple(section.source for section in result.sections)
         return PromptParts(
             stable=result.parts.stable,
             context=result.parts.context,

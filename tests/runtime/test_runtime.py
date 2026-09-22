@@ -465,30 +465,32 @@ class AgentRuntimeTests(unittest.TestCase):
                 "user.message",
                 "runtime.context_ready",
                 "iteration.started",
+                "step.snapshot",
                 "model.plan",
                 "model.response",
                 "tool.call",
                 "tool.result",
                 "iteration.started",
+                "step.snapshot",
                 "model.response",
                 "runtime.completed",
             ],
         )
-        self.assertEqual([event.sequence for event in events], list(range(1, 12)))
+        self.assertEqual([event.sequence for event in events], list(range(1, 14)))
         self.assertEqual(events[1].kind, "action")
         self.assertEqual(events[1].source, "user")
-        self.assertEqual(events[4].kind, "observation")
-        self.assertEqual(events[4].source, "model")
-        self.assertEqual(events[5].kind, "action")
-        self.assertEqual(events[5].source, "agent")
-        self.assertEqual(events[6].payload["tool_name"], "echo")
-        self.assertEqual(events[6].payload["arguments"], {"value": "ping"})
-        self.assertEqual(events[6].item_id, "tc1")
-        self.assertEqual(events[7].kind, "observation")
-        self.assertEqual(events[7].source, "tool")
+        self.assertEqual(events[5].kind, "observation")
+        self.assertEqual(events[5].source, "model")
+        self.assertEqual(events[6].kind, "action")
+        self.assertEqual(events[6].source, "agent")
         self.assertEqual(events[7].payload["tool_name"], "echo")
+        self.assertEqual(events[7].payload["arguments"], {"value": "ping"})
         self.assertEqual(events[7].item_id, "tc1")
-        self.assertEqual(events[10].payload["status"], "success")
+        self.assertEqual(events[8].kind, "observation")
+        self.assertEqual(events[8].source, "tool")
+        self.assertEqual(events[8].payload["tool_name"], "echo")
+        self.assertEqual(events[8].item_id, "tc1")
+        self.assertEqual(events[12].payload["status"], "success")
 
     def test_runtime_injects_completed_background_task_before_model_call(self) -> None:
         manager = BackgroundTaskManager()
@@ -935,11 +937,13 @@ class AgentRuntimeTests(unittest.TestCase):
                 "user.message",
                 "runtime.context_ready",
                 "iteration.started",
+                "step.snapshot",
                 "model.plan",
                 "model.response",
                 "tool.call",
                 "tool.result",
                 "iteration.started",
+                "step.snapshot",
                 "model.response",
                 "runtime.completed",
             ],
@@ -950,8 +954,8 @@ class AgentRuntimeTests(unittest.TestCase):
             {event.metadata["environment_id"] for event in observer.events},
             {"env-test"},
         )
-        self.assertEqual(len(observer.events[4].metadata["tool_calls"]), 1)
-        self.assertEqual(observer.events[6].metadata["tool_name"], "echo")
+        self.assertEqual(len(observer.events[5].metadata["tool_calls"]), 1)
+        self.assertEqual(observer.events[7].metadata["tool_name"], "echo")
 
     def test_runtime_publishes_streamed_model_deltas(self) -> None:
         transport = StreamingFakeTransport(
