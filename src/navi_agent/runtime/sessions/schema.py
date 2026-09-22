@@ -104,13 +104,18 @@ SCHEMA_STATEMENTS = (
     """,
     """
     CREATE TABLE IF NOT EXISTS tool_executions (
+        operation_id TEXT NOT NULL UNIQUE,
         run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
         tool_call_id TEXT NOT NULL,
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        step_id TEXT NOT NULL,
+        environment_id TEXT NOT NULL,
         tool_name TEXT NOT NULL,
         arguments_json TEXT NOT NULL,
+        arguments_hash TEXT NOT NULL,
         status TEXT NOT NULL,
         result_json TEXT,
+        result_hash TEXT,
         started_at REAL NOT NULL,
         updated_at REAL NOT NULL,
         completed_at REAL,

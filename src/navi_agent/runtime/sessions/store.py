@@ -9,6 +9,7 @@ from ..models import (
     ConversationState,
     Message,
     ModelResponse,
+    OperationRecord,
     RuntimeRunRecord,
     SessionMetadata,
     SessionSummary,
@@ -47,6 +48,37 @@ class SessionStore(Protocol):
     def save_step_snapshot(self, snapshot: StepSnapshot) -> None: ...
 
     def get_step_snapshot(self, step_id: str) -> StepSnapshot | None: ...
+
+    def plan_operation(
+        self,
+        session: ConversationState,
+        run_id: str,
+        tool_call: ToolCall,
+        *,
+        step_id: str,
+        environment_id: str,
+    ) -> OperationRecord: ...
+
+    def get_operation(self, operation_id: str) -> OperationRecord | None: ...
+
+    def get_operation_for_tool_call(
+        self,
+        run_id: str,
+        tool_call_id: str,
+    ) -> OperationRecord | None: ...
+
+    def list_incomplete_operations(
+        self,
+        run_id: str | None = None,
+    ) -> list[OperationRecord]: ...
+
+    def mark_operation_running(self, operation_id: str) -> OperationRecord: ...
+
+    def complete_operation(
+        self,
+        operation_id: str,
+        result: ToolResult,
+    ) -> OperationRecord: ...
 
     def start_tool_call(
         self,

@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
+from uuid import uuid4
 
 from navi_agent.tooling import ToolArtifact, ToolResult
 
@@ -16,6 +17,8 @@ from ..models import (
     ConversationState,
     Message,
     ModelResponse,
+    OperationRecord,
+    OperationStatus,
     RuntimeRunRecord,
     SessionMetadata,
     SessionRecallMessage,
@@ -25,10 +28,60 @@ from ..models import (
     StepSnapshot,
     ToolCall,
 )
+from ..operations import (
+    operation_arguments_hash,
+    operation_result_hash,
+    operation_status_for_result,
+    validate_operation_transition,
+)
 from .schema import SCHEMA_STATEMENTS
 
 
 T = TypeVar("T")
+
+
+def _tool_result_payload(result: ToolResult) -> dict[str, object]:
+    return {
+        "name": result.name,
+        "content": result.content,
+        "status": result.status,
+        "structured_content": result.structured_content,
+        "metadata": result.metadata,
+        "artifacts": [
+            {
+                "kind": artifact.kind,
+                "uri": artifact.uri,
+                "title": artifact.title,
+                "mime_type": artifact.mime_type,
+                "metadata": artifact.metadata,
+            }
+            for artifact in result.artifacts
+        ],
+    }
+
+
+def _operation_record(row: sqlite3.Row) -> OperationRecord:
+    raw_status = str(row["status"])
+    if raw_status == "completed":
+        payload = json.loads(str(row["result_json"] or "{}"))
+        raw_status = "succeeded" if payload.get("status") == "success" else "failed"
+    return OperationRecord(
+        operation_id=str(row["operation_id"]),
+        run_id=str(row["run_id"]),
+        session_id=str(row["session_id"]),
+        step_id=str(row["step_id"] or ""),
+        environment_id=str(row["environment_id"] or ""),
+        tool_call_id=str(row["tool_call_id"]),
+        capability_name=str(row["tool_name"]),
+        arguments_hash=str(row["arguments_hash"]),
+        status=OperationStatus(raw_status),
+        result_hash=(str(row["result_hash"]) if row["result_hash"] is not None else None),
+        created_at=float(row["started_at"]),
+        updated_at=float(row["updated_at"]),
+        completed_at=(
+            float(row["completed_at"]) if row["completed_at"] is not None else None
+        ),
+    )
 
 
 class SQLiteSessionStore:
@@ -399,34 +452,191 @@ class SQLiteSessionStore:
         run_id: str,
         tool_call: ToolCall,
     ) -> None:
-        now = time.time()
-        self._execute_write(
-            lambda connection: connection.execute(
+        run = self.get_run(run_id)
+        self.plan_operation(
+            session,
+            run_id,
+            tool_call,
+            step_id="",
+            environment_id=(run.environment_id or "") if run is not None else "",
+        )
+
+    def plan_operation(
+        self,
+        session: ConversationState,
+        run_id: str,
+        tool_call: ToolCall,
+        *,
+        step_id: str,
+        environment_id: str,
+    ) -> OperationRecord:
+        operation_id = uuid4().hex
+        arguments_hash = operation_arguments_hash(tool_call.arguments)
+
+        def plan(connection: sqlite3.Connection) -> OperationRecord:
+            now = time.time()
+            connection.execute(
                 """
                 INSERT INTO tool_executions (
+                    operation_id,
                     run_id,
                     tool_call_id,
                     session_id,
+                    step_id,
+                    environment_id,
                     tool_name,
                     arguments_json,
+                    arguments_hash,
                     status,
                     started_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, 'planned', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?)
                 ON CONFLICT(run_id, tool_call_id) DO NOTHING
                 """,
                 (
+                    operation_id,
                     run_id,
                     tool_call.id,
                     session.session_id,
+                    step_id,
+                    environment_id,
                     tool_call.name,
-                    json.dumps(tool_call.arguments, default=str),
+                    json.dumps(tool_call.arguments, default=str, sort_keys=True),
+                    arguments_hash,
                     now,
                     now,
                 ),
             )
-        )
+            row = connection.execute(
+                """
+                SELECT * FROM tool_executions
+                WHERE run_id = ? AND tool_call_id = ?
+                """,
+                (run_id, tool_call.id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("operation insert did not produce a record")
+            record = _operation_record(row)
+            if (
+                record.capability_name != tool_call.name
+                or record.arguments_hash != arguments_hash
+            ):
+                raise ValueError("tool call identity was reused with different input")
+            return record
+
+        return self._execute_write(plan)
+
+    def get_operation(self, operation_id: str) -> OperationRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM tool_executions WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+        return _operation_record(row) if row is not None else None
+
+    def get_operation_for_tool_call(
+        self,
+        run_id: str,
+        tool_call_id: str,
+    ) -> OperationRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM tool_executions
+                WHERE run_id = ? AND tool_call_id = ?
+                """,
+                (run_id, tool_call_id),
+            ).fetchone()
+        return _operation_record(row) if row is not None else None
+
+    def list_incomplete_operations(
+        self,
+        run_id: str | None = None,
+    ) -> list[OperationRecord]:
+        query = """
+            SELECT * FROM tool_executions
+            WHERE status IN ('planned', 'running', 'awaiting_input')
+        """
+        parameters: tuple[object, ...] = ()
+        if run_id is not None:
+            query += " AND run_id = ?"
+            parameters = (run_id,)
+        query += " ORDER BY started_at, operation_id"
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [_operation_record(row) for row in rows]
+
+    def mark_operation_running(self, operation_id: str) -> OperationRecord:
+        def mark(connection: sqlite3.Connection) -> OperationRecord:
+            row = connection.execute(
+                "SELECT * FROM tool_executions WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown operation: {operation_id}")
+            record = _operation_record(row)
+            if record.status is OperationStatus.RUNNING:
+                return record
+            validate_operation_transition(record.status, OperationStatus.RUNNING)
+            connection.execute(
+                """
+                UPDATE tool_executions
+                SET status = 'running', updated_at = ?
+                WHERE operation_id = ?
+                """,
+                (time.time(), operation_id),
+            )
+            updated = connection.execute(
+                "SELECT * FROM tool_executions WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+            return _operation_record(updated)
+
+        return self._execute_write(mark)
+
+    def complete_operation(
+        self,
+        operation_id: str,
+        result: ToolResult,
+    ) -> OperationRecord:
+        def complete(connection: sqlite3.Connection) -> OperationRecord:
+            row = connection.execute(
+                "SELECT * FROM tool_executions WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown operation: {operation_id}")
+            record = _operation_record(row)
+            target = operation_status_for_result(result)
+            validate_operation_transition(record.status, target)
+            now = time.time()
+            connection.execute(
+                """
+                UPDATE tool_executions
+                SET status = ?,
+                    result_json = ?,
+                    result_hash = ?,
+                    updated_at = ?,
+                    completed_at = ?
+                WHERE operation_id = ?
+                """,
+                (
+                    target.value,
+                    json.dumps(_tool_result_payload(result), default=str),
+                    operation_result_hash(result),
+                    now,
+                    None if target is OperationStatus.AWAITING_INPUT else now,
+                    operation_id,
+                ),
+            )
+            updated = connection.execute(
+                "SELECT * FROM tool_executions WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+            return _operation_record(updated)
+
+        return self._execute_write(complete)
 
     def get_tool_result(self, run_id: str, tool_call_id: str) -> ToolResult | None:
         with self._connect() as connection:
@@ -436,7 +646,7 @@ class SQLiteSessionStore:
                 FROM tool_executions
                 WHERE run_id = ?
                   AND tool_call_id = ?
-                  AND status = 'completed'
+                  AND status IN ('succeeded', 'failed', 'completed')
                 """,
                 (run_id, tool_call_id),
             ).fetchone()
@@ -468,52 +678,14 @@ class SQLiteSessionStore:
         run_id: str,
         result: ToolResult,
     ) -> None:
-        now = time.time()
-        execution_status = (
-            "awaiting_input"
-            if result.structured_content.get("interaction_pending") is True
-            else "completed"
-        )
-        payload = {
-            "name": result.name,
-            "content": result.content,
-            "status": result.status,
-            "structured_content": result.structured_content,
-            "metadata": result.metadata,
-            "artifacts": [
-                {
-                    "kind": artifact.kind,
-                    "uri": artifact.uri,
-                    "title": artifact.title,
-                    "mime_type": artifact.mime_type,
-                    "metadata": artifact.metadata,
-                }
-                for artifact in result.artifacts
-            ],
-        }
-        self._execute_write(
-            lambda connection: connection.execute(
-                """
-                UPDATE tool_executions
-                SET status = ?,
-                    result_json = ?,
-                    updated_at = ?,
-                    completed_at = ?
-                WHERE run_id = ?
-                  AND tool_call_id = ?
-                  AND session_id = ?
-                """,
-                (
-                    execution_status,
-                    json.dumps(payload, default=str),
-                    now,
-                    now if execution_status == "completed" else None,
-                    run_id,
-                    result.tool_call_id,
-                    session.session_id,
-                ),
-            )
-        )
+        operation = self.get_operation_for_tool_call(run_id, result.tool_call_id)
+        if operation is None or operation.session_id != session.session_id:
+            raise KeyError(f"unknown tool call: {run_id}/{result.tool_call_id}")
+        if operation.status in {OperationStatus.SUCCEEDED, OperationStatus.FAILED}:
+            return
+        if operation.status is not OperationStatus.RUNNING:
+            operation = self.mark_operation_running(operation.operation_id)
+        self.complete_operation(operation.operation_id, result)
 
     def load_compaction_checkpoint(
         self,
@@ -1156,6 +1328,7 @@ class SQLiteSessionStore:
             connection.execute("PRAGMA journal_mode = WAL")
         self._execute_write(self._create_schema)
         self._execute_write(self._migrate_environment_columns)
+        self._execute_write(self._migrate_operation_columns)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._db_path, timeout=self._BUSY_TIMEOUT_MS / 1000)
@@ -1181,6 +1354,72 @@ class SQLiteSessionStore:
                 connection.execute(
                     f"ALTER TABLE {table} ADD COLUMN environment_id TEXT"
                 )
+
+    @staticmethod
+    def _migrate_operation_columns(connection: sqlite3.Connection) -> None:
+        columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(tool_executions)")
+        }
+        definitions = {
+            "operation_id": "TEXT",
+            "step_id": "TEXT",
+            "environment_id": "TEXT",
+            "arguments_hash": "TEXT",
+            "result_hash": "TEXT",
+        }
+        for name, definition in definitions.items():
+            if name not in columns:
+                connection.execute(
+                    f"ALTER TABLE tool_executions ADD COLUMN {name} {definition}"
+                )
+
+        rows = connection.execute("SELECT * FROM tool_executions").fetchall()
+        for row in rows:
+            arguments = json.loads(str(row["arguments_json"]))
+            legacy_identity = {
+                "run_id": row["run_id"],
+                "tool_call_id": row["tool_call_id"],
+            }
+            operation_id = row["operation_id"] or (
+                f"legacy:{operation_arguments_hash(legacy_identity)}"
+            )
+            status = str(row["status"])
+            if status == "completed":
+                payload = json.loads(str(row["result_json"] or "{}"))
+                status = "succeeded" if payload.get("status") == "success" else "failed"
+            connection.execute(
+                """
+                UPDATE tool_executions
+                SET operation_id = ?,
+                    step_id = COALESCE(step_id, ''),
+                    environment_id = COALESCE(
+                        environment_id,
+                        (
+                            SELECT COALESCE(environment_id, '')
+                            FROM runs
+                            WHERE id = tool_executions.run_id
+                        ),
+                        ''
+                    ),
+                    arguments_hash = COALESCE(arguments_hash, ?),
+                    status = ?
+                WHERE run_id = ? AND tool_call_id = ?
+                """,
+                (
+                    operation_id,
+                    operation_arguments_hash(arguments),
+                    status,
+                    row["run_id"],
+                    row["tool_call_id"],
+                ),
+            )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_executions_operation
+            ON tool_executions(operation_id)
+            """
+        )
 
     def _execute_write(self, operation: Callable[[sqlite3.Connection], T]) -> T:
         last_error: sqlite3.OperationalError | None = None

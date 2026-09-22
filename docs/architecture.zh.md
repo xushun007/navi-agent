@@ -41,6 +41,12 @@ flowchart LR
 Prompt 来源身份绑定起来。该轮的模型请求、工具上下文和运行时事件共享同一个
 `step_id`。
 
+每次工具调用也会形成持久化的 `OperationRecord`。它通过稳定的 `operation_id`，把来源
+Step、Environment、能力名称以及参数/结果哈希绑定起来。其受限生命周期为
+`planned → running → succeeded|failed|awaiting_input`；用户解决交互后，等待中的操作
+可以重新进入 `running`。已经完成的操作会按照 `(run_id, tool_call_id)` 复用结果，而不
+会再次执行相同副作用。
+
 ### 工具
 
 通过明确的 Schema 和结果暴露能力。工具校验自身输入，审批和执行策略仍由运行时负责。
@@ -62,6 +68,10 @@ Prompt 来源身份绑定起来。该轮的模型请求、工具上下文和运�
 
 两种 Session Store 实现也会随 Run 保存 Step Snapshot，因此即使不依赖 Event Store
 投影，也可以检查当时的请求边界。
+
+Operation Record 复用现有的工具执行存储边界。两种 Session Store 都可以查询终态和
+未完成操作，让中断后遗留的 `planned` 或 `running` 工作保持可见，而不把恢复策略耦合
+进具体工具。
 
 ### 进化
 

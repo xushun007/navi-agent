@@ -118,6 +118,33 @@ class StepSnapshot:
     created_at: str
 
 
+class OperationStatus(StrEnum):
+    PLANNED = "planned"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    AWAITING_INPUT = "awaiting_input"
+
+
+@dataclass(frozen=True, slots=True)
+class OperationRecord:
+    """Durable lifecycle record for one tool operation."""
+
+    operation_id: str
+    run_id: str
+    session_id: str
+    step_id: str
+    environment_id: str
+    tool_call_id: str
+    capability_name: str
+    arguments_hash: str
+    status: OperationStatus
+    created_at: float
+    updated_at: float
+    completed_at: float | None = None
+    result_hash: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class ContextCompactionCheckpoint:
     session_id: str

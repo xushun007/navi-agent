@@ -11,6 +11,7 @@ from navi_agent.runtime import (
     InMemorySessionStore,
     JsonPendingInteractionStore,
     ModelResponse,
+    OperationStatus,
     ToolCall,
     ToolRegistry,
     ToolResult,
@@ -57,9 +58,10 @@ def test_approval_executes_checkpoint_without_model_retry() -> None:
                 ModelResponse(content="done"),
             ]
         )
+        session_store = InMemorySessionStore()
         runtime = AgentRuntime(
             transport=transport,
-            session_store=InMemorySessionStore(),
+            session_store=session_store,
             tool_registry=ToolRegistry(
                 tools={"guarded": guarded},
                 policy=SensitiveToolPolicy(
@@ -75,6 +77,9 @@ def test_approval_executes_checkpoint_without_model_retry() -> None:
         assert pending is not None
         assert pending.tool_call_id == "tc1"
         assert executions == []
+        operation = session_store.get_operation_for_tool_call(waiting.run_id, "tc1")
+        assert operation is not None
+        assert operation.status is OperationStatus.AWAITING_INPUT
 
         assert service.resolve_interaction("s1", approved=True) is not None
         resumed = service.handle(
@@ -84,6 +89,9 @@ def test_approval_executes_checkpoint_without_model_retry() -> None:
     assert waiting.status == "awaiting_input"
     assert resumed.status == "success"
     assert executions == ["once"]
+    completed_operation = session_store.get_operation(operation.operation_id)
+    assert completed_operation is not None
+    assert completed_operation.status is OperationStatus.SUCCEEDED
     assert len(transport.calls) == 2
     assert service.resolve_interaction("s1", approved=True) is None
     assert [message.role for message in resumed.messages[-2:]] == ["tool", "assistant"]

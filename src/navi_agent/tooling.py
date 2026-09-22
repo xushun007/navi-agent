@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 from typing import Protocol
@@ -16,6 +16,8 @@ class ToolContext:
     iteration: int
     run_id: str | None = None
     step_id: str | None = None
+    operation_id: str | None = None
+    operation_ids: Mapping[str, str] = field(default_factory=dict, repr=False)
     environment: EnvironmentBinding | None = None
     emit_output: Callable[[dict[str, Any]], None] | None = None
     cancellation_requested: Callable[[], bool] | None = None
