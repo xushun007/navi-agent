@@ -53,7 +53,13 @@ SWE_BENCH_SYSTEM_PROMPT = (
     "Work directly in the current repository to solve the reported issue. "
     "Inspect the relevant code, make the smallest correct change, and run focused tests. "
     "Do not only describe a solution: edit the repository. "
-    "Finish with a concise summary of the change and tests run."
+    "Finish with a concise summary of the change and tests run. "
+    "Once the focused tests pass and the working tree contains the intended diff, "
+    "stop investigating and provide the final summary immediately. "
+    "Do not download alternate package versions, search upstream history, or broaden "
+    "the investigation after a valid patch is verified. "
+    "If a test fails because of a pre-existing environment or dependency issue, "
+    "record that limitation and finish instead of repeatedly retrying it."
 )
 _T = TypeVar("_T")
 

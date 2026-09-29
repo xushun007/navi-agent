@@ -10,6 +10,7 @@ from evals.inspect.adapter import navi_runtime_success
 from evals.inspect.swe_bench import (
     SWE_BENCH_DATASET,
     SWE_BENCH_SAMPLE_IDS,
+    SWE_BENCH_SYSTEM_PROMPT,
     InspectSandboxBridge,
     SWEBenchInspectRunner,
     navi_swe_bench_verified,
@@ -81,6 +82,12 @@ class FakeTransport:
 
     def generate(self, request):
         return self.responses.pop(0)
+
+
+def test_swe_bench_prompt_requires_convergence_after_verified_patch() -> None:
+    assert "focused tests pass" in SWE_BENCH_SYSTEM_PROMPT
+    assert "stop investigating" in SWE_BENCH_SYSTEM_PROMPT
+    assert "pre-existing environment" in SWE_BENCH_SYSTEM_PROMPT
 
 
 def _official_task_with_selected_samples() -> Task:
