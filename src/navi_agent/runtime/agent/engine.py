@@ -54,6 +54,10 @@ from navi_agent.events import (
 
 logger = logging.getLogger("navi_agent.runtime")
 
+ConvergencePolicy = Callable[
+    [int, Sequence[ToolCall], Sequence[ToolResult]], str | None
+]
+
 _ITERATION_LIMIT_RESPONSE = "任务未能在当前执行次数内完成。请缩小任务范围或补充更明确的信息后重试。"
 _CANCELLED_RESPONSE = "当前任务已停止。"
 
@@ -212,6 +216,7 @@ class AgentRuntime:
         cwd: str | None = None,
         environment: EnvironmentBinding | None = None,
         close_callbacks: Sequence[Callable[[], None]] | None = None,
+        convergence_policy: ConvergencePolicy | None = None,
     ) -> None:
         self._model_invoker = ModelInvoker(transport)
         self._tool_registry = tool_registry or ToolRegistry()
@@ -239,6 +244,7 @@ class AgentRuntime:
         self._environment = environment or EnvironmentBinding.host(Path(cwd or Path.cwd()))
         self._cwd = self._environment.workspace_root
         self._close_callbacks = tuple(close_callbacks or ())
+        self._convergence_policy = convergence_policy
         self._close_lock = Lock()
         self._closed = False
 
@@ -345,6 +351,7 @@ class AgentRuntime:
         request_publisher = RuntimeEventPublisher(event_subscribers or ())
         critical_event_failures = []
         active_step_id: str | None = None
+        convergence_reason: str | None = None
 
         def publish_event(
             *,
@@ -781,6 +788,25 @@ class AgentRuntime:
                 iteration=iteration_number,
             )
             inject_background_notifications(iteration_number)
+            if convergence_reason is not None:
+                self._session_store.append(
+                    session,
+                    Message(
+                        role="system",
+                        content=(
+                            "The verified completion condition has been reached. "
+                            "Do not call tools. Provide a concise final summary of the "
+                            "change and tests now."
+                        ),
+                    ),
+                )
+                publish_event(
+                    kind="observation",
+                    source="runtime",
+                    name="runtime.convergence_requested",
+                    iteration=iteration_number,
+                    payload={"reason": convergence_reason},
+                )
             session_snapshot = self._session_store.snapshot(session)
             checkpoint = self._session_store.load_compaction_checkpoint(session)
             try:
@@ -878,6 +904,8 @@ class AgentRuntime:
                 enabled_toolsets=self._enabled_toolsets,
                 disabled_toolsets=self._disabled_toolsets,
             )
+            if convergence_reason is not None:
+                current_tool_schemas = []
             snapshot = StepSnapshot(
                 step_id=active_step_id,
                 run_id=run_id,
@@ -989,6 +1017,7 @@ class AgentRuntime:
             iteration_number: int,
             model_invocation: ModelInvocation,
         ) -> ToolResult | None:
+            nonlocal convergence_reason
             operation_ids: dict[str, str] = {}
 
             def emit_tool_output(payload: dict[str, object]) -> None:
@@ -1080,6 +1109,12 @@ class AgentRuntime:
                     persist_message=(
                         tool_result.structured_content.get("interaction_pending") is not True
                     ),
+                )
+            if self._convergence_policy is not None and convergence_reason is None:
+                convergence_reason = self._convergence_policy(
+                    iteration_number,
+                    tuple(unique_tool_calls),
+                    tuple(completed_tool_results.values()),
                 )
             return next(
                 (

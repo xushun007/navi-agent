@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 import os
+import re
 from threading import Lock
 from typing import Any, TypeVar
 from uuid import uuid4
@@ -62,6 +63,37 @@ SWE_BENCH_SYSTEM_PROMPT = (
     "record that limitation and finish instead of repeatedly retrying it."
 )
 _T = TypeVar("_T")
+
+_TEST_COMMAND = re.compile(r"(?:pytest|runtests\.py|tox|nox)\b")
+
+
+def _swe_bench_convergence_policy():
+    """Request a final response after verified tests and two quiet iterations."""
+
+    last_mutation_iteration: int | None = None
+    tests_passed = False
+
+    def policy(iteration, tool_calls, tool_results):
+        nonlocal last_mutation_iteration, tests_passed
+        for tool_call, tool_result in zip(tool_calls, tool_results, strict=False):
+            if tool_result.status != "success":
+                continue
+            if tool_call.name in {"patch", "write_file"}:
+                last_mutation_iteration = iteration
+            if tool_call.name == "bash":
+                command = str(tool_call.arguments.get("command", ""))
+                exit_code = tool_result.structured_content.get("exit_code")
+                if _TEST_COMMAND.search(command) and exit_code == 0:
+                    tests_passed = True
+        if (
+            tests_passed
+            and last_mutation_iteration is not None
+            and iteration - last_mutation_iteration >= 2
+        ):
+            return "tests_passed_without_subsequent_mutation"
+        return None
+
+    return policy
 
 
 class InspectSandboxBridge:
@@ -313,6 +345,7 @@ class SWEBenchInspectRunner:
                 event_store=event_store,
                 max_iterations=self._max_iterations,
                 model=self._model,
+                convergence_policy=_swe_bench_convergence_policy(),
             )
             app = ApplicationService(runtime)
             session_id = f"inspect:swe-bench-verified:{sample_id}:{uuid4().hex[:8]}"

@@ -11,6 +11,7 @@ from evals.inspect.swe_bench import (
     SWE_BENCH_DATASET,
     SWE_BENCH_SAMPLE_IDS,
     SWE_BENCH_SYSTEM_PROMPT,
+    _swe_bench_convergence_policy,
     InspectSandboxBridge,
     SWEBenchInspectRunner,
     navi_swe_bench_verified,
@@ -88,6 +89,20 @@ def test_swe_bench_prompt_requires_convergence_after_verified_patch() -> None:
     assert "focused tests pass" in SWE_BENCH_SYSTEM_PROMPT
     assert "stop investigating" in SWE_BENCH_SYSTEM_PROMPT
     assert "pre-existing environment" in SWE_BENCH_SYSTEM_PROMPT
+
+
+def test_swe_bench_convergence_policy_waits_for_quiet_verified_iterations() -> None:
+    policy = _swe_bench_convergence_policy()
+    patch_call = SimpleNamespace(name="patch", arguments={})
+    patch_result = SimpleNamespace(status="success", structured_content={})
+    test_call = SimpleNamespace(name="bash", arguments={"command": "pytest -q"})
+    test_result = SimpleNamespace(status="success", structured_content={"exit_code": 0})
+
+    assert policy(1, (patch_call,), (patch_result,)) is None
+    assert policy(2, (test_call,), (test_result,)) is None
+    assert policy(3, (test_call,), (test_result,)) == (
+        "tests_passed_without_subsequent_mutation"
+    )
 
 
 def _official_task_with_selected_samples() -> Task:
