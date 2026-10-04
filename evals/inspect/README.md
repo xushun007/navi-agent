@@ -25,10 +25,12 @@ navi-agent eval run swe-bench-verified
 Docker sandbox. Docker must be running. The 10 static samples are selected from
 OpenAI's MIT-licensed `openai/human-eval` test set.
 
-`bfcl` runs ten curated BFCL v4 function-calling cases through the real Navi
-runtime. Each sample exposes only its benchmark functions as deterministic
-tools. Scoring reads the resulting Navi tool trace and checks tool selection,
-arguments, parallel calls, and irrelevant-tool refusal.
+`bfcl` runs a fixed 100-sample stratified BFCL v4 function-calling subset
+through the real Navi runtime. It covers simple (30), multiple (25), parallel
+(15), parallel-multiple (15), and irrelevance (15) cases. Each sample exposes
+only its benchmark functions as deterministic tools. Scoring reads the
+resulting Navi tool trace and checks tool selection, arguments, parallel calls,
+and irrelevant-tool refusal. Use `--limit` for a smaller run.
 
 `agentbench-os` runs ten public-answer AgentBench OS dev tasks through Navi's
 native file and terminal tools. Every sample gets a disposable workspace.
@@ -106,9 +108,12 @@ tool calls.
 This is an L0 code-generation baseline, not a full HumanEval pass@1 result or an
 autonomous coding-agent benchmark. The subset is public and intentionally small.
 
-## Current BFCL Baseline
+## Historical BFCL 10-Sample Baseline
 
-Run on 2026-07-26 with `deepseek-v4-pro` and the 10 curated samples:
+Run on 2026-07-26 with `deepseek-v4-pro` and the previous 10 curated samples.
+The default suite now uses the 100-sample stratified subset, so this baseline
+is retained for historical comparison and is not a baseline for the expanded
+suite:
 
 | Metric | Result |
 | --- | ---: |

@@ -28,7 +28,7 @@ from navi_agent.runtime import (
 from navi_agent.telemetry import InMemoryTraceStore
 
 
-DATASET_PATH = Path(__file__).with_name("data") / "bfcl.jsonl"
+DATASET_PATH = Path(__file__).with_name("data") / "bfcl_100.jsonl"
 BFCL_SYSTEM_PROMPT = (
     "Use a provided tool when and only when it is relevant to the request. "
     "Pass every value stated by the user as a tool argument. "
@@ -172,8 +172,8 @@ def navi_bfcl(runner: BFCLInspectRunner | None = None) -> Task:
         ],
         metadata={
             "agent": "navi-agent",
-            "dataset": "BFCL v4 curated",
-            "sample_count": 10,
+            "dataset": "BFCL v4 curated stratified subset",
+            "sample_count": 100,
         },
     )
 
