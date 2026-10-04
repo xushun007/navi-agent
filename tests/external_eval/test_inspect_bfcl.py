@@ -18,7 +18,7 @@ from navi_agent.runtime import ModelResponse, ModelUsage, ToolCall
 def test_loads_stratified_bfcl_samples() -> None:
     samples = load_bfcl_samples()
 
-    assert len(samples) == 100
+    assert len(samples) == 500
     assert {sample.metadata["category"] for sample in samples} == {
         "simple",
         "multiple",
@@ -26,11 +26,11 @@ def test_loads_stratified_bfcl_samples() -> None:
         "parallel_multiple",
         "irrelevance",
     }
-    assert sum(sample.metadata["category"] == "simple" for sample in samples) == 30
-    assert sum(sample.metadata["category"] == "multiple" for sample in samples) == 25
-    assert sum(sample.metadata["category"] == "parallel" for sample in samples) == 15
-    assert sum(sample.metadata["category"] == "parallel_multiple" for sample in samples) == 15
-    assert sum(sample.metadata["category"] == "irrelevance" for sample in samples) == 15
+    assert sum(sample.metadata["category"] == "simple" for sample in samples) == 150
+    assert sum(sample.metadata["category"] == "multiple" for sample in samples) == 125
+    assert sum(sample.metadata["category"] == "parallel" for sample in samples) == 75
+    assert sum(sample.metadata["category"] == "parallel_multiple" for sample in samples) == 75
+    assert sum(sample.metadata["category"] == "irrelevance" for sample in samples) == 75
     assert all(
         re.fullmatch(r"[A-Za-z0-9_-]+", function["name"])
         for sample in samples
@@ -233,6 +233,6 @@ def test_builds_bfcl_task_with_trace_scorers() -> None:
         )
     )
 
-    assert len(task.dataset) == 100
+    assert len(task.dataset) == 500
     assert len(task.scorer) == 2
     assert task.metadata["dataset"] == "BFCL v4 curated stratified subset"

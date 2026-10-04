@@ -17,11 +17,11 @@ CATEGORY_FILES = {
     "irrelevance": "BFCL_v4_irrelevance.json",
 }
 CATEGORY_QUOTAS = {
-    "simple": 30,
-    "multiple": 25,
-    "parallel": 15,
-    "parallel_multiple": 15,
-    "irrelevance": 15,
+    "simple": 150,
+    "multiple": 125,
+    "parallel": 75,
+    "parallel_multiple": 75,
+    "irrelevance": 75,
 }
 PREFERRED_IDS = {
     "simple_python_0",
