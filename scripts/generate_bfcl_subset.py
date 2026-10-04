@@ -74,7 +74,7 @@ def convert(
 
 
 def build_subset(source_dir: Path, source_commit: str) -> list[dict[str, Any]]:
-    subset: list[dict[str, Any]] = []
+    selected_by_category: dict[str, list[dict[str, Any]]] = {}
     for category, filename in CATEGORY_FILES.items():
         rows = read_jsonl(source_dir / filename)
         answers = load_answers(source_dir, filename)
@@ -83,7 +83,7 @@ def build_subset(source_dir: Path, source_commit: str) -> list[dict[str, Any]]:
         selected = (preferred + remaining)[: CATEGORY_QUOTAS[category]]
         if len(selected) != CATEGORY_QUOTAS[category]:
             raise ValueError(f"not enough {category} samples")
-        subset.extend(
+        selected_by_category[category] = [
             convert(
                 row,
                 category=category,
@@ -91,7 +91,15 @@ def build_subset(source_dir: Path, source_commit: str) -> list[dict[str, Any]]:
                 source_commit=source_commit,
             )
             for row in selected
-        )
+        ]
+
+    # Interleave categories so a small --limit run remains representative.
+    subset: list[dict[str, Any]] = []
+    for index in range(max(map(len, selected_by_category.values()))):
+        for category in CATEGORY_FILES:
+            rows = selected_by_category[category]
+            if index < len(rows):
+                subset.append(rows[index])
     return subset
 
 
