@@ -1,4 +1,5 @@
 import asyncio
+import re
 from types import SimpleNamespace
 
 from inspect_ai.scorer import Target
@@ -9,24 +10,32 @@ from evals.inspect.bfcl import (
     load_bfcl_samples,
     match_tool_calls,
     navi_bfcl,
+    _normalize_schema,
 )
 from navi_agent.runtime import ModelResponse, ModelUsage, ToolCall
 
 
-def test_loads_balanced_curated_bfcl_samples() -> None:
+def test_loads_stratified_bfcl_samples() -> None:
     samples = load_bfcl_samples()
 
-    assert len(samples) == 10
+    assert len(samples) == 500
     assert {sample.metadata["category"] for sample in samples} == {
         "simple",
         "multiple",
         "parallel",
+        "parallel_multiple",
         "irrelevance",
     }
-    assert sum(sample.metadata["category"] == "simple" for sample in samples) == 3
-    assert sum(sample.metadata["category"] == "multiple" for sample in samples) == 3
-    assert sum(sample.metadata["category"] == "parallel" for sample in samples) == 2
-    assert sum(sample.metadata["category"] == "irrelevance" for sample in samples) == 2
+    assert sum(sample.metadata["category"] == "simple" for sample in samples) == 150
+    assert sum(sample.metadata["category"] == "multiple" for sample in samples) == 125
+    assert sum(sample.metadata["category"] == "parallel" for sample in samples) == 75
+    assert sum(sample.metadata["category"] == "parallel_multiple" for sample in samples) == 75
+    assert sum(sample.metadata["category"] == "irrelevance" for sample in samples) == 75
+    assert all(
+        re.fullmatch(r"[A-Za-z0-9_-]+", function["name"])
+        for sample in samples
+        for function in sample.metadata["functions"]
+    )
 
 
 class FakeTransport:
@@ -74,6 +83,47 @@ def test_runs_real_runtime_with_sample_specific_tools() -> None:
     )
     assert result.input_tokens == 50
     assert result.output_tokens == 13
+
+
+def test_bfcl_result_scores_initial_tool_call_round_only() -> None:
+    class RetryingTransport:
+        def __init__(self) -> None:
+            self.responses = [
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(
+                            id="call-1",
+                            name="calculate_triangle_area",
+                            arguments={"base": 10, "height": 5},
+                        )
+                    ]
+                ),
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(
+                            id="call-2",
+                            name="calculate_triangle_area",
+                            arguments={"base": 10, "height": 5},
+                        )
+                    ]
+                ),
+                ModelResponse(content="done"),
+            ]
+
+        def generate(self, request):
+            return self.responses.pop(0)
+
+    sample = load_bfcl_samples()[0]
+    result = BFCLInspectRunner(
+        transport=RetryingTransport(),
+        model="fake-model",
+    ).run(
+        sample.input,
+        sample_id=str(sample.id),
+        functions=sample.metadata["functions"],
+    )
+
+    assert len(result.tool_calls) == 1
 
 
 def test_matches_parallel_calls_without_requiring_order() -> None:
@@ -133,6 +183,17 @@ def test_matches_optional_and_nested_arguments() -> None:
     assert match_tool_calls(actual, expected)[0] is True
 
 
+def test_normalizes_bfcl_tuple_schema_to_json_schema_array() -> None:
+    assert _normalize_schema({"type": "tuple", "items": {"type": "float"}}) == {
+        "type": "array",
+        "items": {"type": "number"},
+    }
+
+
+def test_normalizes_bfcl_any_schema_to_unconstrained_json_schema() -> None:
+    assert _normalize_schema({"type": "any"}) == {}
+
+
 def test_scores_irrelevance_when_no_tool_is_called() -> None:
     state = SimpleNamespace(
         metadata={
@@ -176,6 +237,6 @@ def test_builds_bfcl_task_with_trace_scorers() -> None:
         )
     )
 
-    assert len(task.dataset) == 10
+    assert len(task.dataset) == 500
     assert len(task.scorer) == 2
-    assert task.metadata["dataset"] == "BFCL v4 curated"
+    assert task.metadata["dataset"] == "BFCL v4 curated stratified subset"
