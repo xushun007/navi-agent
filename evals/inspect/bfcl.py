@@ -251,6 +251,8 @@ def _normalize_schema(value: Any) -> Any:
         }
         if normalized.get("type") == "dict":
             normalized["type"] = "object"
+        elif normalized.get("type") == "tuple":
+            normalized["type"] = "array"
         elif normalized.get("type") == "float":
             normalized["type"] = "number"
         return normalized

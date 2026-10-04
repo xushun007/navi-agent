@@ -10,6 +10,7 @@ from evals.inspect.bfcl import (
     load_bfcl_samples,
     match_tool_calls,
     navi_bfcl,
+    _normalize_schema,
 )
 from navi_agent.runtime import ModelResponse, ModelUsage, ToolCall
 
@@ -139,6 +140,13 @@ def test_matches_optional_and_nested_arguments() -> None:
     ]
 
     assert match_tool_calls(actual, expected)[0] is True
+
+
+def test_normalizes_bfcl_tuple_schema_to_json_schema_array() -> None:
+    assert _normalize_schema({"type": "tuple", "items": {"type": "float"}}) == {
+        "type": "array",
+        "items": {"type": "number"},
+    }
 
 
 def test_scores_irrelevance_when_no_tool_is_called() -> None:
