@@ -262,6 +262,10 @@ def _normalize_schema(value: Any) -> Any:
             normalized["type"] = "array"
         elif normalized.get("type") == "float":
             normalized["type"] = "number"
+        elif normalized.get("type") == "any":
+            # BFCL uses `any` for an unconstrained value. JSON Schema
+            # represents that as an empty schema rather than a type name.
+            normalized.pop("type")
         return normalized
     if isinstance(value, list):
         return [_normalize_schema(item) for item in value]

@@ -190,6 +190,10 @@ def test_normalizes_bfcl_tuple_schema_to_json_schema_array() -> None:
     }
 
 
+def test_normalizes_bfcl_any_schema_to_unconstrained_json_schema() -> None:
+    assert _normalize_schema({"type": "any"}) == {}
+
+
 def test_scores_irrelevance_when_no_tool_is_called() -> None:
     state = SimpleNamespace(
         metadata={
