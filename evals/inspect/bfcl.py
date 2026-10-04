@@ -33,7 +33,10 @@ BFCL_SYSTEM_PROMPT = (
     "Use a provided tool when and only when it is relevant to the request. "
     "Pass every value stated by the user as a tool argument. "
     "When several independent calls are requested, issue all required calls. "
-    "If no provided tool is relevant, answer directly without calling a tool."
+    "If no provided tool is relevant, answer directly without calling a tool. "
+    "This is a single-turn function-calling evaluation: after issuing the "
+    "required calls, do not retry successful calls or invoke additional "
+    "alternative tools."
 )
 
 
@@ -111,6 +114,9 @@ class BFCLInspectRunner:
             input_tokens=sum(call.input_tokens for call in trace.model_calls),
             output_tokens=sum(call.output_tokens for call in trace.model_calls),
             cost_usd=sum(call.cost_usd or 0.0 for call in trace.model_calls),
+            # BFCL scores the model's initial function-call decision. Later
+            # turns are retained in the runtime trace, but mock tool results
+            # must not turn exploratory retries into extra benchmark calls.
             tool_calls=tuple(
                 {
                     "name": execution.tool_name,
@@ -118,6 +124,7 @@ class BFCLInspectRunner:
                     "status": execution.status,
                 }
                 for execution in trace.tool_executions
+                if execution.iteration == 1
             ),
         )
 

@@ -85,6 +85,47 @@ def test_runs_real_runtime_with_sample_specific_tools() -> None:
     assert result.output_tokens == 13
 
 
+def test_bfcl_result_scores_initial_tool_call_round_only() -> None:
+    class RetryingTransport:
+        def __init__(self) -> None:
+            self.responses = [
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(
+                            id="call-1",
+                            name="calculate_triangle_area",
+                            arguments={"base": 10, "height": 5},
+                        )
+                    ]
+                ),
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(
+                            id="call-2",
+                            name="calculate_triangle_area",
+                            arguments={"base": 10, "height": 5},
+                        )
+                    ]
+                ),
+                ModelResponse(content="done"),
+            ]
+
+        def generate(self, request):
+            return self.responses.pop(0)
+
+    sample = load_bfcl_samples()[0]
+    result = BFCLInspectRunner(
+        transport=RetryingTransport(),
+        model="fake-model",
+    ).run(
+        sample.input,
+        sample_id=str(sample.id),
+        functions=sample.metadata["functions"],
+    )
+
+    assert len(result.tool_calls) == 1
+
+
 def test_matches_parallel_calls_without_requiring_order() -> None:
     actual = [
         {
