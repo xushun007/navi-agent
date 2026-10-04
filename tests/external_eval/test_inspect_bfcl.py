@@ -1,4 +1,5 @@
 import asyncio
+import re
 from types import SimpleNamespace
 
 from inspect_ai.scorer import Target
@@ -29,6 +30,11 @@ def test_loads_stratified_bfcl_samples() -> None:
     assert sum(sample.metadata["category"] == "parallel" for sample in samples) == 15
     assert sum(sample.metadata["category"] == "parallel_multiple" for sample in samples) == 15
     assert sum(sample.metadata["category"] == "irrelevance" for sample in samples) == 15
+    assert all(
+        re.fullmatch(r"[A-Za-z0-9_-]+", function["name"])
+        for sample in samples
+        for function in sample.metadata["functions"]
+    )
 
 
 class FakeTransport:

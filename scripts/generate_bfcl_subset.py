@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,19 @@ def convert(
     source_commit: str,
 ) -> dict[str, Any]:
     question = item["question"][0][0]["content"]
+    expected_calls = answers.get(item["id"], [])
+    name_map = {
+        function["name"]: normalize_tool_name(function["name"])
+        for function in item["function"]
+    }
+    functions = [
+        {**function, "name": name_map[function["name"]]}
+        for function in item["function"]
+    ]
+    expected_calls = [
+        {name_map.get(name, name): arguments for name, arguments in call.items()}
+        for call in expected_calls
+    ]
     return {
         "id": item["id"],
         "input": question,
@@ -67,10 +81,16 @@ def convert(
             "category": category,
             "source": "BFCL v4",
             "source_commit": source_commit,
-            "functions": item["function"],
-            "expected_calls": answers.get(item["id"], []),
+            "functions": functions,
+            "expected_calls": expected_calls,
         },
     }
+
+
+def normalize_tool_name(name: str) -> str:
+    """Map BFCL names to the portable function-name grammar."""
+    normalized = re.sub(r"[^A-Za-z0-9_-]", "__", name)
+    return normalized or "bfcl_tool"
 
 
 def build_subset(source_dir: Path, source_commit: str) -> list[dict[str, Any]]:
