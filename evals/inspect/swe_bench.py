@@ -79,6 +79,9 @@ def _swe_bench_convergence_policy():
                 continue
             if tool_call.name in {"patch", "write_file"}:
                 last_mutation_iteration = iteration
+                # Evidence from before this mutation no longer verifies the
+                # current workspace. Require a fresh successful test run.
+                tests_passed = False
             if tool_call.name == "bash":
                 command = str(tool_call.arguments.get("command", ""))
                 exit_code = tool_result.structured_content.get("exit_code")
