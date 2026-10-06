@@ -1144,6 +1144,8 @@ class AgentRuntimeTests(unittest.TestCase):
 
         self.assertEqual(result.status, "success")
         self.assertEqual(result.final_response, "The requested work is complete.")
+        self.assertFalse(result.completion_verified)
+        self.assertEqual(result.completion_reason, "iteration_limit_summary")
         self.assertEqual(transport.calls[-1].tools, [])
 
     def test_runtime_converts_tool_failure_into_tool_message(self) -> None:

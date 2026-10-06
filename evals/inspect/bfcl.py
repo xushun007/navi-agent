@@ -114,6 +114,8 @@ class BFCLInspectRunner:
             input_tokens=sum(call.input_tokens for call in trace.model_calls),
             output_tokens=sum(call.output_tokens for call in trace.model_calls),
             cost_usd=sum(call.cost_usd or 0.0 for call in trace.model_calls),
+            completion_verified=trace.completion_verified,
+            completion_reason=trace.completion_reason,
             # BFCL scores the model's initial function-call decision. Later
             # turns are retained in the runtime trace, but mock tool results
             # must not turn exploratory retries into extra benchmark calls.
