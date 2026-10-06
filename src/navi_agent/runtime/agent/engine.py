@@ -571,7 +571,9 @@ class AgentRuntime:
         ) -> RuntimeResult:
             result.task_spec = task_spec
             result.completion_verified = (
-                True
+                False
+                if end_reason == "iteration_limit_summary"
+                else True
                 if convergence_reason is not None
                 else False
                 if task_spec.acceptance
@@ -1323,6 +1325,7 @@ class AgentRuntime:
                     result,
                     iteration=final_iteration,
                     attempt_count=final_iteration,
+                    end_reason="iteration_limit_summary",
                 )
         except Exception:
             logger.warning(

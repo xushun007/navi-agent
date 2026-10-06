@@ -26,6 +26,8 @@ class NaviInspectResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float
+    completion_verified: bool | None = None
+    completion_reason: str | None = None
     tool_calls: tuple[dict[str, object], ...] = ()
 
     def metadata(self) -> dict[str, object]:
@@ -39,6 +41,8 @@ class NaviInspectResult:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cost_usd": self.cost_usd,
+            "completion_verified": self.completion_verified,
+            "completion_reason": self.completion_reason,
             "tool_calls": list(self.tool_calls),
         }
 
@@ -81,6 +85,8 @@ class NaviInspectRunner:
             input_tokens=sum(call.input_tokens for call in trace.model_calls),
             output_tokens=sum(call.output_tokens for call in trace.model_calls),
             cost_usd=sum(call.cost_usd or 0.0 for call in trace.model_calls),
+            completion_verified=trace.completion_verified,
+            completion_reason=trace.completion_reason,
             tool_calls=tuple(
                 {
                     "name": execution.tool_name,
@@ -119,7 +125,9 @@ def navi_runtime_success():
             explanation=(
                 f"status={metadata.get('status')} "
                 f"trace_id={metadata.get('trace_id')} "
-                f"iterations={metadata.get('iterations')}"
+                f"iterations={metadata.get('iterations')} "
+                f"completion_verified={metadata.get('completion_verified')} "
+                f"completion_reason={metadata.get('completion_reason')}"
             ),
         )
 

@@ -116,6 +116,23 @@ def test_swe_bench_convergence_policy_waits_for_quiet_verified_iterations() -> N
     )
 
 
+def test_swe_bench_convergence_policy_requires_tests_after_latest_mutation() -> None:
+    policy = _swe_bench_convergence_policy()
+    patch_call = SimpleNamespace(name="patch", arguments={})
+    patch_result = SimpleNamespace(status="success", structured_content={})
+    test_call = SimpleNamespace(name="bash", arguments={"command": "pytest -q"})
+    test_result = SimpleNamespace(status="success", structured_content={"exit_code": 0})
+
+    assert policy(1, (test_call,), (test_result,)) is None
+    assert policy(2, (patch_call,), (patch_result,)) is None
+    assert policy(3, (), ()) is None
+    assert policy(4, (), ()) is None
+
+    assert policy(5, (test_call,), (test_result,)) == (
+        "tests_passed_without_subsequent_mutation"
+    )
+
+
 def _official_task_with_selected_samples() -> Task:
     return Task(
         dataset=[

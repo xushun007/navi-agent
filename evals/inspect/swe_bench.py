@@ -79,6 +79,9 @@ def _swe_bench_convergence_policy():
                 continue
             if tool_call.name in {"patch", "write_file"}:
                 last_mutation_iteration = iteration
+                # Evidence from before this mutation no longer verifies the
+                # current workspace. Require a fresh successful test run.
+                tests_passed = False
             if tool_call.name == "bash":
                 command = str(tool_call.arguments.get("command", ""))
                 exit_code = tool_result.structured_content.get("exit_code")
@@ -373,6 +376,8 @@ class InspectRuntimeRunner:
             input_tokens=sum(call.input_tokens for call in trace.model_calls),
             output_tokens=sum(call.output_tokens for call in trace.model_calls),
             cost_usd=sum(call.cost_usd or 0.0 for call in trace.model_calls),
+            completion_verified=trace.completion_verified,
+            completion_reason=trace.completion_reason,
             tool_calls=tuple(
                 {
                     "name": execution.tool_name,
