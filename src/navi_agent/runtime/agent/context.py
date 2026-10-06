@@ -147,7 +147,7 @@ class ContextEngine:
             latest_user_message=self._latest_user_message(original, start=head_end),
         )
         summary = Message(
-            role="system",
+            role="runtime",
             content=self._normalize_summary(summary_call.response.content),
         )
         compacted = [
@@ -224,7 +224,7 @@ class ContextEngine:
         return self._sanitize_tool_pairs(
             [
                 *messages[: checkpoint.protected_head_count],
-                Message(role="system", content=checkpoint.summary),
+                Message(role="runtime", content=checkpoint.summary),
                 *messages[checkpoint.covered_message_count :],
             ]
         )
@@ -309,7 +309,7 @@ class ContextEngine:
 
     @staticmethod
     def _is_context_summary(message: Message) -> bool:
-        return message.role == "system" and message.content.lstrip().startswith(SUMMARY_PREFIX)
+        return message.role in {"system", "runtime"} and message.content.lstrip().startswith(SUMMARY_PREFIX)
 
     @staticmethod
     def _normalize_summary(summary: str) -> str:

@@ -123,6 +123,22 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             self.assertEqual(len(restored.messages), 1)
             self.assertEqual(restored.messages[0].content, "hello")
 
+    def test_runtime_context_survives_reopening_the_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "state.db"
+            store = SQLiteSessionStore(path)
+            session = store.load(session_id="s1", user_id="u1")
+            messages = [
+                Message(role="user", content="Run the checks."),
+                Message(role="runtime", content="[Background task completed]\ntask_id: t1"),
+            ]
+            for message in messages:
+                store.append(session, message)
+
+            restored = SQLiteSessionStore(path).load(session_id="s1", user_id="u1")
+
+            self.assertEqual(restored.messages, messages)
+
     def test_lists_recent_sessions_for_user(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = SQLiteSessionStore(Path(tmpdir) / "state.db")

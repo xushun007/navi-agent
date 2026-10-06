@@ -109,7 +109,7 @@ class ContextEngineTests(unittest.TestCase):
         self.assertEqual(result.messages[0].content, "system governance")
         self.assertEqual(result.messages[1].content, "initial task framing")
         self.assertEqual(result.messages[2].content, "initial answer")
-        self.assertEqual(result.messages[3].role, "system")
+        self.assertEqual(result.messages[3].role, "runtime")
         self.assertIn("[Context Summary]", result.messages[3].content)
         self.assertIn("middle user ask", result.messages[3].content)
         self.assertEqual(result.summary_status, "llm")
@@ -123,14 +123,16 @@ class ContextEngineTests(unittest.TestCase):
             Message(role="assistant", content="large tool output " + "x" * 2_000),
             Message(role="user", content="do this exact latest request"),
             Message(role="assistant", content="not answered yet " + "y" * 500),
+            Message(role="runtime", content="[Background task completed]\ntask_id: t1"),
         ]
+        summarizer = FakeSummarizer()
         engine = ContextEngine(
             context_limit_tokens=220,
             reserved_output_tokens=20,
             compression_threshold_ratio=0.5,
             protect_first_messages=2,
             tail_budget_ratio=0.05,
-            summarizer=FakeSummarizer(),
+            summarizer=summarizer,
         )
 
         result = engine.build(messages)
@@ -138,6 +140,30 @@ class ContextEngineTests(unittest.TestCase):
         self.assertTrue(result.compressed)
         self.assertTrue(result.latest_user_anchored)
         self.assertIn("do this exact latest request", [message.content for message in result.messages])
+        self.assertEqual(summarizer.calls[0]["latest_user_message"], messages[4])
+        self.assertEqual(result.messages[-1], messages[-1])
+
+    def test_recompacts_leading_runtime_and_legacy_summaries(self) -> None:
+        for role in ("runtime", "system"):
+            with self.subTest(role=role):
+                messages = [
+                    Message(role=role, content="[Context Summary]\nPrevious summary."),
+                    Message(role="assistant", content="large output " + "x" * 800),
+                    Message(role="user", content="latest request"),
+                ]
+                prefix = [Message(role="system", content="Stable instructions.")]
+                engine = ContextEngine(
+                    context_limit_tokens=160,
+                    reserved_output_tokens=20,
+                    protect_first_messages=3,
+                    summarizer=FakeSummarizer(),
+                )
+                result = engine.build(messages, prefix_messages=prefix)
+                self.assertTrue(result.compressed)
+                self.assertEqual(result.messages[0], prefix[0])
+                self.assertEqual(result.messages[1].role, "runtime")
+                self.assertEqual(result.messages[-1], messages[-1])
+                self.assertEqual(sum(m.content.startswith("[Context Summary]") for m in result.messages), 1)
 
     def test_does_not_leave_orphaned_tool_result_in_tail(self) -> None:
         messages = [
@@ -292,6 +318,8 @@ class ContextEngineTests(unittest.TestCase):
         self.assertTrue(second.compressed)
         self.assertIn(checkpoint.summary, [message.content for message in second.messages])
         self.assertEqual(second.messages[-1].content, "small follow-up")
+        self.assertEqual(second.messages[:-1], first.messages)
+        self.assertTrue(any(m.role == "runtime" and m.content == checkpoint.summary for m in second.messages))
 
     def test_invalidates_checkpoint_when_covered_source_changes(self) -> None:
         summarizer = FakeSummarizer()

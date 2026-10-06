@@ -20,6 +20,7 @@ from navi_agent.runtime import (
     ModelRequest,
     ModelResponse,
     ModelUsage,
+    OpenAICompatibleTransport,
     PromptBuilder,
     RuntimeEvent,
     RunCancellationToken,
@@ -36,7 +37,7 @@ from navi_agent.runtime.tools.policy import SensitiveToolPolicy
 from navi_agent.runtime.agent.control import RunCancelledError
 from navi_agent.memory import FileMemoryStore, InMemoryMemoryStore, MemoryRecord
 from navi_agent.logging import setup_logging
-from navi_agent.tools import BashTool, MemoryTool
+from navi_agent.tools import BackgroundTaskTool, BashTool, MemoryTool
 from navi_agent.telemetry import InMemoryRuntimeEventStore, InMemoryTraceStore
 
 
@@ -533,7 +534,7 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(events[8].item_id, "tc1")
         self.assertEqual(events[12].payload["status"], "success")
 
-    def test_runtime_injects_completed_background_task_before_model_call(self) -> None:
+    def test_background_completion_is_read_through_a_new_tool_call(self) -> None:
         manager = BackgroundTaskManager()
         task = manager.submit(
             session_id="s1",
@@ -549,10 +550,29 @@ class AgentRuntimeTests(unittest.TestCase):
             if time.monotonic() >= deadline:
                 self.fail("background task did not finish")
             time.sleep(0.01)
-        transport = FakeTransport([ModelResponse(content="tests passed")])
+        store = InMemorySessionStore()
+        session = store.load(session_id="s1", user_id="u1")
+        store.append(session, Message(role="user", content="Run tests."))
+        store.append(session, Message(
+            role="assistant", content="",
+            tool_calls=[ToolCall(id="start-call", name="bash", arguments={"background": True})],
+        ))
+        store.append(session, Message(
+            role="tool", content=f"Background task started: {task.task_id}",
+            tool_call_id="start-call",
+        ))
+        transport = FakeTransport([
+            ModelResponse(tool_calls=[ToolCall(
+                id="status-call", name="background_task",
+                arguments={"action": "status", "task_id": task.task_id},
+            )]),
+            ModelResponse(content="tests passed"),
+        ])
         event_store = InMemoryRuntimeEventStore()
         runtime = AgentRuntime(
             transport=transport,
+            session_store=store,
+            tool_registry=ToolRegistry(registered_tools=[("default", BackgroundTaskTool(manager))]),
             background_task_manager=manager,
             event_store=event_store,
         )
@@ -568,12 +588,25 @@ class AgentRuntimeTests(unittest.TestCase):
             for message in transport.calls[0].messages
             if message.content.startswith("[Background task completed]")
         )
-        self.assertEqual(notification.role, "system")
+        self.assertEqual(notification.role, "runtime")
         self.assertIn(task.task_id, notification.content)
-        self.assertIn("42 passed", notification.content)
+        self.assertIn("status: succeeded", notification.content)
+        self.assertNotIn("42 passed", notification.content)
+        self.assertFalse(any("42 passed" in message.content for message in transport.calls[0].messages))
+        tool_results = [message for message in transport.calls[1].messages if message.role == "tool"]
+        self.assertEqual([message.tool_call_id for message in tool_results], ["start-call", "status-call"])
+        self.assertIn("42 passed", tool_results[-1].content)
+        self.assertEqual(transport.calls[0].messages[0], transport.calls[1].messages[0])
+        first_wire = OpenAICompatibleTransport._serialize_messages(transport.calls[0].messages)
+        second_wire = OpenAICompatibleTransport._serialize_messages(transport.calls[1].messages)
+        self.assertEqual(second_wire[:len(first_wire)], first_wire)
+        self.assertEqual(second_wire[-1]["tool_call_id"], "status-call")
+        self.assertEqual(second_wire[-1]["role"], "tool")
+        self.assertIn("42 passed", second_wire[-1]["content"])
+        self.assertEqual(sum(message.role == "runtime" for message in session.messages), 1)
         self.assertEqual(result.final_response, "tests passed")
         events = event_store.list_events(session_id="s1")
-        self.assertIn("background_task.completed", [event.name for event in events])
+        self.assertEqual([event.name for event in events].count("background_task.completed"), 1)
 
     def test_runtime_executes_tool_calls_then_continues_loop(self) -> None:
         transport = FakeTransport(

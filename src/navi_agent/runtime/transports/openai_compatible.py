@@ -225,17 +225,17 @@ class OpenAICompatibleTransport:
 
     @classmethod
     def _serialize_messages(cls, messages: list[Message]) -> list[dict[str, Any]]:
-        # Some chat templates accept only one system message at the beginning.
-        # Runtime notifications and compaction summaries can occur later in history.
-        system_contents = []
         serialized = []
-        for message in messages:
-            if message.role == "system":
-                system_contents.append(message.content)
+        for index, message in enumerate(messages):
+            # Keep the leading system prompt and all history in place. Older
+            # sessions stored runtime context as additional system messages.
+            if message.role == "runtime" or (message.role == "system" and index > 0):
+                serialized.append({
+                    "role": "user",
+                    "content": f"[Runtime context]\n{message.content}",
+                })
             else:
                 serialized.append(cls._serialize_message(message))
-        if system_contents:
-            serialized.insert(0, {"role": "system", "content": "\n\n".join(system_contents)})
         return cls._sanitize_serialized_tool_pairs(serialized)
 
     @staticmethod

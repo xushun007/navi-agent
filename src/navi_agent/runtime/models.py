@@ -17,6 +17,8 @@ class ToolCall:
 
 @dataclass(slots=True)
 class Message:
+    """Session message; the internal ``runtime`` role is adapted by transports."""
+
     role: str
     content: str
     reasoning_content: str | None = None

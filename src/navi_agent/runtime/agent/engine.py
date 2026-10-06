@@ -469,7 +469,7 @@ class AgentRuntime:
                 user_id=user_id,
             ):
                 content = self._render_background_notification(task)
-                self._session_store.append(session, Message(role="system", content=content))
+                self._session_store.append(session, Message(role="runtime", content=content))
                 metadata = {
                     "task_id": task.task_id,
                     "status": task.status,
@@ -852,7 +852,7 @@ class AgentRuntime:
                 self._session_store.append(
                     session,
                     Message(
-                        role="system",
+                        role="runtime",
                         content=(
                             "The verified completion condition has been reached. "
                             "Do not call tools. Provide a concise final summary of the "
@@ -1363,22 +1363,12 @@ class AgentRuntime:
 
     @staticmethod
     def _render_background_notification(task: BackgroundTask) -> str:
-        lines = [
+        return "\n".join([
             "[Background task completed]",
             f"task_id: {task.task_id}",
             f"status: {task.status}",
             f"description: {task.description}",
-        ]
-        if task.result is not None:
-            lines.extend(
-                [
-                    f"tool: {task.result.name}",
-                    f"tool_status: {task.result.status}",
-                    "result:",
-                    task.result.content,
-                ]
-            )
-        return "\n".join(lines)
+        ])
 
     def _render_tool_message(self, tool_result) -> str:
         rendered = self._tool_result_renderer.render(tool_result).strip()

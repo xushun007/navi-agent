@@ -24,49 +24,59 @@ class FakeClient:
 
 
 class OpenAICompatibleTransportTests(unittest.TestCase):
-    def test_system_messages_are_merged_before_conversation_in_both_modes(self) -> None:
-        messages = [
-            Message(role="system", content="Follow workspace rules."),
-            Message(role="user", content="Run the check."),
+    def test_appending_runtime_context_preserves_prefix_in_both_modes(self) -> None:
+        history = [
+            Message(role="system", content="Stable instructions."),
+            Message(role="user", content="Run the checks."),
             Message(
                 role="assistant",
                 content="",
-                reasoning_content="Check the tool result.",
-                tool_calls=[ToolCall(id="tc1", name="bash", arguments={"command": "true"})],
+                reasoning_content="Start the checks in the background.",
+                tool_calls=[ToolCall(id="c1", name="bash", arguments={"background": True})],
             ),
-            Message(role="tool", content="Command still running", tool_call_id="tc1"),
-            Message(role="system", content="[Background task completed]\nexit_code: 0"),
-            Message(role="system", content="[Context Summary]\nEarlier work is complete."),
-            Message(role="user", content="Summarize the result."),
+            Message(role="tool", content="Running; task_id=t1", tool_call_id="c1"),
+            Message(role="assistant", content="The checks are running."),
+        ]
+        for role in ("runtime", "system"):
+            for streaming in (False, True):
+                with self.subTest(role=role, streaming=streaming):
+                    messages = list(history)
+                    previous = self._generate_with_messages(
+                        messages, streaming=streaming,
+                    ).chat.completions.calls[0]["messages"]
+                    for task_id in ("t1", "t2"):
+                        content = f"[Background task completed]\ntask_id: {task_id}"
+                        messages.append(Message(role=role, content=content))
+                        original = deepcopy(messages)
+                        current = self._generate_with_messages(
+                            messages, streaming=streaming,
+                        ).chat.completions.calls[0]["messages"]
+                        self.assertEqual(current[:-1], previous)
+                        self.assertEqual(current[-1], {
+                            "role": "user", "content": f"[Runtime context]\n{content}",
+                        })
+                        self.assertEqual(messages, original)
+                        self.assertEqual([m["role"] for m in current].count("system"), 1)
+                        previous = current
+
+    def test_legacy_system_context_stays_at_its_original_position(self) -> None:
+        messages = [
+            Message(role="system", content="Stable instructions."),
+            Message(role="system", content="[Context Summary]\nEarlier work."),
+            Message(role="user", content="Continue."),
+            Message(role="system", content="The verified completion condition has been reached."),
         ]
         original = deepcopy(messages)
-        expected = [
-            {
-                "role": "system",
-                "content": (
-                    "Follow workspace rules.\n\n"
-                    "[Background task completed]\nexit_code: 0\n\n"
-                    "[Context Summary]\nEarlier work is complete."
-                ),
-            },
-            {"role": "user", "content": "Run the check."},
-            {
-                "role": "assistant",
-                "content": "",
-                "reasoning_content": "Check the tool result.",
-                "tool_calls": [{
-                    "id": "tc1",
-                    "type": "function",
-                    "function": {"name": "bash", "arguments": '{"command": "true"}'},
-                }],
-            },
-            {"role": "tool", "content": "Command still running", "tool_call_id": "tc1"},
-            {"role": "user", "content": "Summarize the result."},
-        ]
         for streaming in (False, True):
             with self.subTest(streaming=streaming):
-                client = self._generate_with_messages(messages, streaming=streaming)
-                self.assertEqual(client.chat.completions.calls[0]["messages"], expected)
+                wire = self._generate_with_messages(
+                    messages, streaming=streaming,
+                ).chat.completions.calls[0]["messages"]
+                self.assertEqual(wire[0], {"role": "system", "content": "Stable instructions."})
+                self.assertEqual([message["role"] for message in wire], ["system", "user", "user", "user"])
+                self.assertEqual(wire[1]["content"], "[Runtime context]\n[Context Summary]\nEarlier work.")
+                self.assertEqual(wire[2]["content"], "Continue.")
+                self.assertIn("verified completion", wire[3]["content"])
                 self.assertEqual(messages, original)
 
     def test_serialization_handles_missing_empty_and_late_system_messages(self) -> None:
@@ -78,15 +88,20 @@ class OpenAICompatibleTransportTests(unittest.TestCase):
                 {"role": "system", "content": ""}, {"role": "user", "content": "hello"},
             ]),
             ([user, Message(role="system", content="notification")], [
-                {"role": "system", "content": "notification"},
                 {"role": "user", "content": "hello"},
+                {"role": "user", "content": "[Runtime context]\nnotification"},
+            ]),
+            ([Message(role="runtime", content="notification")], [
+                {"role": "user", "content": "[Runtime context]\nnotification"},
             ]),
         ]
         for messages, expected in cases:
             for streaming in (False, True):
                 with self.subTest(messages=messages, streaming=streaming):
-                    client = self._generate_with_messages(messages, streaming=streaming)
-                    self.assertEqual(client.chat.completions.calls[0]["messages"], expected)
+                    wire = self._generate_with_messages(
+                        messages, streaming=streaming,
+                    ).chat.completions.calls[0]["messages"]
+                    self.assertEqual(wire, expected)
 
     def test_serialization_drops_unanswered_tool_calls(self) -> None:
         messages = [
