@@ -54,6 +54,9 @@ terminal-bench = [
     "inspect-sandboxes>=0.6.0",
     "modal[api-proxy-support]>=1.5.3",
 ]
+deep-swe = [
+    "datacurve-pier>=0.3.1",
+]
 [dependency-groups]
 dev = [
     "inspect-ai>=0.3.249",

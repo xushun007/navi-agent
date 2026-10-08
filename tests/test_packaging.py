@@ -21,4 +21,8 @@ def test_inspect_is_optional_for_runtime_users() -> None:
         item.startswith("inspect-evals")
         for item in optional_dependencies["swe-bench"]
     )
+    assert any(
+        item.startswith("datacurve-pier")
+        for item in optional_dependencies["deep-swe"]
+    )
     assert any(item.startswith("inspect-ai") for item in development_dependencies)
