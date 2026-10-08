@@ -781,92 +781,11 @@ class AgentRuntime:
                 )
 
         if resume_interaction is not None:
-            if not resume_interaction.tool_call_id or not resume_interaction.tool_name:
-                raise ValueError("pending interaction is missing its tool-call checkpoint")
-            resumed_call = ToolCall(
-                id=resume_interaction.tool_call_id,
-                name=resume_interaction.tool_name,
-                arguments=dict(resume_interaction.arguments or {}),
-            )
-            checkpoint_run_id = resume_interaction.run_id or run_id
-            resumed_operation = self._session_store.get_operation_for_tool_call(
-                checkpoint_run_id,
-                resumed_call.id,
-            )
-            if resumed_operation is None:
-                raise ValueError("pending interaction has no operation checkpoint")
-            if (
-                resumed_operation.capability_name != resumed_call.name
-                or resumed_operation.arguments_hash
-                != operation_arguments_hash(resumed_call.arguments)
-            ):
-                raise ValueError("pending interaction does not match operation checkpoint")
-            publish_event(
-                kind="observation",
-                source="runtime",
-                name="runtime.resumed",
-                operation_id=resumed_operation.operation_id,
-                item_id=resume_interaction.tool_call_id,
-                payload={
-                    "interaction_id": resume_interaction.interaction_id,
-                    "interaction_kind": resume_interaction.kind,
-                    "resolution": resume_interaction.status,
-                },
-            )
-            resumed_context = ToolContext(
-                session_id=session.session_id,
-                user_id=user_id,
-                iteration=0,
-                run_id=run_id,
-                operation_id=resumed_operation.operation_id,
-                operation_ids={resumed_call.id: resumed_operation.operation_id},
-                environment=self._environment,
-                cancellation_requested=lambda: cancellation_token.is_cancelled,
-            )
-            resumed_result = self._session_store.get_tool_result(
-                checkpoint_run_id,
-                resumed_call.id,
-            )
-            if resumed_result is not None:
-                resumed_result.metadata["deduplicated"] = True
-            else:
-                resumed_operation = self._session_store.mark_operation_running(
-                    resumed_operation.operation_id
-                )
-            if (
-                resumed_result is None
-                and resume_interaction.kind == "approval"
-                and resume_interaction.status == "approved"
-            ):
-                resumed_result = self._tool_registry.dispatch_approved(
-                    resumed_call,
-                    context=resumed_context,
-                    enabled_toolsets=self._enabled_toolsets,
-                    disabled_toolsets=self._disabled_toolsets,
-                )
-            elif resumed_result is None and resume_interaction.kind == "clarification":
-                resumed_result = ToolResult.ok(
-                    name=resume_interaction.tool_name,
-                    content=resume_interaction.response or user_message,
-                    structured_content={
-                        "interaction_id": resume_interaction.interaction_id,
-                        "interaction_resumed": True,
-                    },
-                ).bind(resume_interaction.tool_call_id)
-            elif resumed_result is None:
-                resumed_result = ToolResult.error(
-                    name=resume_interaction.tool_name,
-                    content="User denied the pending tool request.",
-                    structured_content={
-                        "interaction_id": resume_interaction.interaction_id,
-                        "interaction_denied": True,
-                    },
-                ).bind(resume_interaction.tool_call_id)
-            record_tool_result(
-                resumed_result,
-                iteration=0,
-                operation_id=resumed_operation.operation_id,
-                arguments=dict(resume_interaction.arguments or {}),
+            self._resume_turn_interaction(
+                turn,
+                resume_interaction,
+                user_message,
+                record_tool_result,
             )
 
         def start_iteration(iteration_number: int) -> None:
@@ -1064,6 +983,92 @@ class AgentRuntime:
             error_info=error_info,
             end_reason=str(error_info["error_type"]),
             failure_reason=str(error_info["error_message"]),
+        )
+
+    def _resume_turn_interaction(
+        self,
+        turn: _TurnState,
+        interaction: PendingInteraction,
+        user_message: str,
+        record_tool_result: Callable[..., None],
+    ) -> None:
+        """Resolve a pending approval or clarification in its original turn."""
+        if not interaction.tool_call_id or not interaction.tool_name:
+            raise ValueError("pending interaction is missing its tool-call checkpoint")
+        resumed_call = ToolCall(
+            id=interaction.tool_call_id,
+            name=interaction.tool_name,
+            arguments=dict(interaction.arguments or {}),
+        )
+        checkpoint_turn_id = interaction.run_id or turn.run_id
+        operation = self._session_store.get_operation_for_tool_call(
+            checkpoint_turn_id,
+            resumed_call.id,
+        )
+        if operation is None:
+            raise ValueError("pending interaction has no operation checkpoint")
+        if (
+            operation.capability_name != resumed_call.name
+            or operation.arguments_hash != operation_arguments_hash(resumed_call.arguments)
+        ):
+            raise ValueError("pending interaction does not match operation checkpoint")
+        turn.publish_event(
+            kind="observation",
+            source="runtime",
+            name="runtime.resumed",
+            operation_id=operation.operation_id,
+            item_id=interaction.tool_call_id,
+            payload={
+                "interaction_id": interaction.interaction_id,
+                "interaction_kind": interaction.kind,
+                "resolution": interaction.status,
+            },
+        )
+        resumed_context = ToolContext(
+            session_id=turn.session.session_id,
+            user_id=turn.user_id,
+            iteration=0,
+            run_id=turn.run_id,
+            operation_id=operation.operation_id,
+            operation_ids={resumed_call.id: operation.operation_id},
+            environment=self._environment,
+            cancellation_requested=lambda: turn.cancellation_token.is_cancelled,
+        )
+        result = self._session_store.get_tool_result(checkpoint_turn_id, resumed_call.id)
+        if result is not None:
+            result.metadata["deduplicated"] = True
+        else:
+            operation = self._session_store.mark_operation_running(operation.operation_id)
+        if result is None and interaction.kind == "approval" and interaction.status == "approved":
+            result = self._tool_registry.dispatch_approved(
+                resumed_call,
+                context=resumed_context,
+                enabled_toolsets=self._enabled_toolsets,
+                disabled_toolsets=self._disabled_toolsets,
+            )
+        elif result is None and interaction.kind == "clarification":
+            result = ToolResult.ok(
+                name=interaction.tool_name,
+                content=interaction.response or user_message,
+                structured_content={
+                    "interaction_id": interaction.interaction_id,
+                    "interaction_resumed": True,
+                },
+            ).bind(interaction.tool_call_id)
+        elif result is None:
+            result = ToolResult.error(
+                name=interaction.tool_name,
+                content="User denied the pending tool request.",
+                structured_content={
+                    "interaction_id": interaction.interaction_id,
+                    "interaction_denied": True,
+                },
+            ).bind(interaction.tool_call_id)
+        record_tool_result(
+            result,
+            iteration=0,
+            operation_id=operation.operation_id,
+            arguments=dict(interaction.arguments or {}),
         )
 
     def _prepare_turn_step(
