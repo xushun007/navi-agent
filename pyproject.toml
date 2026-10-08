@@ -56,6 +56,7 @@ terminal-bench = [
 ]
 deep-swe = [
     "datacurve-pier>=0.3.1",
+    "modal[api-proxy-support]>=1.5.3",
 ]
 [dependency-groups]
 dev = [

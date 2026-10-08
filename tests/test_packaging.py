@@ -25,4 +25,8 @@ def test_inspect_is_optional_for_runtime_users() -> None:
         item.startswith("datacurve-pier")
         for item in optional_dependencies["deep-swe"]
     )
+    assert any(
+        item.startswith("modal[api-proxy-support]")
+        for item in optional_dependencies["deep-swe"]
+    )
     assert any(item.startswith("inspect-ai") for item in development_dependencies)
