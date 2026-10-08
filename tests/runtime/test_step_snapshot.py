@@ -67,6 +67,7 @@ def test_runtime_binds_one_immutable_snapshot_to_each_step() -> None:
     assert first_snapshot is not None
     assert first_snapshot.run_id == result.run_id
     assert first_snapshot.iteration == 1
+    assert first_snapshot.step_number == 1
     assert first_snapshot.model == "model-1"
     assert first_snapshot.capability_names == ("inspect",)
     assert first_snapshot.prompt_sources

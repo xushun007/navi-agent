@@ -149,6 +149,11 @@ class StepSnapshot:
     prompt_sources: tuple[str, ...]
     created_at: str
 
+    @property
+    def step_number(self) -> int:
+        """Semantic alias for the persisted per-turn ``iteration`` value."""
+        return self.iteration
+
 
 class OperationStatus(StrEnum):
     PLANNED = "planned"
