@@ -85,6 +85,8 @@ class _TurnState:
     run_system_message: Message
     tool_results: list[ToolResult]
     publish_event: Callable[..., None]
+    started_perf: float
+    critical_event_failures: list[object]
     active_step_id: str | None = None
     convergence_reason: str | None = None
     context_messages: list[Message] | None = None
@@ -553,49 +555,10 @@ class AgentRuntime:
             run_system_message=run_system_message,
             tool_results=tool_results,
             publish_event=publish_event,
+            started_perf=run_started_perf,
+            critical_event_failures=critical_event_failures,
         )
         turn_state = turn
-
-        def completion_payload(
-            result: RuntimeResult,
-            *,
-            attempt_count: int,
-            error_info: dict[str, object] | None = None,
-        ) -> dict[str, object]:
-            return {
-                "status": result.status,
-                "final_response": result.final_response,
-                "attempt_count": attempt_count,
-                "completed_at": _utc_now_iso(),
-                "duration_ms": _duration_ms(run_started_perf),
-                "trajectory_complete": not critical_event_failures,
-                "trajectory_failure_count": len(critical_event_failures),
-                "completion_verified": result.completion_verified,
-                "completion_reason": result.completion_reason,
-                **(error_info or {}),
-            }
-
-        def apply_trajectory_health(result: RuntimeResult) -> None:
-            if not critical_event_failures:
-                return
-            result.trajectory_complete = False
-            latest = critical_event_failures[-1]
-            result.trajectory_error = (
-                f"{latest.subscriber} failed while recording {latest.event_name}: "
-                f"{latest.error}"
-            )
-            logger.error(
-                "Runtime trajectory incomplete: session_id=%s failures=%s last_subscriber=%s last_event=%s",
-                session_id,
-                len(critical_event_failures),
-                latest.subscriber,
-                latest.event_name,
-            )
-
-        def finalization_reason(result: RuntimeResult, default: str | None = None) -> str:
-            if not result.trajectory_complete:
-                return "trajectory_incomplete"
-            return default or result.status
 
         def finish_result(
             result: RuntimeResult,
@@ -606,42 +569,15 @@ class AgentRuntime:
             end_reason: str | None = None,
             failure_reason: str | None = None,
         ) -> RuntimeResult:
-            result.task_spec = task_spec
-            result.completion_verified = (
-                False
-                if end_reason == "iteration_limit_summary"
-                else True
-                if turn.convergence_reason is not None
-                else False
-                if task_spec.acceptance
-                else None
+            return self._finish_turn_result(
+                turn,
+                result,
+                step_number=iteration,
+                attempt_count=attempt_count,
+                error_info=error_info,
+                end_reason=end_reason,
+                failure_reason=failure_reason,
             )
-            result.completion_reason = end_reason or turn.convergence_reason
-            if result.completion_reason is None:
-                result.completion_reason = (
-                    "acceptance_not_verified" if task_spec.acceptance else result.status
-                )
-            publish_event(
-                kind="observation",
-                source="runtime",
-                name="runtime.completed",
-                iteration=iteration or None,
-                payload=completion_payload(
-                    result,
-                    attempt_count=attempt_count,
-                    error_info=error_info,
-                ),
-            )
-            apply_trajectory_health(result)
-            self._session_store.finalize(
-                session,
-                run_id,
-                status=result.status,
-                end_reason=finalization_reason(result, result.completion_reason),
-                trajectory_complete=result.trajectory_complete,
-                failure_reason=result.trajectory_error or failure_reason,
-            )
-            return result
 
         def finish_cancelled(iteration: int) -> RuntimeResult:
             reason = cancellation_token.reason or "user_requested"
@@ -984,6 +920,82 @@ class AgentRuntime:
             end_reason=str(error_info["error_type"]),
             failure_reason=str(error_info["error_message"]),
         )
+
+    def _finish_turn_result(
+        self,
+        turn: _TurnState,
+        result: RuntimeResult,
+        *,
+        step_number: int,
+        attempt_count: int,
+        error_info: dict[str, object] | None = None,
+        end_reason: str | None = None,
+        failure_reason: str | None = None,
+    ) -> RuntimeResult:
+        """Publish and persist one terminal result for a turn exactly once."""
+        result.task_spec = turn.task_spec
+        result.completion_verified = (
+            False
+            if end_reason == "iteration_limit_summary"
+            else True
+            if turn.convergence_reason is not None
+            else False
+            if turn.task_spec.acceptance
+            else None
+        )
+        result.completion_reason = end_reason or turn.convergence_reason
+        if result.completion_reason is None:
+            result.completion_reason = (
+                "acceptance_not_verified" if turn.task_spec.acceptance else result.status
+            )
+        turn.publish_event(
+            kind="observation",
+            source="runtime",
+            name="runtime.completed",
+            iteration=step_number or None,
+            payload={
+                "status": result.status,
+                "final_response": result.final_response,
+                "attempt_count": attempt_count,
+                "completed_at": _utc_now_iso(),
+                "duration_ms": _duration_ms(turn.started_perf),
+                "trajectory_complete": not turn.critical_event_failures,
+                "trajectory_failure_count": len(turn.critical_event_failures),
+                "completion_verified": result.completion_verified,
+                "completion_reason": result.completion_reason,
+                **(error_info or {}),
+            },
+        )
+        if turn.critical_event_failures:
+            latest = turn.critical_event_failures[-1]
+            subscriber = getattr(latest, "subscriber", "unknown")
+            event_name = getattr(latest, "event_name", "unknown")
+            error = getattr(latest, "error", "unknown")
+            result.trajectory_complete = False
+            result.trajectory_error = (
+                f"{subscriber} failed while recording {event_name}: {error}"
+            )
+            logger.error(
+                "Runtime trajectory incomplete: session_id=%s failures=%s last_subscriber=%s last_event=%s",
+                turn.session_id,
+                len(turn.critical_event_failures),
+                subscriber,
+                event_name,
+            )
+        finalization_reason = (
+            "trajectory_incomplete"
+            if not result.trajectory_complete
+            else result.completion_reason or result.status
+        )
+        self._session_store.finalize(
+            turn.session,
+            turn.run_id,
+            status=result.status,
+            end_reason=finalization_reason,
+            trajectory_complete=result.trajectory_complete,
+            failure_reason=result.trajectory_error or failure_reason,
+        )
+        return result
 
     def _resume_turn_interaction(
         self,
