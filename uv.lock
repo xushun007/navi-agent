@@ -2645,6 +2645,7 @@ dependencies = [
 [package.optional-dependencies]
 deep-swe = [
     { name = "datacurve-pier" },
+    { name = "modal", extra = ["api-proxy-support"] },
 ]
 eval = [
     { name = "inspect-ai" },
@@ -2690,6 +2691,7 @@ requires-dist = [
     { name = "inspect-sandboxes", marker = "extra == 'terminal-bench'", specifier = ">=0.6.0" },
     { name = "langfuse", specifier = ">=2.60.8" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0,<3" },
+    { name = "modal", extras = ["api-proxy-support"], marker = "extra == 'deep-swe'", specifier = ">=1.5.3" },
     { name = "modal", extras = ["api-proxy-support"], marker = "extra == 'swe-bench'", specifier = ">=1.5.3" },
     { name = "modal", extras = ["api-proxy-support"], marker = "extra == 'terminal-bench'", specifier = ">=1.5.3" },
     { name = "openai", specifier = ">=3.1.0" },
