@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 from time import perf_counter
@@ -18,6 +19,7 @@ from .context import ContextBuildResult, ContextEngine, LLMContextSummarizer
 from ..tools.interactions import PendingInteraction
 from ..models import (
     ContextCompactionCheckpoint,
+    ConversationState,
     Message,
     ModelResponse,
     OperationStatus,
@@ -63,6 +65,32 @@ ConvergencePolicy = Callable[
 
 _ITERATION_LIMIT_RESPONSE = "任务未能在当前执行次数内完成。请缩小任务范围或补充更明确的信息后重试。"
 _CANCELLED_RESPONSE = "当前任务已停止。"
+
+
+@dataclass(slots=True)
+class _TurnState:
+    """Mutable state for one execution turn within a durable session.
+
+    ``run_id`` remains the persisted compatibility name for the turn identity.
+    A session can therefore contain many turns; each turn contains one or more
+    model/tool steps.
+    """
+
+    session: ConversationState
+    session_id: str
+    user_id: str
+    run_id: str
+    task_spec: TaskSpec
+    cancellation_token: RunCancellationToken
+    run_system_message: Message
+    tool_results: list[ToolResult]
+    publish_event: Callable[..., None]
+    started_perf: float
+    critical_event_failures: list[object]
+    active_step_id: str | None = None
+    convergence_reason: str | None = None
+    context_messages: list[Message] | None = None
+    tool_schemas: list[dict[str, object]] | None = None
 
 
 def _utc_now_iso() -> str:
@@ -385,8 +413,7 @@ class AgentRuntime:
         event_publish_lock = Lock()
         request_publisher = RuntimeEventPublisher(event_subscribers or ())
         critical_event_failures = []
-        active_step_id: str | None = None
-        convergence_reason: str | None = None
+        turn_state: _TurnState | None = None
 
         def publish_event(
             *,
@@ -410,7 +437,7 @@ class AgentRuntime:
                     source=source,
                     name=name,
                     iteration=iteration,
-                    step_id=active_step_id,
+                    step_id=(turn_state.active_step_id if turn_state is not None else None),
                     operation_id=operation_id,
                     item_id=item_id,
                     metadata={
@@ -518,47 +545,20 @@ class AgentRuntime:
                 "injected_skill_names": list(injected_skill_names),
             },
         )
-
-        def completion_payload(
-            result: RuntimeResult,
-            *,
-            attempt_count: int,
-            error_info: dict[str, object] | None = None,
-        ) -> dict[str, object]:
-            return {
-                "status": result.status,
-                "final_response": result.final_response,
-                "attempt_count": attempt_count,
-                "completed_at": _utc_now_iso(),
-                "duration_ms": _duration_ms(run_started_perf),
-                "trajectory_complete": not critical_event_failures,
-                "trajectory_failure_count": len(critical_event_failures),
-                "completion_verified": result.completion_verified,
-                "completion_reason": result.completion_reason,
-                **(error_info or {}),
-            }
-
-        def apply_trajectory_health(result: RuntimeResult) -> None:
-            if not critical_event_failures:
-                return
-            result.trajectory_complete = False
-            latest = critical_event_failures[-1]
-            result.trajectory_error = (
-                f"{latest.subscriber} failed while recording {latest.event_name}: "
-                f"{latest.error}"
-            )
-            logger.error(
-                "Runtime trajectory incomplete: session_id=%s failures=%s last_subscriber=%s last_event=%s",
-                session_id,
-                len(critical_event_failures),
-                latest.subscriber,
-                latest.event_name,
-            )
-
-        def finalization_reason(result: RuntimeResult, default: str | None = None) -> str:
-            if not result.trajectory_complete:
-                return "trajectory_incomplete"
-            return default or result.status
+        turn = _TurnState(
+            session=session,
+            session_id=session_id,
+            user_id=user_id,
+            run_id=run_id,
+            task_spec=task_spec,
+            cancellation_token=cancellation_token,
+            run_system_message=run_system_message,
+            tool_results=tool_results,
+            publish_event=publish_event,
+            started_perf=run_started_perf,
+            critical_event_failures=critical_event_failures,
+        )
+        turn_state = turn
 
         def finish_result(
             result: RuntimeResult,
@@ -569,42 +569,15 @@ class AgentRuntime:
             end_reason: str | None = None,
             failure_reason: str | None = None,
         ) -> RuntimeResult:
-            result.task_spec = task_spec
-            result.completion_verified = (
-                False
-                if end_reason == "iteration_limit_summary"
-                else True
-                if convergence_reason is not None
-                else False
-                if task_spec.acceptance
-                else None
+            return self._finish_turn_result(
+                turn,
+                result,
+                step_number=iteration,
+                attempt_count=attempt_count,
+                error_info=error_info,
+                end_reason=end_reason,
+                failure_reason=failure_reason,
             )
-            result.completion_reason = end_reason or convergence_reason
-            if result.completion_reason is None:
-                result.completion_reason = (
-                    "acceptance_not_verified" if task_spec.acceptance else result.status
-                )
-            publish_event(
-                kind="observation",
-                source="runtime",
-                name="runtime.completed",
-                iteration=iteration or None,
-                payload=completion_payload(
-                    result,
-                    attempt_count=attempt_count,
-                    error_info=error_info,
-                ),
-            )
-            apply_trajectory_health(result)
-            self._session_store.finalize(
-                session,
-                run_id,
-                status=result.status,
-                end_reason=finalization_reason(result, result.completion_reason),
-                trajectory_complete=result.trajectory_complete,
-                failure_reason=result.trajectory_error or failure_reason,
-            )
-            return result
 
         def finish_cancelled(iteration: int) -> RuntimeResult:
             reason = cancellation_token.reason or "user_requested"
@@ -744,284 +717,18 @@ class AgentRuntime:
                 )
 
         if resume_interaction is not None:
-            if not resume_interaction.tool_call_id or not resume_interaction.tool_name:
-                raise ValueError("pending interaction is missing its tool-call checkpoint")
-            resumed_call = ToolCall(
-                id=resume_interaction.tool_call_id,
-                name=resume_interaction.tool_name,
-                arguments=dict(resume_interaction.arguments or {}),
+            self._resume_turn_interaction(
+                turn,
+                resume_interaction,
+                user_message,
+                record_tool_result,
             )
-            checkpoint_run_id = resume_interaction.run_id or run_id
-            resumed_operation = self._session_store.get_operation_for_tool_call(
-                checkpoint_run_id,
-                resumed_call.id,
-            )
-            if resumed_operation is None:
-                raise ValueError("pending interaction has no operation checkpoint")
-            if (
-                resumed_operation.capability_name != resumed_call.name
-                or resumed_operation.arguments_hash
-                != operation_arguments_hash(resumed_call.arguments)
-            ):
-                raise ValueError("pending interaction does not match operation checkpoint")
-            publish_event(
-                kind="observation",
-                source="runtime",
-                name="runtime.resumed",
-                operation_id=resumed_operation.operation_id,
-                item_id=resume_interaction.tool_call_id,
-                payload={
-                    "interaction_id": resume_interaction.interaction_id,
-                    "interaction_kind": resume_interaction.kind,
-                    "resolution": resume_interaction.status,
-                },
-            )
-            resumed_context = ToolContext(
-                session_id=session.session_id,
-                user_id=user_id,
-                iteration=0,
-                run_id=run_id,
-                operation_id=resumed_operation.operation_id,
-                operation_ids={resumed_call.id: resumed_operation.operation_id},
-                environment=self._environment,
-                cancellation_requested=lambda: cancellation_token.is_cancelled,
-            )
-            resumed_result = self._session_store.get_tool_result(
-                checkpoint_run_id,
-                resumed_call.id,
-            )
-            if resumed_result is not None:
-                resumed_result.metadata["deduplicated"] = True
-            else:
-                resumed_operation = self._session_store.mark_operation_running(
-                    resumed_operation.operation_id
-                )
-            if (
-                resumed_result is None
-                and resume_interaction.kind == "approval"
-                and resume_interaction.status == "approved"
-            ):
-                resumed_result = self._tool_registry.dispatch_approved(
-                    resumed_call,
-                    context=resumed_context,
-                    enabled_toolsets=self._enabled_toolsets,
-                    disabled_toolsets=self._disabled_toolsets,
-                )
-            elif resumed_result is None and resume_interaction.kind == "clarification":
-                resumed_result = ToolResult.ok(
-                    name=resume_interaction.tool_name,
-                    content=resume_interaction.response or user_message,
-                    structured_content={
-                        "interaction_id": resume_interaction.interaction_id,
-                        "interaction_resumed": True,
-                    },
-                ).bind(resume_interaction.tool_call_id)
-            elif resumed_result is None:
-                resumed_result = ToolResult.error(
-                    name=resume_interaction.tool_name,
-                    content="User denied the pending tool request.",
-                    structured_content={
-                        "interaction_id": resume_interaction.interaction_id,
-                        "interaction_denied": True,
-                    },
-                ).bind(resume_interaction.tool_call_id)
-            record_tool_result(
-                resumed_result,
-                iteration=0,
-                operation_id=resumed_operation.operation_id,
-                arguments=dict(resume_interaction.arguments or {}),
-            )
-
-        current_context_messages: list[Message] = []
-        current_tool_schemas: list[dict[str, object]] = []
 
         def start_iteration(iteration_number: int) -> None:
-            nonlocal active_step_id, current_context_messages, current_tool_schemas
-            active_step_id = uuid4().hex
-            logger.debug(
-                "Running iteration: session_id=%s iteration=%s",
-                session_id,
-                iteration_number,
-            )
-            publish_event(
-                kind="observation",
-                source="runtime",
-                name="iteration.started",
-                iteration=iteration_number,
-            )
-            inject_background_notifications(iteration_number)
-            if convergence_reason is not None:
-                self._session_store.append(
-                    session,
-                    Message(
-                        role="runtime",
-                        content=(
-                            "The verified completion condition has been reached. "
-                            "Do not call tools. Provide a concise final summary of the "
-                            "change and tests now."
-                        ),
-                    ),
-                )
-                publish_event(
-                    kind="observation",
-                    source="runtime",
-                    name="runtime.convergence_requested",
-                    iteration=iteration_number,
-                    payload={"reason": convergence_reason},
-                )
-            session_snapshot = self._session_store.snapshot(session)
-            checkpoint = self._session_store.load_compaction_checkpoint(session)
-            try:
-                context_result = self._context_engine.build(
-                    session_snapshot,
-                    checkpoint=checkpoint,
-                    prefix_messages=[run_system_message],
-                )
-            except Exception as exc:
-                error_info = classify_exception(exc, error_source="context").to_metadata()
-                logger.exception(
-                    "Runtime context build failed; continuing with uncompressed context: session_id=%s error=%s",
-                    session_id,
-                    exc,
-                )
-                sanitize_messages = getattr(self._context_engine, "sanitize_tool_pairs", None)
-                fallback_messages = [run_system_message, *session_snapshot]
-                if callable(sanitize_messages):
-                    fallback_messages = sanitize_messages(fallback_messages)
-                context_result = ContextBuildResult(
-                    messages=fallback_messages,
-                    original_message_count=len(session_snapshot),
-                    estimated_tokens_before=0,
-                    estimated_tokens_after=0,
-                    threshold_tokens=0,
-                    summary_status="failed",
-                )
-                publish_event(
-                    kind="observation",
-                    source="runtime",
-                    name="context.failed",
-                    iteration=iteration_number,
-                    payload=error_info,
-                )
-            if context_result.summary_call is not None:
-                summary_call = context_result.summary_call
-                self._session_store.record_model_response(
-                    session,
-                    run_id,
-                    summary_call.response,
-                )
-                publish_event(
-                    kind="action",
-                    source="context",
-                    name="model.response",
-                    iteration=iteration_number,
-                    item_id=f"context-summary:{iteration_number}",
-                    payload=_model_response_payload(
-                        summary_call.response,
-                        purpose="context_summary",
-                        started_at=summary_call.started_at,
-                        completed_at=summary_call.completed_at,
-                        duration_ms=summary_call.duration_ms,
-                    ),
-                )
-            if context_result.compressed:
-                logger.info(
-                    "Runtime context compressed: session_id=%s original_messages=%s compressed_messages=%s final_messages=%s tokens=%s->%s threshold=%s",
-                    session_id,
-                    context_result.original_message_count,
-                    context_result.compressed_message_count,
-                    len(context_result.messages),
-                    context_result.estimated_tokens_before,
-                    context_result.estimated_tokens_after,
-                    context_result.threshold_tokens,
-                )
-                publish_event(
-                    kind="observation",
-                    source="runtime",
-                    name="context.compressed",
-                    iteration=iteration_number,
-                    payload={
-                        "original_message_count": context_result.original_message_count,
-                        "compressed_message_count": context_result.compressed_message_count,
-                        "final_message_count": len(context_result.messages),
-                        "estimated_tokens_before": context_result.estimated_tokens_before,
-                        "estimated_tokens_after": context_result.estimated_tokens_after,
-                        "threshold_tokens": context_result.threshold_tokens,
-                        "protected_head_count": context_result.protected_head_count,
-                        "protected_tail_count": context_result.protected_tail_count,
-                        "latest_user_anchored": context_result.latest_user_anchored,
-                        "summary_status": context_result.summary_status,
-                    },
-                )
-            if context_result.checkpoint is not None:
-                self._session_store.save_compaction_checkpoint(
-                    session,
-                    ContextCompactionCheckpoint(
-                        session_id=session.session_id,
-                        covered_message_count=context_result.checkpoint.covered_message_count,
-                        protected_head_count=context_result.checkpoint.protected_head_count,
-                        source_hash=context_result.checkpoint.source_hash,
-                        summary=context_result.checkpoint.summary,
-                        model=self._model,
-                    ),
-                )
-            current_context_messages = context_result.messages
-            current_tool_schemas = self._tool_registry.schemas(
-                enabled_toolsets=self._enabled_toolsets,
-                disabled_toolsets=self._disabled_toolsets,
-            )
-            if convergence_reason is not None:
-                current_tool_schemas = []
-            snapshot = StepSnapshot(
-                step_id=active_step_id,
-                run_id=run_id,
-                session_id=session.session_id,
-                iteration=iteration_number,
-                model=self._model,
-                environment_id=self._environment.environment_id,
-                context_hash=context_projection_hash(current_context_messages),
-                tool_schema_hash=tool_schema_projection_hash(current_tool_schemas),
-                capability_names=capability_names(current_tool_schemas),
-                prompt_sources=self._prompt_builder.last_prompt_sources,
-                created_at=_utc_now_iso(),
-            )
-            self._session_store.save_step_snapshot(snapshot)
-            publish_event(
-                kind="observation",
-                source="runtime",
-                name="step.snapshot",
-                iteration=iteration_number,
-                item_id=active_step_id,
-                payload={
-                    "model": snapshot.model,
-                    "context_hash": snapshot.context_hash,
-                    "tool_schema_hash": snapshot.tool_schema_hash,
-                    "capability_names": list(snapshot.capability_names),
-                    "prompt_sources": list(snapshot.prompt_sources),
-                    "created_at": snapshot.created_at,
-                },
-            )
+            self._prepare_turn_step(turn, iteration_number, inject_background_notifications)
 
         def invoke_model(iteration_number: int) -> ModelInvocation:
-            model_item_id = f"model:{iteration_number}"
-
-            def publish_text_delta(delta: str) -> None:
-                publish_event(
-                    kind="delta",
-                    source="model",
-                    name="model.delta",
-                    iteration=iteration_number,
-                    item_id=model_item_id,
-                    payload={"delta": delta},
-                )
-
-            return self._model_invoker.invoke(
-                messages=current_context_messages,
-                tools=current_tool_schemas,
-                step_id=active_step_id,
-                cancellation_requested=lambda: cancellation_token.is_cancelled,
-                on_text_delta=publish_text_delta,
-            )
+            return self._invoke_turn_model(turn, iteration_number)
 
         def on_stop_follow_up(iteration_number: int, decision: StopDecision) -> None:
             if decision.message:
@@ -1045,167 +752,17 @@ class AgentRuntime:
             model_invocation: ModelInvocation,
             discarded: bool,
         ) -> None:
-            response = model_invocation.response
-            model_item_id = f"model:{iteration_number}"
-            model_payload = _model_response_payload(
-                response,
-                purpose="agent",
-                started_at=model_invocation.started_at,
-                completed_at=model_invocation.completed_at,
-                duration_ms=model_invocation.duration_ms,
-            )
-            self._session_store.record_model_response(session, run_id, response)
-            if discarded:
-                publish_event(
-                    kind="observation",
-                    source="model",
-                    name="model.discarded",
-                    iteration=iteration_number,
-                    item_id=model_item_id,
-                    payload=model_payload,
-                )
-                return
-            if response.tool_calls:
-                publish_event(
-                    kind="observation",
-                    source="model",
-                    name="model.plan",
-                    iteration=iteration_number,
-                    item_id=model_item_id,
-                    payload={"tool_calls": model_payload["tool_calls"]},
-                )
-            publish_event(
-                kind="action",
-                source="agent",
-                name="model.response",
-                iteration=iteration_number,
-                item_id=model_item_id,
-                payload=model_payload,
-            )
-            self._session_store.append(
-                session,
-                Message(
-                    role="assistant",
-                    content=response.content,
-                    reasoning_content=response.reasoning_content,
-                    tool_calls=response.tool_calls,
-                    provider=response.provider,
-                    model=response.model,
-                    token_count=response.usage.output_tokens,
-                    finish_reason=response.finish_reason,
-                ),
-            )
+            self._record_turn_model(turn, iteration_number, model_invocation, discarded)
 
         def execute_tools(
             iteration_number: int,
             model_invocation: ModelInvocation,
         ) -> ToolResult | None:
-            nonlocal convergence_reason
-            operation_ids: dict[str, str] = {}
-
-            def emit_tool_output(payload: dict[str, object]) -> None:
-                tool_call_id = payload.get("tool_call_id")
-                operation_id = (
-                    operation_ids.get(tool_call_id)
-                    if isinstance(tool_call_id, str)
-                    else None
-                )
-                publish_event(
-                    kind="delta",
-                    source="tool",
-                    name="tool.progress",
-                    iteration=iteration_number,
-                    operation_id=operation_id,
-                    item_id=tool_call_id if isinstance(tool_call_id, str) else None,
-                    payload=payload,
-                )
-
-            tool_context = ToolContext(
-                session_id=session.session_id,
-                user_id=user_id,
-                iteration=iteration_number,
-                run_id=run_id,
-                step_id=active_step_id,
-                operation_ids=operation_ids,
-                environment=self._environment,
-                emit_output=emit_tool_output,
-                cancellation_requested=lambda: cancellation_token.is_cancelled,
-            )
-            unique_tool_calls = []
-            seen_tool_call_ids = set()
-            for tool_call in model_invocation.response.tool_calls:
-                if tool_call.id in seen_tool_call_ids:
-                    continue
-                seen_tool_call_ids.add(tool_call.id)
-                unique_tool_calls.append(tool_call)
-
-            pending_tool_calls = []
-            completed_tool_results = {}
-            for tool_call in unique_tool_calls:
-                if active_step_id is None:
-                    raise RuntimeError("tool call is missing its step identity")
-                operation = self._session_store.plan_operation(
-                    session,
-                    run_id,
-                    tool_call,
-                    step_id=active_step_id,
-                    environment_id=self._environment.environment_id,
-                )
-                operation_ids[tool_call.id] = operation.operation_id
-                publish_event(
-                    kind="action",
-                    source="agent",
-                    name="tool.call",
-                    iteration=iteration_number,
-                    operation_id=operation.operation_id,
-                    item_id=tool_call.id,
-                    payload={
-                        "tool_call_id": tool_call.id,
-                        "tool_name": tool_call.name,
-                        "arguments": dict(tool_call.arguments),
-                    },
-                )
-                completed_result = self._session_store.get_tool_result(run_id, tool_call.id)
-                if completed_result is None:
-                    self._session_store.mark_operation_running(operation.operation_id)
-                    pending_tool_calls.append(tool_call)
-                else:
-                    completed_result.metadata["deduplicated"] = True
-                    completed_tool_results[tool_call.id] = completed_result
-
-            dispatched_results = self._tool_registry.dispatch(
-                pending_tool_calls,
-                context=tool_context,
-                enabled_toolsets=self._enabled_toolsets,
-                disabled_toolsets=self._disabled_toolsets,
-            )
-            completed_tool_results.update(
-                {tool_result.tool_call_id: tool_result for tool_result in dispatched_results}
-            )
-            for tool_call in unique_tool_calls:
-                tool_result = completed_tool_results[tool_call.id]
-                record_tool_result(
-                    tool_result,
-                    iteration=iteration_number,
-                    operation_id=operation_ids[tool_call.id],
-                    arguments=dict(tool_call.arguments),
-                    persist_message=(
-                        tool_result.structured_content.get("interaction_pending") is not True
-                    ),
-                )
-            if self._convergence_policy is not None and convergence_reason is None:
-                convergence_reason = self._convergence_policy(
-                    iteration_number,
-                    tuple(unique_tool_calls),
-                    tuple(completed_tool_results.values()),
-                )
-            return next(
-                (
-                    item
-                    for item in tool_results
-                    if item.structured_content.get("interaction_pending") is True
-                ),
-                None,
+            return self._execute_turn_tools(
+                turn,
+                iteration_number,
+                model_invocation,
+                record_tool_result,
             )
 
         loop_outcome = self._agent_loop.run(
@@ -1294,9 +851,9 @@ class AgentRuntime:
                 append_message=lambda message: self._session_store.append(session, message),
                 prepare=lambda: start_iteration(final_iteration),
                 invoke=lambda: self._model_invoker.invoke(
-                    messages=current_context_messages,
+                    messages=turn.context_messages or [],
                     tools=[],
-                    step_id=active_step_id,
+                    step_id=turn.active_step_id,
                     cancellation_requested=lambda: cancellation_token.is_cancelled,
                     on_text_delta=lambda delta: publish_event(
                         kind="delta", source="model", name="model.delta",
@@ -1362,6 +919,532 @@ class AgentRuntime:
             error_info=error_info,
             end_reason=str(error_info["error_type"]),
             failure_reason=str(error_info["error_message"]),
+        )
+
+    def _finish_turn_result(
+        self,
+        turn: _TurnState,
+        result: RuntimeResult,
+        *,
+        step_number: int,
+        attempt_count: int,
+        error_info: dict[str, object] | None = None,
+        end_reason: str | None = None,
+        failure_reason: str | None = None,
+    ) -> RuntimeResult:
+        """Publish and persist one terminal result for a turn exactly once."""
+        result.task_spec = turn.task_spec
+        result.completion_verified = (
+            False
+            if end_reason == "iteration_limit_summary"
+            else True
+            if turn.convergence_reason is not None
+            else False
+            if turn.task_spec.acceptance
+            else None
+        )
+        result.completion_reason = end_reason or turn.convergence_reason
+        if result.completion_reason is None:
+            result.completion_reason = (
+                "acceptance_not_verified" if turn.task_spec.acceptance else result.status
+            )
+        turn.publish_event(
+            kind="observation",
+            source="runtime",
+            name="runtime.completed",
+            iteration=step_number or None,
+            payload={
+                "status": result.status,
+                "final_response": result.final_response,
+                "attempt_count": attempt_count,
+                "completed_at": _utc_now_iso(),
+                "duration_ms": _duration_ms(turn.started_perf),
+                "trajectory_complete": not turn.critical_event_failures,
+                "trajectory_failure_count": len(turn.critical_event_failures),
+                "completion_verified": result.completion_verified,
+                "completion_reason": result.completion_reason,
+                **(error_info or {}),
+            },
+        )
+        if turn.critical_event_failures:
+            latest = turn.critical_event_failures[-1]
+            subscriber = getattr(latest, "subscriber", "unknown")
+            event_name = getattr(latest, "event_name", "unknown")
+            error = getattr(latest, "error", "unknown")
+            result.trajectory_complete = False
+            result.trajectory_error = (
+                f"{subscriber} failed while recording {event_name}: {error}"
+            )
+            logger.error(
+                "Runtime trajectory incomplete: session_id=%s failures=%s last_subscriber=%s last_event=%s",
+                turn.session_id,
+                len(turn.critical_event_failures),
+                subscriber,
+                event_name,
+            )
+        finalization_reason = (
+            "trajectory_incomplete"
+            if not result.trajectory_complete
+            else result.completion_reason or result.status
+        )
+        self._session_store.finalize(
+            turn.session,
+            turn.run_id,
+            status=result.status,
+            end_reason=finalization_reason,
+            trajectory_complete=result.trajectory_complete,
+            failure_reason=result.trajectory_error or failure_reason,
+        )
+        return result
+
+    def _resume_turn_interaction(
+        self,
+        turn: _TurnState,
+        interaction: PendingInteraction,
+        user_message: str,
+        record_tool_result: Callable[..., None],
+    ) -> None:
+        """Resolve a pending approval or clarification in its original turn."""
+        if not interaction.tool_call_id or not interaction.tool_name:
+            raise ValueError("pending interaction is missing its tool-call checkpoint")
+        resumed_call = ToolCall(
+            id=interaction.tool_call_id,
+            name=interaction.tool_name,
+            arguments=dict(interaction.arguments or {}),
+        )
+        checkpoint_turn_id = interaction.run_id or turn.run_id
+        operation = self._session_store.get_operation_for_tool_call(
+            checkpoint_turn_id,
+            resumed_call.id,
+        )
+        if operation is None:
+            raise ValueError("pending interaction has no operation checkpoint")
+        if (
+            operation.capability_name != resumed_call.name
+            or operation.arguments_hash != operation_arguments_hash(resumed_call.arguments)
+        ):
+            raise ValueError("pending interaction does not match operation checkpoint")
+        turn.publish_event(
+            kind="observation",
+            source="runtime",
+            name="runtime.resumed",
+            operation_id=operation.operation_id,
+            item_id=interaction.tool_call_id,
+            payload={
+                "interaction_id": interaction.interaction_id,
+                "interaction_kind": interaction.kind,
+                "resolution": interaction.status,
+            },
+        )
+        resumed_context = ToolContext(
+            session_id=turn.session.session_id,
+            user_id=turn.user_id,
+            iteration=0,
+            run_id=turn.run_id,
+            operation_id=operation.operation_id,
+            operation_ids={resumed_call.id: operation.operation_id},
+            environment=self._environment,
+            cancellation_requested=lambda: turn.cancellation_token.is_cancelled,
+        )
+        result = self._session_store.get_tool_result(checkpoint_turn_id, resumed_call.id)
+        if result is not None:
+            result.metadata["deduplicated"] = True
+        else:
+            operation = self._session_store.mark_operation_running(operation.operation_id)
+        if result is None and interaction.kind == "approval" and interaction.status == "approved":
+            result = self._tool_registry.dispatch_approved(
+                resumed_call,
+                context=resumed_context,
+                enabled_toolsets=self._enabled_toolsets,
+                disabled_toolsets=self._disabled_toolsets,
+            )
+        elif result is None and interaction.kind == "clarification":
+            result = ToolResult.ok(
+                name=interaction.tool_name,
+                content=interaction.response or user_message,
+                structured_content={
+                    "interaction_id": interaction.interaction_id,
+                    "interaction_resumed": True,
+                },
+            ).bind(interaction.tool_call_id)
+        elif result is None:
+            result = ToolResult.error(
+                name=interaction.tool_name,
+                content="User denied the pending tool request.",
+                structured_content={
+                    "interaction_id": interaction.interaction_id,
+                    "interaction_denied": True,
+                },
+            ).bind(interaction.tool_call_id)
+        record_tool_result(
+            result,
+            iteration=0,
+            operation_id=operation.operation_id,
+            arguments=dict(interaction.arguments or {}),
+        )
+
+    def _prepare_turn_step(
+        self,
+        turn: _TurnState,
+        step_number: int,
+        inject_background_notifications: Callable[[int], None],
+    ) -> None:
+        """Build the context and immutable snapshot for one turn step."""
+        turn.active_step_id = uuid4().hex
+        logger.debug(
+            "Running turn step: session_id=%s step=%s",
+            turn.session_id,
+            step_number,
+        )
+        turn.publish_event(
+            kind="observation",
+            source="runtime",
+            name="iteration.started",
+            iteration=step_number,
+        )
+        inject_background_notifications(step_number)
+        if turn.convergence_reason is not None:
+            self._session_store.append(
+                turn.session,
+                Message(
+                    role="runtime",
+                    content=(
+                        "The verified completion condition has been reached. "
+                        "Do not call tools. Provide a concise final summary of the "
+                        "change and tests now."
+                    ),
+                ),
+            )
+            turn.publish_event(
+                kind="observation",
+                source="runtime",
+                name="runtime.convergence_requested",
+                iteration=step_number,
+                payload={"reason": turn.convergence_reason},
+            )
+
+        session_snapshot = self._session_store.snapshot(turn.session)
+        checkpoint = self._session_store.load_compaction_checkpoint(turn.session)
+        try:
+            context_result = self._context_engine.build(
+                session_snapshot,
+                checkpoint=checkpoint,
+                prefix_messages=[turn.run_system_message],
+            )
+        except Exception as exc:
+            error_info = classify_exception(exc, error_source="context").to_metadata()
+            logger.exception(
+                "Runtime context build failed; continuing with uncompressed context: session_id=%s error=%s",
+                turn.session_id,
+                exc,
+            )
+            sanitize_messages = getattr(self._context_engine, "sanitize_tool_pairs", None)
+            fallback_messages = [turn.run_system_message, *session_snapshot]
+            if callable(sanitize_messages):
+                fallback_messages = sanitize_messages(fallback_messages)
+            context_result = ContextBuildResult(
+                messages=fallback_messages,
+                original_message_count=len(session_snapshot),
+                estimated_tokens_before=0,
+                estimated_tokens_after=0,
+                threshold_tokens=0,
+                summary_status="failed",
+            )
+            turn.publish_event(
+                kind="observation",
+                source="runtime",
+                name="context.failed",
+                iteration=step_number,
+                payload=error_info,
+            )
+
+        if context_result.summary_call is not None:
+            summary_call = context_result.summary_call
+            self._session_store.record_model_response(
+                turn.session,
+                turn.run_id,
+                summary_call.response,
+            )
+            turn.publish_event(
+                kind="action",
+                source="context",
+                name="model.response",
+                iteration=step_number,
+                item_id=f"context-summary:{step_number}",
+                payload=_model_response_payload(
+                    summary_call.response,
+                    purpose="context_summary",
+                    started_at=summary_call.started_at,
+                    completed_at=summary_call.completed_at,
+                    duration_ms=summary_call.duration_ms,
+                ),
+            )
+        if context_result.compressed:
+            logger.info(
+                "Runtime context compressed: session_id=%s original_messages=%s compressed_messages=%s final_messages=%s tokens=%s->%s threshold=%s",
+                turn.session_id,
+                context_result.original_message_count,
+                context_result.compressed_message_count,
+                len(context_result.messages),
+                context_result.estimated_tokens_before,
+                context_result.estimated_tokens_after,
+                context_result.threshold_tokens,
+            )
+            turn.publish_event(
+                kind="observation",
+                source="runtime",
+                name="context.compressed",
+                iteration=step_number,
+                payload={
+                    "original_message_count": context_result.original_message_count,
+                    "compressed_message_count": context_result.compressed_message_count,
+                    "final_message_count": len(context_result.messages),
+                    "estimated_tokens_before": context_result.estimated_tokens_before,
+                    "estimated_tokens_after": context_result.estimated_tokens_after,
+                    "threshold_tokens": context_result.threshold_tokens,
+                    "protected_head_count": context_result.protected_head_count,
+                    "protected_tail_count": context_result.protected_tail_count,
+                    "latest_user_anchored": context_result.latest_user_anchored,
+                    "summary_status": context_result.summary_status,
+                },
+            )
+        if context_result.checkpoint is not None:
+            self._session_store.save_compaction_checkpoint(
+                turn.session,
+                ContextCompactionCheckpoint(
+                    session_id=turn.session.session_id,
+                    covered_message_count=context_result.checkpoint.covered_message_count,
+                    protected_head_count=context_result.checkpoint.protected_head_count,
+                    source_hash=context_result.checkpoint.source_hash,
+                    summary=context_result.checkpoint.summary,
+                    model=self._model,
+                ),
+            )
+
+        turn.context_messages = context_result.messages
+        turn.tool_schemas = self._tool_registry.schemas(
+            enabled_toolsets=self._enabled_toolsets,
+            disabled_toolsets=self._disabled_toolsets,
+        )
+        if turn.convergence_reason is not None:
+            turn.tool_schemas = []
+        snapshot = StepSnapshot(
+            step_id=turn.active_step_id,
+            run_id=turn.run_id,
+            session_id=turn.session.session_id,
+            iteration=step_number,
+            model=self._model,
+            environment_id=self._environment.environment_id,
+            context_hash=context_projection_hash(turn.context_messages),
+            tool_schema_hash=tool_schema_projection_hash(turn.tool_schemas),
+            capability_names=capability_names(turn.tool_schemas),
+            prompt_sources=self._prompt_builder.last_prompt_sources,
+            created_at=_utc_now_iso(),
+        )
+        self._session_store.save_step_snapshot(snapshot)
+        turn.publish_event(
+            kind="observation",
+            source="runtime",
+            name="step.snapshot",
+            iteration=step_number,
+            item_id=turn.active_step_id,
+            payload={
+                "model": snapshot.model,
+                "context_hash": snapshot.context_hash,
+                "tool_schema_hash": snapshot.tool_schema_hash,
+                "capability_names": list(snapshot.capability_names),
+                "prompt_sources": list(snapshot.prompt_sources),
+                "created_at": snapshot.created_at,
+            },
+        )
+
+    def _invoke_turn_model(self, turn: _TurnState, step_number: int) -> ModelInvocation:
+        """Run the model portion of one turn step."""
+        model_item_id = f"model:{step_number}"
+
+        def publish_text_delta(delta: str) -> None:
+            turn.publish_event(
+                kind="delta",
+                source="model",
+                name="model.delta",
+                iteration=step_number,
+                item_id=model_item_id,
+                payload={"delta": delta},
+            )
+
+        return self._model_invoker.invoke(
+            messages=turn.context_messages or [],
+            tools=turn.tool_schemas or [],
+            step_id=turn.active_step_id,
+            cancellation_requested=lambda: turn.cancellation_token.is_cancelled,
+            on_text_delta=publish_text_delta,
+        )
+
+    def _record_turn_model(
+        self,
+        turn: _TurnState,
+        step_number: int,
+        model_invocation: ModelInvocation,
+        discarded: bool,
+    ) -> None:
+        """Persist and publish the model result for one turn step."""
+        response = model_invocation.response
+        model_item_id = f"model:{step_number}"
+        model_payload = _model_response_payload(
+            response,
+            purpose="agent",
+            started_at=model_invocation.started_at,
+            completed_at=model_invocation.completed_at,
+            duration_ms=model_invocation.duration_ms,
+        )
+        self._session_store.record_model_response(turn.session, turn.run_id, response)
+        if discarded:
+            turn.publish_event(
+                kind="observation",
+                source="model",
+                name="model.discarded",
+                iteration=step_number,
+                item_id=model_item_id,
+                payload=model_payload,
+            )
+            return
+        if response.tool_calls:
+            turn.publish_event(
+                kind="observation",
+                source="model",
+                name="model.plan",
+                iteration=step_number,
+                item_id=model_item_id,
+                payload={"tool_calls": model_payload["tool_calls"]},
+            )
+        turn.publish_event(
+            kind="action",
+            source="agent",
+            name="model.response",
+            iteration=step_number,
+            item_id=model_item_id,
+            payload=model_payload,
+        )
+        self._session_store.append(
+            turn.session,
+            Message(
+                role="assistant",
+                content=response.content,
+                reasoning_content=response.reasoning_content,
+                tool_calls=response.tool_calls,
+                provider=response.provider,
+                model=response.model,
+                token_count=response.usage.output_tokens,
+                finish_reason=response.finish_reason,
+            ),
+        )
+
+    def _execute_turn_tools(
+        self,
+        turn: _TurnState,
+        step_number: int,
+        model_invocation: ModelInvocation,
+        record_tool_result: Callable[..., None],
+    ) -> ToolResult | None:
+        """Plan, dispatch, and persist the tool portion of one turn step."""
+        operation_ids: dict[str, str] = {}
+
+        def emit_tool_output(payload: dict[str, object]) -> None:
+            tool_call_id = payload.get("tool_call_id")
+            operation_id = operation_ids.get(tool_call_id) if isinstance(tool_call_id, str) else None
+            turn.publish_event(
+                kind="delta",
+                source="tool",
+                name="tool.progress",
+                iteration=step_number,
+                operation_id=operation_id,
+                item_id=tool_call_id if isinstance(tool_call_id, str) else None,
+                payload=payload,
+            )
+
+        tool_context = ToolContext(
+            session_id=turn.session.session_id,
+            user_id=turn.user_id,
+            iteration=step_number,
+            run_id=turn.run_id,
+            step_id=turn.active_step_id,
+            operation_ids=operation_ids,
+            environment=self._environment,
+            emit_output=emit_tool_output,
+            cancellation_requested=lambda: turn.cancellation_token.is_cancelled,
+        )
+        unique_tool_calls: list[ToolCall] = []
+        seen_tool_call_ids: set[str] = set()
+        for tool_call in model_invocation.response.tool_calls:
+            if tool_call.id not in seen_tool_call_ids:
+                seen_tool_call_ids.add(tool_call.id)
+                unique_tool_calls.append(tool_call)
+
+        pending_tool_calls: list[ToolCall] = []
+        completed_tool_results: dict[str | None, ToolResult] = {}
+        for tool_call in unique_tool_calls:
+            if turn.active_step_id is None:
+                raise RuntimeError("tool call is missing its step identity")
+            operation = self._session_store.plan_operation(
+                turn.session,
+                turn.run_id,
+                tool_call,
+                step_id=turn.active_step_id,
+                environment_id=self._environment.environment_id,
+            )
+            operation_ids[tool_call.id] = operation.operation_id
+            turn.publish_event(
+                kind="action",
+                source="agent",
+                name="tool.call",
+                iteration=step_number,
+                operation_id=operation.operation_id,
+                item_id=tool_call.id,
+                payload={
+                    "tool_call_id": tool_call.id,
+                    "tool_name": tool_call.name,
+                    "arguments": dict(tool_call.arguments),
+                },
+            )
+            completed_result = self._session_store.get_tool_result(turn.run_id, tool_call.id)
+            if completed_result is None:
+                self._session_store.mark_operation_running(operation.operation_id)
+                pending_tool_calls.append(tool_call)
+            else:
+                completed_result.metadata["deduplicated"] = True
+                completed_tool_results[tool_call.id] = completed_result
+
+        dispatched_results = self._tool_registry.dispatch(
+            pending_tool_calls,
+            context=tool_context,
+            enabled_toolsets=self._enabled_toolsets,
+            disabled_toolsets=self._disabled_toolsets,
+        )
+        completed_tool_results.update(
+            {tool_result.tool_call_id: tool_result for tool_result in dispatched_results}
+        )
+        for tool_call in unique_tool_calls:
+            tool_result = completed_tool_results[tool_call.id]
+            record_tool_result(
+                tool_result,
+                iteration=step_number,
+                operation_id=operation_ids[tool_call.id],
+                arguments=dict(tool_call.arguments),
+                persist_message=tool_result.structured_content.get("interaction_pending") is not True,
+            )
+        if self._convergence_policy is not None and turn.convergence_reason is None:
+            turn.convergence_reason = self._convergence_policy(
+                step_number,
+                tuple(unique_tool_calls),
+                tuple(completed_tool_results.values()),
+            )
+        return next(
+            (
+                item
+                for item in turn.tool_results
+                if item.structured_content.get("interaction_pending") is True
+            ),
+            None,
         )
 
     @staticmethod

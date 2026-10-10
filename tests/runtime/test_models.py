@@ -40,8 +40,15 @@ class ModelsTest(unittest.TestCase):
 
     def test_runtime_result(self) -> None:
         tr = ToolResult(tool_call_id="tc1", name="bash", content="ok")
-        result = RuntimeResult(session_id="s1", status="success", final_response="Done", tool_results=[tr])
+        result = RuntimeResult(
+            session_id="s1",
+            status="success",
+            final_response="Done",
+            run_id="turn-1",
+            tool_results=[tr],
+        )
         self.assertEqual(result.final_response, "Done")
+        self.assertEqual(result.turn_id, "turn-1")
         self.assertEqual(len(result.tool_results), 1)
 
     def test_runtime_event(self) -> None:

@@ -43,15 +43,22 @@ class StopDecision:
 
 @dataclass(frozen=True, slots=True)
 class AgentLoopOutcome:
+    """Outcome of the step loop that executes within one runtime turn."""
+
     status: AgentLoopStatus
     iteration: int
     invocation: ModelInvocation | None = None
     pending_result: ToolResult | None = None
     error: Exception | None = None
 
+    @property
+    def step_number(self) -> int:
+        """Semantic alias for the compatibility ``iteration`` field."""
+        return self.iteration
+
 
 class AgentLoop:
-    """Own the model/tool iteration state machine and nothing around it."""
+    """Own the model/tool step loop within one runtime turn."""
 
     def __init__(self, max_iterations: int) -> None:
         self._max_iterations = max_iterations

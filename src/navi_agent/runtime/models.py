@@ -54,6 +54,8 @@ class ModelResponse:
 
 @dataclass(slots=True)
 class ConversationState:
+    """Long-lived session state spanning one or more execution turns."""
+
     session_id: str
     user_id: str
     messages: list[Message] = field(default_factory=list)
@@ -92,6 +94,14 @@ class SessionSummary:
 
 @dataclass(slots=True)
 class RuntimeRunRecord:
+    """Durable record for one execution turn within a session.
+
+    ``run_id`` is retained as the persisted identifier for compatibility with
+    existing session stores, event logs, and trace URLs. At the runtime layer,
+    it is the identity of a turn: a user request (or its approval resume) and
+    all of its steps.
+    """
+
     run_id: str
     session_id: str
     user_id: str
@@ -117,10 +127,15 @@ class RuntimeRunRecord:
     failure_reason: str | None = None
     completion_reason: str | None = None
 
+    @property
+    def turn_id(self) -> str:
+        """Semantic alias for the persisted ``run_id``."""
+        return self.run_id
+
 
 @dataclass(frozen=True, slots=True)
 class StepSnapshot:
-    """Immutable projection of the inputs visible to one agent model step."""
+    """Immutable projection of the inputs visible to one step in a turn."""
 
     step_id: str
     run_id: str
@@ -133,6 +148,11 @@ class StepSnapshot:
     capability_names: tuple[str, ...]
     prompt_sources: tuple[str, ...]
     created_at: str
+
+    @property
+    def step_number(self) -> int:
+        """Semantic alias for the persisted per-turn ``iteration`` value."""
+        return self.iteration
 
 
 class OperationStatus(StrEnum):
@@ -228,6 +248,11 @@ class RuntimeResult:
     tool_results: list[ToolResult] = field(default_factory=list)
     trajectory_complete: bool = True
     trajectory_error: str | None = None
+
+    @property
+    def turn_id(self) -> str:
+        """Semantic alias for the persisted ``run_id``."""
+        return self.run_id
 
 
 class RuntimeMode(StrEnum):
