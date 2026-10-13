@@ -13,16 +13,22 @@ class BashCommandAssessment:
 
 
 _SAFE_COMMANDS = {
+    "awk",
     "cat",
+    "cut",
     "echo",
+    "find",
     "grep",
     "head",
     "ls",
     "printf",
     "pwd",
     "rg",
+    "sed",
+    "sort",
     "stat",
     "tail",
+    "uniq",
     "wc",
 }
 _HARD_DENY_COMMANDS = {
@@ -60,7 +66,7 @@ def assess_bash_command(command: str, *, background: bool = False) -> BashComman
         return BashCommandAssessment("deny", "empty bash command")
     if background:
         return BashCommandAssessment("ask", "background bash command requires approval")
-    if "\n" in command or "`" in command or "$" in command:
+    if "\n" in command or "`" in command:
         return BashCommandAssessment("ask", "dynamic shell syntax requires approval")
 
     try:
@@ -70,6 +76,7 @@ def assess_bash_command(command: str, *, background: bool = False) -> BashComman
     except ValueError:
         return BashCommandAssessment("ask", "unparseable bash command requires approval")
 
+    tokens = _strip_null_redirections(tokens)
     commands: list[tuple[str, ...]] = []
     separators: list[str] = []
     current: list[str] = []
@@ -81,7 +88,7 @@ def assess_bash_command(command: str, *, background: bool = False) -> BashComman
             separators.append(token)
             current = []
             continue
-        if any(character in token for character in "<>&();"):
+        if token in {"<", ">", "&"}:
             return BashCommandAssessment(
                 "ask",
                 "shell redirection or background execution requires approval",
@@ -101,10 +108,6 @@ def assess_bash_command(command: str, *, background: bool = False) -> BashComman
         if executable in _HARD_DENY_COMMANDS or _is_catastrophic_rm(words):
             return BashCommandAssessment(
                 "deny", f"bash command is not allowed: {executable}", parsed_commands
-            )
-        if any(any(character in word for character in "*?[]{}") for word in words[1:]):
-            return BashCommandAssessment(
-                "ask", "shell path expansion requires approval", parsed_commands
             )
         if not _is_known_read_only(words):
             return BashCommandAssessment(
@@ -131,25 +134,80 @@ def assess_bash_command(command: str, *, background: bool = False) -> BashComman
 def _is_known_read_only(words: tuple[str, ...]) -> bool:
     executable = words[0]
     if executable in _SAFE_COMMANDS:
+        arguments = words[1:]
+        if executable != "find" and any(argument in {"(", ")"} for argument in arguments):
+            return False
+        if executable != "awk" and any("$" in argument for argument in arguments):
+            return False
         if executable == "rg":
             return not (
-                _contains_option(words[1:], _UNSAFE_RG_OPTIONS)
-                or _contains_short_option(words[1:], "z")
+                _contains_option(arguments, _UNSAFE_RG_OPTIONS)
+                or _contains_short_option(arguments, "z")
             )
+        if executable == "find":
+            return not _contains_option(arguments, _UNSAFE_FIND_OPTIONS)
+        if executable == "sort":
+            return not (
+                _contains_option(arguments, _UNSAFE_SORT_OPTIONS)
+                or _contains_short_option(arguments, "o")
+            )
+        if executable == "sed":
+            return _is_safe_sed(arguments)
+        if executable == "awk":
+            return _is_safe_awk(arguments)
         return True
     if executable == "cd":
         return _is_static_directory_change(words)
-    if executable == "find":
-        return not _contains_option(words[1:], _UNSAFE_FIND_OPTIONS)
     if executable == "git":
         return False
-    if executable == "sort":
-        arguments = words[1:]
-        return not (
-            _contains_option(arguments, _UNSAFE_SORT_OPTIONS)
-            or _contains_short_option(arguments, "o")
-        )
     return False
+
+
+def _strip_null_redirections(tokens: list[str]) -> list[str]:
+    """Allow stdout/stderr suppression without allowing writes to real files."""
+    stripped: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if (
+            token in {">", ">>"}
+            and index + 1 < len(tokens)
+            and tokens[index + 1] == "/dev/null"
+            and token == ">"
+        ):
+            if stripped and stripped[-1] in {"1", "2"}:
+                stripped.pop()
+            index += 2
+            continue
+        stripped.append(token)
+        index += 1
+    return stripped
+
+
+def _is_safe_sed(arguments: tuple[str, ...]) -> bool:
+    if _contains_option(arguments, {"--in-place"}) or _contains_short_option(arguments, "i"):
+        return False
+    return not any(_sed_script_can_write(argument) for argument in arguments)
+
+
+def _sed_script_can_write(argument: str) -> bool:
+    """Reject sed's command-execution and file-writing forms conservatively."""
+    lowered = argument.lower()
+    return bool(
+        re.search(r"(^|;)\s*[ew]\b", lowered)
+        or any(f"{delimiter}e" in lowered for delimiter in "/|#:")
+        or any(f"{delimiter}w" in lowered for delimiter in "/|#:")
+        or "w " in lowered
+    )
+
+
+def _is_safe_awk(arguments: tuple[str, ...]) -> bool:
+    program = " ".join(argument for argument in arguments if not argument.startswith("-"))
+    forbidden = ("system(", "getline", "|", ">", "<")
+    return not (
+        any(fragment in program for fragment in forbidden)
+        or bool(re.search(r"\$(?:[A-Za-z_]|\{)", program))
+    )
 
 
 def _is_static_directory_change(words: tuple[str, ...]) -> bool:

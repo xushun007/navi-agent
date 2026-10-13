@@ -22,6 +22,20 @@ class BashCommandPolicyTests(unittest.TestCase):
             "find . -type f | sort -u | wc -l",
             "rg --files | wc -l",
             "cd src; find . -type f | wc -l",
+            'find src tests scripts evals -name "*.py" 2>/dev/null | wc -l',
+            (
+                'ls -a; echo "---"; find . \\( -name .venv -o -name .git '
+                '-o -name node_modules -o -name .mypy_cache -o -name __pycache__ \\) '
+                '-prune -o -name "*.py" -print 2>/dev/null | wc -l'
+            ),
+            (
+                'find . \\( -name .venv -o -name .git -o -name .uv-cache '
+                '-o -name .worktrees -o -name node_modules -o -name __pycache__ '
+                '-o -name site \\) -prune -o -name "*.py" -print 2>/dev/null '
+                "| sed 's|^\\./||' | awk -F/ '{print $1}' | sort | uniq -c | sort -rn"
+            ),
+            "cat .e*",
+            "cat file?.txt",
         ]
 
         for command in commands:
@@ -49,13 +63,17 @@ class BashCommandPolicyTests(unittest.TestCase):
             "cd src*",
             "cd src | pwd",
             "cd src || pwd",
-            "cat .e*",
-            "cat file?.txt",
             "rg -nz needle .",
             "git status --short",
             "git log -1 --oneline",
             "git diff",
             "git show HEAD",
+            "sed -i '' 's/old/new/' file.txt",
+            "sed 's/x/y/w output.txt' input.txt",
+            "awk 'BEGIN { system(\"rm file.txt\") }'",
+            "awk '{ print $1 > \"output.txt\" }' input.txt",
+            "find $HOME -type f",
+            "find . -delete",
         ]
 
         for command in commands:
