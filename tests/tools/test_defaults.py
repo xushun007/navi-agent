@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from navi_agent.runtime import SubagentService, ToolCall, ToolContext
+from navi_agent.runtime import DenyAllApprovalProvider, SubagentService, ToolCall, ToolContext
 from navi_agent.tooling import ToolResult
 from navi_agent.tools.base import FunctionTool
 from navi_agent.tools.defaults import BuiltinToolProvider, build_default_tool_registry
@@ -39,6 +39,40 @@ class DefaultsTest(unittest.TestCase):
 
         self.assertEqual(result.status, "success")
         self.assertEqual(result.structured_content["stdout"], "2")
+
+    def test_workspace_file_changes_run_without_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            registry = build_default_tool_registry(
+                root=root,
+                approval_provider=DenyAllApprovalProvider(),
+            )
+            context = ToolContext(session_id="s1", user_id="u1", iteration=1)
+
+            write = registry.dispatch(
+                [
+                    ToolCall(
+                        id="tc1",
+                        name="write_file",
+                        arguments={"path": "note.txt", "content": "before\n"},
+                    )
+                ],
+                context=context,
+            )[0]
+            patch = registry.dispatch(
+                [
+                    ToolCall(
+                        id="tc2",
+                        name="patch",
+                        arguments={"path": "note.txt", "old": "before", "new": "after"},
+                    )
+                ],
+                context=context,
+            )[0]
+
+            self.assertEqual(write.status, "success")
+            self.assertEqual(patch.status, "success")
+            self.assertEqual((root / "note.txt").read_text(encoding="utf-8"), "after\n")
 
     def test_all_tools_registered(self) -> None:
         schemas = build_default_tool_registry(

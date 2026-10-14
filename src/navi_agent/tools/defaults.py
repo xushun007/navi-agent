@@ -156,8 +156,6 @@ def build_tool_registry(
             fallback=SensitiveToolPolicy(
                 approval_required_tools={
                     "code_executor": "code_executor requires approval",
-                    "write_file": "write_file requires approval",
-                    "patch": "patch requires approval",
                 }
             )
         ),
