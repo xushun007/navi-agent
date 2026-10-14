@@ -14,12 +14,20 @@ Configuration, tools, permissions, sessions, memory, architecture, and the Weixi
 
 ## Quickstart
 
+Install the latest stable release from PyPI:
+
 ```bash
 uv tool install navi-agent
 navi-agent init
 # Add your model credentials to ~/.navi-agent/config.yaml
 navi-agent doctor
 navi-agent
+```
+
+Need the latest code from `main` instead?
+
+```bash
+uv tool install --force git+https://github.com/xushun007/navi-agent.git@main
 ```
 
 Start the WeChat gateway:

@@ -13,12 +13,20 @@ tools、memory、telemetry、evolution 组成的单一可靠执行链路，并�
 
 ## 快速开始
 
+从 PyPI 安装最新稳定正式版：
+
 ```bash
 uv tool install navi-agent
 navi-agent init
 # 在 ~/.navi-agent/config.yaml 中填写模型凭据
 navi-agent doctor
 navi-agent
+```
+
+需要直接使用 `main` 上的最新代码？
+
+```bash
+uv tool install --force git+https://github.com/xushun007/navi-agent.git@main
 ```
 
 启动微信网关：
