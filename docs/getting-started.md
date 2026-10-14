@@ -10,7 +10,7 @@ minutes. The first package download may take longer depending on your network.
 
 ## 1. Install
 
-Install the latest release. The installer sets up `uv` when needed:
+Install the latest released version. The installer sets up `uv` when needed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xushun007/navi-agent/main/scripts/install.sh | sh
@@ -21,6 +21,22 @@ If `uv` is already installed, install directly from PyPI:
 ```bash
 uv tool install navi-agent
 ```
+
+This command installs the newest published PyPI release, not the current
+`main` commit. Upgrade later with:
+
+```bash
+uv tool upgrade navi-agent
+```
+
+To try the latest development build from `main` instead, opt in explicitly:
+
+```bash
+uv tool install --force git+https://github.com/xushun007/navi-agent.git@main
+```
+
+Re-run that command to update the development build. Return to the supported
+release channel with `uv tool install --force navi-agent`.
 
 ## 2. Initialize
 

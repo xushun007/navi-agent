@@ -10,7 +10,7 @@
 
 ## 1. 安装
 
-安装最新发布版本。安装脚本会在需要时自动配置 `uv`：
+安装最新正式发布版本。安装脚本会在需要时自动配置 `uv`：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xushun007/navi-agent/main/scripts/install.sh | sh
@@ -21,6 +21,21 @@ curl -fsSL https://raw.githubusercontent.com/xushun007/navi-agent/main/scripts/i
 ```bash
 uv tool install navi-agent
 ```
+
+该命令安装的是最新发布到 PyPI 的版本，而不是当前 `main` 提交。后续升级正式版：
+
+```bash
+uv tool upgrade navi-agent
+```
+
+如需体验 `main` 上的最新开发版本，请显式选择：
+
+```bash
+uv tool install --force git+https://github.com/xushun007/navi-agent.git@main
+```
+
+再次执行该命令可更新开发版本；执行 `uv tool install --force navi-agent` 可回到受支持的
+正式发布渠道。
 
 ## 2. 初始化
 
