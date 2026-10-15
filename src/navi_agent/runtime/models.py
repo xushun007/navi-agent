@@ -61,6 +61,30 @@ class ConversationState:
     messages: list[Message] = field(default_factory=list)
 
 
+class SessionGoalStatus(StrEnum):
+    """Lifecycle states for the one user-owned goal in a session."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETE = "complete"
+
+
+@dataclass(frozen=True, slots=True)
+class SessionGoal:
+    """A durable objective spanning multiple turns in one session."""
+
+    session_id: str
+    user_id: str
+    objective: str
+    status: SessionGoalStatus
+    created_at: float
+    updated_at: float
+
+    def __post_init__(self) -> None:
+        if not self.objective.strip():
+            raise ValueError("goal objective must not be empty")
+
+
 @dataclass(frozen=True, slots=True)
 class TaskSpec:
     """Run-scoped task intent and the optional evidence required to finish it."""

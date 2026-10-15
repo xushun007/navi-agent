@@ -20,6 +20,8 @@ from ..models import (
     OperationRecord,
     OperationStatus,
     RuntimeRunRecord,
+    SessionGoal,
+    SessionGoalStatus,
     SessionMetadata,
     SessionRecallMessage,
     SessionRecallResult,
@@ -39,7 +41,7 @@ from .schema import SCHEMA_STATEMENTS
 
 
 T = TypeVar("T")
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 def _tool_result_payload(result: ToolResult) -> dict[str, object]:
@@ -96,6 +98,17 @@ def _task_spec_from_json(value: object) -> TaskSpec | None:
         objective=str(payload["objective"]),
         acceptance=tuple(str(item) for item in payload.get("acceptance", [])),
         constraints=tuple(str(item) for item in payload.get("constraints", [])),
+    )
+
+
+def _session_goal(row: sqlite3.Row) -> SessionGoal:
+    return SessionGoal(
+        session_id=str(row["session_id"]),
+        user_id=str(row["user_id"]),
+        objective=str(row["objective"]),
+        status=SessionGoalStatus(str(row["status"])),
+        created_at=float(row["created_at"]),
+        updated_at=float(row["updated_at"]),
     )
 
 
@@ -283,6 +296,94 @@ class SQLiteSessionStore:
             )
             for row in rows
         ]
+
+    def get_goal(self, session_id: str, user_id: str) -> SessionGoal | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT session_id, user_id, objective, status, created_at, updated_at
+                FROM session_goals
+                WHERE session_id = ? AND user_id = ?
+                """,
+                (session_id, user_id),
+            ).fetchone()
+        return _session_goal(row) if row is not None else None
+
+    def set_goal(self, session_id: str, user_id: str, objective: str) -> SessionGoal:
+        objective = objective.strip()
+        if not objective:
+            raise ValueError("goal objective must not be empty")
+
+        def set_goal(connection: sqlite3.Connection) -> SessionGoal:
+            session = connection.execute(
+                "SELECT 1 FROM sessions WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
+            ).fetchone()
+            if session is None:
+                raise ValueError(f"session not found: {session_id}")
+            now = time.time()
+            connection.execute(
+                """
+                INSERT INTO session_goals (
+                    session_id, user_id, objective, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    objective = excluded.objective,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at
+                """,
+                (session_id, user_id, objective, SessionGoalStatus.ACTIVE.value, now, now),
+            )
+            row = connection.execute(
+                """
+                SELECT session_id, user_id, objective, status, created_at, updated_at
+                FROM session_goals WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+            assert row is not None
+            return _session_goal(row)
+
+        return self._execute_write(set_goal)
+
+    def update_goal_status(
+        self,
+        session_id: str,
+        user_id: str,
+        status: SessionGoalStatus,
+    ) -> SessionGoal | None:
+        def update(connection: sqlite3.Connection) -> SessionGoal | None:
+            cursor = connection.execute(
+                """
+                UPDATE session_goals
+                SET status = ?, updated_at = ?
+                WHERE session_id = ? AND user_id = ?
+                """,
+                (status.value, time.time(), session_id, user_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+            row = connection.execute(
+                """
+                SELECT session_id, user_id, objective, status, created_at, updated_at
+                FROM session_goals WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+            assert row is not None
+            return _session_goal(row)
+
+        return self._execute_write(update)
+
+    def clear_goal(self, session_id: str, user_id: str) -> bool:
+        return self._execute_write(
+            lambda connection: connection.execute(
+                "DELETE FROM session_goals WHERE session_id = ? AND user_id = ?",
+                (session_id, user_id),
+            ).rowcount
+            > 0
+        )
 
     def start_run(
         self,
@@ -1441,6 +1542,7 @@ class SQLiteSessionStore:
             cls._migrate_operation_columns,
             cls._migrate_task_spec_column,
             cls._migrate_telemetry_tables,
+            cls._migrate_session_goals,
         )
         for target_version, migrate in enumerate(migrations, start=1):
             if version >= target_version:
@@ -1544,6 +1646,12 @@ class SQLiteSessionStore:
         }
         if "task_spec_json" not in columns:
             connection.execute("ALTER TABLE runs ADD COLUMN task_spec_json TEXT")
+
+    @staticmethod
+    def _migrate_session_goals(connection: sqlite3.Connection) -> None:
+        for statement in SCHEMA_STATEMENTS:
+            if "session_goals" in statement:
+                connection.execute(statement)
 
     def _execute_write(self, operation: Callable[[sqlite3.Connection], T]) -> T:
         last_error: sqlite3.OperationalError | None = None

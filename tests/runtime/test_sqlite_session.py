@@ -11,6 +11,7 @@ from navi_agent.runtime import (
     ModelResponse,
     ModelUsage,
     SessionMetadata,
+    SessionGoalStatus,
     SQLiteSessionStore,
     ToolArtifact,
     ToolCall,
@@ -69,7 +70,21 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             with sqlite3.connect(path) as connection:
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
 
-        self.assertEqual(version, 4)
+        self.assertEqual(version, 5)
+
+    def test_goal_round_trips_and_enforces_session_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteSessionStore(Path(tmpdir) / "state.db")
+            store.load(session_id="s1", user_id="u1")
+
+            goal = store.set_goal("s1", "u1", "Ship the feature")
+            paused = store.update_goal_status("s1", "u1", SessionGoalStatus.PAUSED)
+
+            self.assertEqual(goal.status, SessionGoalStatus.ACTIVE)
+            self.assertEqual(paused.status if paused else None, SessionGoalStatus.PAUSED)
+            self.assertIsNone(store.get_goal("s1", "u2"))
+            self.assertTrue(store.clear_goal("s1", "u1"))
+            self.assertIsNone(store.get_goal("s1", "u1"))
 
     def test_initialization_rejects_a_newer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

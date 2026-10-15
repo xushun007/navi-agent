@@ -14,6 +14,8 @@ from ..models import (
     OperationRecord,
     OperationStatus,
     RuntimeRunRecord,
+    SessionGoal,
+    SessionGoalStatus,
     SessionMetadata,
     SessionSummary,
     StepSnapshot,
@@ -37,6 +39,7 @@ class InMemorySessionStore:
         self._operations: dict[str, OperationRecord] = {}
         self._operation_ids_by_tool_call: dict[tuple[str, str], str] = {}
         self._updated_at: dict[str, float] = {}
+        self._goals: dict[str, SessionGoal] = {}
 
     def load(
         self,
@@ -73,6 +76,45 @@ class InMemorySessionStore:
             if session.user_id == user_id
         ]
         return sorted(sessions, key=lambda item: item.updated_at, reverse=True)[:limit]
+
+    def get_goal(self, session_id: str, user_id: str) -> SessionGoal | None:
+        goal = self._goals.get(session_id)
+        return goal if goal is not None and goal.user_id == user_id else None
+
+    def set_goal(self, session_id: str, user_id: str, objective: str) -> SessionGoal:
+        if not self.has_session(session_id, user_id):
+            raise ValueError(f"session not found: {session_id}")
+        now = time.time()
+        existing = self._goals.get(session_id)
+        goal = SessionGoal(
+            session_id=session_id,
+            user_id=user_id,
+            objective=objective,
+            status=SessionGoalStatus.ACTIVE,
+            created_at=existing.created_at if existing is not None else now,
+            updated_at=now,
+        )
+        self._goals[session_id] = goal
+        return goal
+
+    def update_goal_status(
+        self,
+        session_id: str,
+        user_id: str,
+        status: SessionGoalStatus,
+    ) -> SessionGoal | None:
+        goal = self.get_goal(session_id, user_id)
+        if goal is None:
+            return None
+        updated = replace(goal, status=status, updated_at=time.time())
+        self._goals[session_id] = updated
+        return updated
+
+    def clear_goal(self, session_id: str, user_id: str) -> bool:
+        if self.get_goal(session_id, user_id) is None:
+            return False
+        del self._goals[session_id]
+        return True
 
     def start_run(
         self,

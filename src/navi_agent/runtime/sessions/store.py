@@ -11,6 +11,8 @@ from ..models import (
     ModelResponse,
     OperationRecord,
     RuntimeRunRecord,
+    SessionGoal,
+    SessionGoalStatus,
     SessionMetadata,
     SessionSummary,
     StepSnapshot,
@@ -35,6 +37,19 @@ class SessionStore(Protocol):
     def has_session(self, session_id: str, user_id: str) -> bool: ...
 
     def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]: ...
+
+    def get_goal(self, session_id: str, user_id: str) -> SessionGoal | None: ...
+
+    def set_goal(self, session_id: str, user_id: str, objective: str) -> SessionGoal: ...
+
+    def update_goal_status(
+        self,
+        session_id: str,
+        user_id: str,
+        status: SessionGoalStatus,
+    ) -> SessionGoal | None: ...
+
+    def clear_goal(self, session_id: str, user_id: str) -> bool: ...
 
     def start_run(
         self,
