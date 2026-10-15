@@ -26,6 +26,8 @@ from ..models import (
     RuntimeResult,
     RuntimeMode,
     SessionMetadata,
+    SessionGoal,
+    SessionGoalStatus,
     SessionSummary,
     StepSnapshot,
     TaskSpec,
@@ -311,6 +313,27 @@ class AgentRuntime:
 
     def has_session(self, session_id: str, user_id: str) -> bool:
         return self._session_store.has_session(session_id, user_id)
+
+    def ensure_session(self, session_id: str, user_id: str) -> None:
+        self._session_store.load(session_id, user_id)
+
+    def get_goal(self, session_id: str, user_id: str) -> SessionGoal | None:
+        return self._session_store.get_goal(session_id, user_id)
+
+    def set_goal(self, session_id: str, user_id: str, objective: str) -> SessionGoal:
+        self.ensure_session(session_id, user_id)
+        return self._session_store.set_goal(session_id, user_id, objective)
+
+    def update_goal_status(
+        self,
+        session_id: str,
+        user_id: str,
+        status: SessionGoalStatus,
+    ) -> SessionGoal | None:
+        return self._session_store.update_goal_status(session_id, user_id, status)
+
+    def clear_goal(self, session_id: str, user_id: str) -> bool:
+        return self._session_store.clear_goal(session_id, user_id)
 
     def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
         return self._session_store.list_sessions(user_id, limit)

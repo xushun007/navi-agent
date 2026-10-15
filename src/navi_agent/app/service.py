@@ -28,6 +28,8 @@ from navi_agent.runtime import (
     PendingInteraction,
     RuntimeResult,
     RuntimeRunState,
+    SessionGoal,
+    SessionGoalStatus,
     SessionSummary,
 )
 from navi_agent.telemetry import RuntimeTrace
@@ -145,6 +147,23 @@ class ApplicationService:
 
     def has_session(self, session_id: str, user_id: str) -> bool:
         return self._sessions.has_session(session_id, user_id)
+
+    def get_goal(self, session_id: str, user_id: str) -> SessionGoal | None:
+        return self._runtime.get_goal(session_id, user_id)
+
+    def set_goal(self, session_id: str, user_id: str, objective: str) -> SessionGoal:
+        return self._runtime.set_goal(session_id, user_id, objective)
+
+    def update_goal_status(
+        self,
+        session_id: str,
+        user_id: str,
+        status: SessionGoalStatus,
+    ) -> SessionGoal | None:
+        return self._runtime.update_goal_status(session_id, user_id, status)
+
+    def clear_goal(self, session_id: str, user_id: str) -> bool:
+        return self._runtime.clear_goal(session_id, user_id)
 
     def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
         return self._sessions.list_sessions(user_id, limit)
