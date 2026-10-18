@@ -189,6 +189,31 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertFalse(result.completion_verified)
         self.assertEqual(result.completion_reason, "acceptance_not_verified")
 
+    def test_run_exposes_task_spec_to_the_model_as_runtime_context(self) -> None:
+        task_spec = TaskSpec(
+            objective="Fix the reported issue",
+            acceptance=("focused tests pass",),
+            constraints=("keep the public API stable",),
+        )
+        transport = FakeTransport([ModelResponse(content="done")])
+        runtime = AgentRuntime(transport=transport)
+
+        runtime.run_conversation(
+            session_id="s1",
+            user_id="u1",
+            user_message="Please fix it",
+            task_spec=task_spec,
+        )
+
+        context = next(
+            message.content
+            for message in transport.calls[0].messages
+            if message.role == "runtime" and message.content.startswith("[Task context]")
+        )
+        self.assertIn("Objective: Fix the reported issue", context)
+        self.assertIn("- focused tests pass", context)
+        self.assertIn("- keep the public API stable", context)
+
     def test_runtime_defaults_to_thirty_iterations(self) -> None:
         runtime = AgentRuntime(transport=FakeTransport([]))
 
@@ -881,7 +906,11 @@ class AgentRuntimeTests(unittest.TestCase):
         )
 
         request = transport.calls[0]
-        self.assertEqual([message.role for message in request.messages], ["system", "user"])
+        self.assertEqual(
+            [message.role for message in request.messages],
+            ["system", "runtime", "user"],
+        )
+        self.assertIn("Objective: hello", request.messages[1].content)
         self.assertEqual(
             request.tools,
             [

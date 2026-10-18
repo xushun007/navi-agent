@@ -111,6 +111,18 @@ def _task_spec_payload(task_spec: TaskSpec) -> dict[str, object]:
     }
 
 
+def _task_spec_context_message(task_spec: TaskSpec) -> Message:
+    """Render the runtime-owned task contract visible to every model step."""
+    lines = ["[Task context]", f"Objective: {task_spec.objective}"]
+    if task_spec.acceptance:
+        lines.append("Acceptance criteria:")
+        lines.extend(f"- {criterion}" for criterion in task_spec.acceptance)
+    if task_spec.constraints:
+        lines.append("Constraints:")
+        lines.extend(f"- {constraint}" for constraint in task_spec.constraints)
+    return Message(role="runtime", content="\n".join(lines))
+
+
 def _model_response_payload(
     response: ModelResponse,
     *,
@@ -1152,7 +1164,10 @@ class AgentRuntime:
             context_result = self._context_engine.build(
                 session_snapshot,
                 checkpoint=checkpoint,
-                prefix_messages=[turn.run_system_message],
+                prefix_messages=[
+                    turn.run_system_message,
+                    _task_spec_context_message(turn.task_spec),
+                ],
             )
         except Exception as exc:
             error_info = classify_exception(exc, error_source="context").to_metadata()
@@ -1162,7 +1177,11 @@ class AgentRuntime:
                 exc,
             )
             sanitize_messages = getattr(self._context_engine, "sanitize_tool_pairs", None)
-            fallback_messages = [turn.run_system_message, *session_snapshot]
+            fallback_messages = [
+                turn.run_system_message,
+                _task_spec_context_message(turn.task_spec),
+                *session_snapshot,
+            ]
             if callable(sanitize_messages):
                 fallback_messages = sanitize_messages(fallback_messages)
             context_result = ContextBuildResult(
