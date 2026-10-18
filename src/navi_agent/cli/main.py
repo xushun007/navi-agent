@@ -2054,6 +2054,17 @@ def _handle_goal_command(app, session_id: str, user_id: str, argument: str) -> s
     return f"Goal set · {goal.objective}"
 
 
+def _render_session_status(app, session_id: str, user_id: str, status: str) -> str:
+    goal = app.get_goal(session_id, user_id)
+    goal_line = "none" if goal is None else f"{goal.status.value} · {goal.objective}"
+    return (
+        f"Session   · {session_id}\n"
+        f"Status    · {status}\n"
+        f"Goal      · {goal_line}\n"
+        f"Workspace · {Path.cwd()}"
+    )
+
+
 def _run_interactive(
     *,
     app,
@@ -2107,11 +2118,7 @@ def _run_interactive(
             print(_handle_goal_command(app, current_session_id, user_id, slash_command.argument))
             continue
         if slash_command is not None and slash_command.name == "/status":
-            print(
-                f"Session   · {current_session_id}\n"
-                f"Status    · idle\n"
-                f"Workspace · {Path.cwd()}"
-            )
+            print(_render_session_status(app, current_session_id, user_id, "idle"))
             continue
         if slash_command is not None and slash_command.name == "/history":
             print(
@@ -2285,9 +2292,7 @@ def _run_persistent_interactive(
             with state_lock:
                 status = "running" if active else "idle"
             prompt_session.show_notice(
-                f"Session   · {current_session_id}\n"
-                f"Status    · {status}\n"
-                f"Workspace · {Path.cwd()}"
+                _render_session_status(app, current_session_id, user_id, status)
             )
             return
         if slash_command is not None and slash_command.name == "/history":

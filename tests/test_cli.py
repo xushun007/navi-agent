@@ -1481,6 +1481,7 @@ class CliTests(unittest.TestCase):
         app = FakeApp()
         stdout = io.StringIO()
 
+        app.set_goal("s1", "u1", "Ship the feature")
         with patch("builtins.input", side_effect=["/help", "/status", "/exit"]):
             with redirect_stdout(stdout):
                 exit_code = _run_interactive(
@@ -1495,6 +1496,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("/steer <message>", stdout.getvalue())
         self.assertIn("Session   · s1", stdout.getvalue())
         self.assertIn("Status    · idle", stdout.getvalue())
+        self.assertIn("Goal      · active · Ship the feature", stdout.getvalue())
 
     def test_run_interactive_manages_goal_without_starting_a_turn(self) -> None:
         app = FakeApp()
