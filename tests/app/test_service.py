@@ -17,7 +17,14 @@ from navi_agent.evolution import (
     SkillGovernanceService,
     SkillPromotionGate,
 )
-from navi_agent.runtime import JsonPendingInteractionStore, Message, RuntimeMode, RuntimeResult
+from navi_agent.runtime import (
+    JsonPendingInteractionStore,
+    Message,
+    RuntimeMode,
+    RuntimeResult,
+    SessionGoal,
+    SessionGoalStatus,
+)
 from navi_agent.telemetry import RuntimeTrace, ToolExecutionTrace
 
 
@@ -27,6 +34,8 @@ class FakeRuntime:
         self.latest_trace = None
         self.session_traces = []
         self.result_messages = []
+        self.goals = {}
+        self.next_result = None
 
     def run_conversation(
         self,
@@ -39,6 +48,7 @@ class FakeRuntime:
         event_subscribers=None,
         cancellation_token=None,
         resume_interaction=None,
+        task_spec=None,
     ):
         self.calls.append(
             {
@@ -51,14 +61,33 @@ class FakeRuntime:
                 "event_subscribers": event_subscribers,
                 "cancellation_token": cancellation_token,
                 "resume_interaction": resume_interaction,
+                "task_spec": task_spec,
             }
         )
-        return RuntimeResult(
+        return self.next_result or RuntimeResult(
             session_id=session_id,
             status="success",
             final_response="done",
             messages=list(self.result_messages),
         )
+
+    def get_goal(self, session_id, user_id):
+        return self.goals.get((session_id, user_id))
+
+    def update_goal_status(self, session_id, user_id, status):
+        goal = self.get_goal(session_id, user_id)
+        if goal is None:
+            return None
+        updated = SessionGoal(
+            session_id=goal.session_id,
+            user_id=goal.user_id,
+            objective=goal.objective,
+            status=status,
+            created_at=goal.created_at,
+            updated_at=goal.updated_at,
+        )
+        self.goals[(session_id, user_id)] = updated
+        return updated
 
     def get_latest_trace(self, session_id=None, user_id=None):
         return self.latest_trace
@@ -447,6 +476,59 @@ class ApplicationServiceTests(unittest.TestCase):
         self.assertEqual(runtime.calls[0]["source"], "console")
         self.assertIs(runtime.calls[0]["mode"], RuntimeMode.ONLINE)
         self.assertEqual(runtime.calls[0]["session_id"], "s1")
+
+    def test_active_goal_becomes_the_turn_objective_and_verified_result_completes_it(self) -> None:
+        runtime = FakeRuntime()
+        runtime.goals[("s1", "u1")] = SessionGoal(
+            session_id="s1",
+            user_id="u1",
+            objective="Ship the feature",
+            status=SessionGoalStatus.ACTIVE,
+            created_at=0,
+            updated_at=0,
+        )
+        runtime.next_result = RuntimeResult(
+            session_id="s1",
+            status="success",
+            final_response="done",
+            completion_verified=True,
+        )
+        service = ApplicationService(runtime=runtime)
+
+        service.handle(AppRequest(session_id="s1", user_id="u1", message="Run focused tests"))
+
+        task_spec = runtime.calls[0]["task_spec"]
+        self.assertEqual(task_spec.objective, "Ship the feature")
+        self.assertEqual(task_spec.constraints, ("Current turn request: Run focused tests",))
+        self.assertEqual(
+            runtime.get_goal("s1", "u1").status,
+            SessionGoalStatus.COMPLETE,
+        )
+
+    def test_unverified_success_does_not_complete_an_active_goal(self) -> None:
+        runtime = FakeRuntime()
+        runtime.goals[("s1", "u1")] = SessionGoal(
+            session_id="s1",
+            user_id="u1",
+            objective="Ship the feature",
+            status=SessionGoalStatus.ACTIVE,
+            created_at=0,
+            updated_at=0,
+        )
+        runtime.next_result = RuntimeResult(
+            session_id="s1",
+            status="success",
+            final_response="Everything is complete.",
+            completion_verified=False,
+        )
+        service = ApplicationService(runtime=runtime)
+
+        service.handle(AppRequest(session_id="s1", user_id="u1", message="Summarize progress"))
+
+        self.assertEqual(
+            runtime.get_goal("s1", "u1").status,
+            SessionGoalStatus.ACTIVE,
+        )
 
     def test_handle_generates_session_id_when_missing(self) -> None:
         runtime = FakeRuntime()
