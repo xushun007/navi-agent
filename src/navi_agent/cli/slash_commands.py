@@ -20,6 +20,7 @@ COMMAND_SPECS = (
     SlashCommandSpec("/approve", "Approve the pending tool request", "/approve"),
     SlashCommandSpec("/deny", "Deny the pending tool request", "/deny"),
     SlashCommandSpec("/exit", "Exit Navi Agent", "/exit"),
+    SlashCommandSpec("/goal", "Manage the session goal", "/goal [objective|pause|resume|clear]"),
     SlashCommandSpec("/help", "Show available commands", "/help"),
     SlashCommandSpec("/history", "Show recent sessions", "/history"),
     SlashCommandSpec("/new", "Start a new session", "/new"),

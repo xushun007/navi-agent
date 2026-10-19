@@ -26,6 +26,8 @@ from ..models import (
     RuntimeResult,
     RuntimeMode,
     SessionMetadata,
+    SessionGoal,
+    SessionGoalStatus,
     SessionSummary,
     StepSnapshot,
     TaskSpec,
@@ -107,6 +109,18 @@ def _task_spec_payload(task_spec: TaskSpec) -> dict[str, object]:
         "acceptance": list(task_spec.acceptance),
         "constraints": list(task_spec.constraints),
     }
+
+
+def _task_spec_context_message(task_spec: TaskSpec) -> Message:
+    """Render the runtime-owned task contract visible to every model step."""
+    lines = ["[Task context]", f"Objective: {task_spec.objective}"]
+    if task_spec.acceptance:
+        lines.append("Acceptance criteria:")
+        lines.extend(f"- {criterion}" for criterion in task_spec.acceptance)
+    if task_spec.constraints:
+        lines.append("Constraints:")
+        lines.extend(f"- {constraint}" for constraint in task_spec.constraints)
+    return Message(role="runtime", content="\n".join(lines))
 
 
 def _model_response_payload(
@@ -311,6 +325,27 @@ class AgentRuntime:
 
     def has_session(self, session_id: str, user_id: str) -> bool:
         return self._session_store.has_session(session_id, user_id)
+
+    def ensure_session(self, session_id: str, user_id: str) -> None:
+        self._session_store.load(session_id, user_id)
+
+    def get_goal(self, session_id: str, user_id: str) -> SessionGoal | None:
+        return self._session_store.get_goal(session_id, user_id)
+
+    def set_goal(self, session_id: str, user_id: str, objective: str) -> SessionGoal:
+        self.ensure_session(session_id, user_id)
+        return self._session_store.set_goal(session_id, user_id, objective)
+
+    def update_goal_status(
+        self,
+        session_id: str,
+        user_id: str,
+        status: SessionGoalStatus,
+    ) -> SessionGoal | None:
+        return self._session_store.update_goal_status(session_id, user_id, status)
+
+    def clear_goal(self, session_id: str, user_id: str) -> bool:
+        return self._session_store.clear_goal(session_id, user_id)
 
     def list_sessions(self, user_id: str, limit: int = 10) -> list[SessionSummary]:
         return self._session_store.list_sessions(user_id, limit)
@@ -1129,7 +1164,10 @@ class AgentRuntime:
             context_result = self._context_engine.build(
                 session_snapshot,
                 checkpoint=checkpoint,
-                prefix_messages=[turn.run_system_message],
+                prefix_messages=[
+                    turn.run_system_message,
+                    _task_spec_context_message(turn.task_spec),
+                ],
             )
         except Exception as exc:
             error_info = classify_exception(exc, error_source="context").to_metadata()
@@ -1139,7 +1177,11 @@ class AgentRuntime:
                 exc,
             )
             sanitize_messages = getattr(self._context_engine, "sanitize_tool_pairs", None)
-            fallback_messages = [turn.run_system_message, *session_snapshot]
+            fallback_messages = [
+                turn.run_system_message,
+                _task_spec_context_message(turn.task_spec),
+                *session_snapshot,
+            ]
             if callable(sanitize_messages):
                 fallback_messages = sanitize_messages(fallback_messages)
             context_result = ContextBuildResult(

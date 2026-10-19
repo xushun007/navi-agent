@@ -88,7 +88,7 @@ from navi_agent.telemetry import (
     migrate_legacy_jsonl,
 )
 from navi_agent.ui_events import ConsoleUiEventSink, UiEventEmitter
-from navi_agent.runtime import CliApprovalProvider, RuntimeMode
+from navi_agent.runtime import CliApprovalProvider, RuntimeMode, SessionGoalStatus
 from navi_agent.runtime import ConversationState
 from navi_agent.runtime import DeferredApprovalProvider
 from navi_agent.runtime import JsonPendingInteractionStore
@@ -2035,6 +2035,36 @@ def _render_session_preview(messages, limit: int = 6) -> str:
     return "\n".join(lines)
 
 
+def _handle_goal_command(app, session_id: str, user_id: str, argument: str) -> str:
+    argument = argument.strip()
+    goal = app.get_goal(session_id, user_id)
+    if not argument:
+        if goal is None:
+            return "No session goal. Set one with /goal <objective>."
+        return f"Goal · {goal.status.value}\nObjective · {goal.objective}"
+    if argument == "clear":
+        return "Goal cleared." if app.clear_goal(session_id, user_id) else "No session goal."
+    if argument == "pause":
+        updated = app.update_goal_status(session_id, user_id, SessionGoalStatus.PAUSED)
+        return "Goal paused." if updated is not None else "No session goal."
+    if argument == "resume":
+        updated = app.update_goal_status(session_id, user_id, SessionGoalStatus.ACTIVE)
+        return "Goal resumed." if updated is not None else "No session goal."
+    goal = app.set_goal(session_id, user_id, argument)
+    return f"Goal set · {goal.objective}"
+
+
+def _render_session_status(app, session_id: str, user_id: str, status: str) -> str:
+    goal = app.get_goal(session_id, user_id)
+    goal_line = "none" if goal is None else f"{goal.status.value} · {goal.objective}"
+    return (
+        f"Session   · {session_id}\n"
+        f"Status    · {status}\n"
+        f"Goal      · {goal_line}\n"
+        f"Workspace · {Path.cwd()}"
+    )
+
+
 def _run_interactive(
     *,
     app,
@@ -2084,12 +2114,11 @@ def _run_interactive(
         if slash_command is not None and slash_command.name == "/help":
             print(render_command_help())
             continue
+        if slash_command is not None and slash_command.name == "/goal":
+            print(_handle_goal_command(app, current_session_id, user_id, slash_command.argument))
+            continue
         if slash_command is not None and slash_command.name == "/status":
-            print(
-                f"Session   · {current_session_id}\n"
-                f"Status    · idle\n"
-                f"Workspace · {Path.cwd()}"
-            )
+            print(_render_session_status(app, current_session_id, user_id, "idle"))
             continue
         if slash_command is not None and slash_command.name == "/history":
             print(
@@ -2249,13 +2278,21 @@ def _run_persistent_interactive(
         if slash_command is not None and slash_command.name == "/help":
             prompt_session.show_notice(render_command_help())
             return
+        if slash_command is not None and slash_command.name == "/goal":
+            with state_lock:
+                running = active
+            if running:
+                prompt_session.show_notice("Stop the active task before changing the session goal.")
+                return
+            prompt_session.show_notice(
+                _handle_goal_command(app, current_session_id, user_id, slash_command.argument)
+            )
+            return
         if slash_command is not None and slash_command.name == "/status":
             with state_lock:
                 status = "running" if active else "idle"
             prompt_session.show_notice(
-                f"Session   · {current_session_id}\n"
-                f"Status    · {status}\n"
-                f"Workspace · {Path.cwd()}"
+                _render_session_status(app, current_session_id, user_id, status)
             )
             return
         if slash_command is not None and slash_command.name == "/history":

@@ -32,6 +32,8 @@ from navi_agent.runtime import (
     RuntimeEvent,
     RuntimeResult,
     HostYoloApprovalProvider,
+    SessionGoal,
+    SessionGoalStatus,
     SessionSummary,
 )
 from navi_agent.runtime.tasks.cron import CronRunRecord
@@ -48,6 +50,7 @@ class FakeApp:
         self.sessions = []
         self.session_messages = {}
         self.background_tasks = []
+        self.goals = {}
 
     def handle(self, request, *, event_subscribers=None):
         self.calls.append(request)
@@ -116,6 +119,39 @@ class FakeApp:
 
     def list_background_tasks(self, session_id, user_id):
         return self.background_tasks
+
+    def get_goal(self, session_id, user_id):
+        return self.goals.get((session_id, user_id))
+
+    def set_goal(self, session_id, user_id, objective):
+        goal = SessionGoal(
+            session_id=session_id,
+            user_id=user_id,
+            objective=objective,
+            status=SessionGoalStatus.ACTIVE,
+            created_at=0,
+            updated_at=0,
+        )
+        self.goals[(session_id, user_id)] = goal
+        return goal
+
+    def update_goal_status(self, session_id, user_id, status):
+        goal = self.get_goal(session_id, user_id)
+        if goal is None:
+            return None
+        updated = SessionGoal(
+            session_id=goal.session_id,
+            user_id=goal.user_id,
+            objective=goal.objective,
+            status=status,
+            created_at=goal.created_at,
+            updated_at=goal.updated_at,
+        )
+        self.goals[(session_id, user_id)] = updated
+        return updated
+
+    def clear_goal(self, session_id, user_id):
+        return self.goals.pop((session_id, user_id), None) is not None
 
 
 class FakeSessionStore:
@@ -1445,6 +1481,7 @@ class CliTests(unittest.TestCase):
         app = FakeApp()
         stdout = io.StringIO()
 
+        app.set_goal("s1", "u1", "Ship the feature")
         with patch("builtins.input", side_effect=["/help", "/status", "/exit"]):
             with redirect_stdout(stdout):
                 exit_code = _run_interactive(
@@ -1459,6 +1496,29 @@ class CliTests(unittest.TestCase):
         self.assertIn("/steer <message>", stdout.getvalue())
         self.assertIn("Session   · s1", stdout.getvalue())
         self.assertIn("Status    · idle", stdout.getvalue())
+        self.assertIn("Goal      · active · Ship the feature", stdout.getvalue())
+
+    def test_run_interactive_manages_goal_without_starting_a_turn(self) -> None:
+        app = FakeApp()
+        stdout = io.StringIO()
+
+        with patch(
+            "builtins.input",
+            side_effect=["/goal ship the feature", "/goal", "/goal pause", "/exit"],
+        ):
+            with redirect_stdout(stdout):
+                exit_code = _run_interactive(
+                    app=app,
+                    user_id="u1",
+                    session_id="s1",
+                    system_prompt=None,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(app.calls, [])
+        self.assertIn("Goal set · ship the feature", stdout.getvalue())
+        self.assertIn("Goal · active", stdout.getvalue())
+        self.assertIn("Goal paused.", stdout.getvalue())
 
     def test_run_interactive_lists_and_resumes_session(self) -> None:
         app = FakeApp()

@@ -19,6 +19,7 @@ from navi_agent.runtime import (
     RuntimeResult,
     RuntimeRunState,
     RunStateTracker,
+    SessionGoalStatus,
     TaskSpec,
 )
 
@@ -81,6 +82,14 @@ class ConversationService:
 
         if request.mode is RuntimeMode.ONLINE:
             self._before_online_run(session_id, request.user_id)
+        get_goal = getattr(self._runtime, "get_goal", None)
+        goal = get_goal(session_id, request.user_id) if callable(get_goal) else None
+        task_spec = request.task_spec
+        if task_spec is None and goal is not None and goal.status is SessionGoalStatus.ACTIVE:
+            task_spec = TaskSpec(
+                objective=goal.objective,
+                constraints=(f"Current turn request: {request.message}",),
+            )
         cancellation_token = self._active_runs.start(session_id)
         try:
             runtime_kwargs = {
@@ -94,8 +103,8 @@ class ConversationService:
                 "cancellation_token": cancellation_token,
                 "resume_interaction": resume_interaction,
             }
-            if request.task_spec is not None:
-                runtime_kwargs["task_spec"] = request.task_spec
+            if task_spec is not None:
+                runtime_kwargs["task_spec"] = task_spec
             result = self._runtime.run_conversation(
                 **runtime_kwargs,
             )
@@ -110,6 +119,16 @@ class ConversationService:
                 result=result,
                 session_id=result.session_id,
                 user_id=request.user_id,
+            )
+        if (
+            goal is not None
+            and goal.status is SessionGoalStatus.ACTIVE
+            and result.completion_verified is True
+        ):
+            self._runtime.update_goal_status(
+                session_id,
+                request.user_id,
+                SessionGoalStatus.COMPLETE,
             )
         return result
 

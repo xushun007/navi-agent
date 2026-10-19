@@ -1,6 +1,6 @@
 import unittest
 
-from navi_agent.runtime.models import Message
+from navi_agent.runtime.models import Message, SessionGoalStatus
 from navi_agent.runtime.sessions.memory import InMemorySessionStore
 
 
@@ -37,3 +37,15 @@ class InMemorySessionStoreTest(unittest.TestCase):
         self.assertFalse(self.store.has_session("s1", "u2"))
         self.assertEqual([session.session_id for session in sessions], ["s1"])
         self.assertEqual(sessions[0].message_count, 1)
+
+    def test_goal_lifecycle_is_scoped_to_the_session_owner(self) -> None:
+        self.store.load("s1", "u1")
+
+        goal = self.store.set_goal("s1", "u1", "Ship the feature")
+        paused = self.store.update_goal_status("s1", "u1", SessionGoalStatus.PAUSED)
+
+        self.assertEqual(goal.status, SessionGoalStatus.ACTIVE)
+        self.assertEqual(paused.status if paused else None, SessionGoalStatus.PAUSED)
+        self.assertIsNone(self.store.get_goal("s1", "u2"))
+        self.assertTrue(self.store.clear_goal("s1", "u1"))
+        self.assertIsNone(self.store.get_goal("s1", "u1"))
