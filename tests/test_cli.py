@@ -192,6 +192,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 0)
         self.assertRegex(stdout.getvalue(), r"^navi-agent \d+\.\d+\.\d+")
 
+    def test_help_lists_available_commands(self) -> None:
+        help_text = build_parser().format_help()
+
+        self.assertIn("commands:", help_text)
+        for command in (
+            'navi-agent "hello"',
+            "navi-agent --interactive",
+            "navi-agent init",
+            "navi-agent doctor",
+            "navi-agent gateway start",
+            "navi-agent cron run",
+            "navi-agent eval run SUITE",
+            "navi-agent skill import PATH",
+            "navi-agent trace serve",
+        ):
+            self.assertIn(command, help_text)
+
     def test_build_parser_parses_expected_arguments(self) -> None:
         parser = build_parser()
 
