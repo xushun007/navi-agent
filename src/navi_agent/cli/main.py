@@ -132,12 +132,37 @@ telemetry:
 """
 
 
+COMMAND_EPILOG = """\
+commands:
+  navi-agent "hello"                 one-shot prompt
+  navi-agent --interactive           interactive session
+  navi-agent init                    write a default config file
+  navi-agent doctor                  environment and config diagnostics
+  navi-agent gateway start           run the Weixin gateway
+  navi-agent gateway send "hello"    send a Weixin message
+  navi-agent gateway dead-letters    list unsent Weixin messages
+  navi-agent cron run                run one scheduled review pass
+  navi-agent eval run SUITE          run an evaluation suite
+  navi-agent skill import PATH       stage a skill draft
+  navi-agent trace serve             serve the telemetry trace viewer
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="navi-agent")
+    parser = argparse.ArgumentParser(
+        prog="navi-agent",
+        description="Local agent runtime CLI. Run a prompt, or use a command below.",
+        epilog=COMMAND_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("message", nargs="?")
-    parser.add_argument("subcommand", nargs="?")
-    parser.add_argument("command_target", nargs="?")
+    parser.add_argument(
+        "message",
+        nargs="?",
+        help="prompt text, or a command name such as 'gateway' or 'cron'",
+    )
+    parser.add_argument("subcommand", nargs="?", help="command action, e.g. 'run' or 'start'")
+    parser.add_argument("command_target", nargs="?", help="command argument, e.g. a suite name")
     parser.add_argument("--user-id", default="local-user")
     parser.add_argument("--session-id")
     parser.add_argument("--system-prompt")
