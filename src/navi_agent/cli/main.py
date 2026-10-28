@@ -103,13 +103,13 @@ from navi_agent.evolution.evals.healthcheck import (
 
 
 DEFAULT_CONFIG_TEMPLATE = """model:
-  name: gpt-4o-mini
+  name: deepseek-flash
   api_key: replace-with-your-api-key
-  base_url: https://api.openai.com/v1
-  context_limit_tokens: 128000
+  base_url: https://api.deepseek.com
+  context_limit_tokens: 200000
 
 runtime:
-  max_iterations: 30
+  max_iterations: 50
 
 web:
   search_api_key:

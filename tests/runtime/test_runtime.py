@@ -214,10 +214,10 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertIn("- focused tests pass", context)
         self.assertIn("- keep the public API stable", context)
 
-    def test_runtime_defaults_to_thirty_iterations(self) -> None:
+    def test_runtime_defaults_to_fifty_iterations(self) -> None:
         runtime = AgentRuntime(transport=FakeTransport([]))
 
-        self.assertEqual(runtime._max_iterations, 30)
+        self.assertEqual(runtime._max_iterations, 50)
 
     def test_runtime_reads_existing_session_messages_for_owner(self) -> None:
         session_store = InMemorySessionStore()

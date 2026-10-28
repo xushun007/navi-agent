@@ -1,10 +1,11 @@
 model:
-  name: gpt-4o-mini
+  name: deepseek-flash
   api_key: replace-with-your-api-key
-  base_url: https://api.openai.com/v1
+  base_url: https://api.deepseek.com
+  context_limit_tokens: 200000
 
 runtime:
-  max_iterations: 30
+  max_iterations: 50
 
 gateway:
   weixin:
