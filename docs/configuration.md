@@ -3,17 +3,20 @@
 Navi Agent reads YAML configuration from `~/.navi-agent/config.yaml` by
 default. Environment variables override values from the file.
 
+The default model is `deepseek-flash` through DeepSeek's official OpenAI-compatible API.
+Set `NAVI_MODEL`, `NAVI_BASE_URL`, or the configuration fields to use another provider.
+
 ## Configuration file
 
 ```yaml
 model:
-  name: gpt-4o-mini
+  name: deepseek-flash
   api_key: replace-with-your-api-key
-  base_url: https://api.openai.com/v1
-  context_limit_tokens: 128000
+  base_url: https://api.deepseek.com
+  context_limit_tokens: 200000
 
 runtime:
-  max_iterations: 30
+  max_iterations: 50
 
 web:
   search_api_key: replace-with-your-brave-search-api-key
@@ -109,6 +112,7 @@ sampling, and legacy SSE fallback are not supported yet.
 | `NAVI_PROFILE` | Use `~/.navi-agent/profiles/<name>` as an isolated profile |
 | `NAVI_MODEL` | Model name |
 | `NAVI_API_KEY` | Model API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key fallback |
 | `NAVI_BASE_URL` | OpenAI-compatible API base URL |
 | `NAVI_CONTEXT_LIMIT_TOKENS` | Context window limit used by compaction |
 | `NAVI_MAX_ITERATIONS` | Maximum runtime iterations per request |

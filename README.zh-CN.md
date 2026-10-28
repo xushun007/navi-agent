@@ -18,7 +18,7 @@ tools、memory、telemetry、evolution 组成的单一可靠执行链路，并�
 ```bash
 uv tool install navi-agent
 navi-agent init
-# 在 ~/.navi-agent/config.yaml 中填写模型凭据
+# 在 ~/.navi-agent/config.yaml 中填写 DeepSeek API Key
 navi-agent doctor
 navi-agent
 ```

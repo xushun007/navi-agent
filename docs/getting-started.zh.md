@@ -51,9 +51,9 @@ navi-agent init
 
 ```yaml
 model:
-  name: gpt-4o-mini
-  api_key: your-api-key
-  base_url: https://api.openai.com/v1
+  name: deepseek-flash
+  api_key: your-deepseek-api-key
+  base_url: https://api.deepseek.com
 ```
 
 检查配置：
