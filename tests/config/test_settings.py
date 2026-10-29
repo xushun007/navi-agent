@@ -139,10 +139,24 @@ class SettingsTests(unittest.TestCase):
         ):
             settings = ModelSettings.from_env()
 
-        self.assertEqual(settings.model, "gpt-4o-mini")
+        self.assertEqual(settings.model, "deepseek-flash")
         self.assertEqual(settings.api_key, "openai-key")
         self.assertEqual(settings.base_url, "https://openai-compatible.test/v1")
-        self.assertEqual(settings.context_limit_tokens, 128000)
+        self.assertEqual(settings.context_limit_tokens, 200000)
+
+    def test_model_settings_defaults_to_official_deepseek(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = ModelSettings.from_sources({})
+
+        self.assertEqual(settings.model, "deepseek-flash")
+        self.assertEqual(settings.base_url, "https://api.deepseek.com")
+        self.assertEqual(settings.context_limit_tokens, 200000)
+
+    def test_model_settings_reads_deepseek_api_key(self) -> None:
+        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "deepseek-key"}, clear=True):
+            settings = ModelSettings.from_sources({})
+
+        self.assertEqual(settings.api_key, "deepseek-key")
 
     def test_load_config_reads_yaml_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -189,11 +203,11 @@ runtime:
 
         self.assertEqual(settings.max_iterations, 12)
 
-    def test_runtime_settings_defaults_to_thirty_iterations(self) -> None:
+    def test_runtime_settings_defaults_to_fifty_iterations(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             settings = RuntimeSettings.from_sources({})
 
-        self.assertEqual(settings.max_iterations, 30)
+        self.assertEqual(settings.max_iterations, 50)
 
     def test_runtime_settings_reads_from_config_file_values(self) -> None:
         config = {

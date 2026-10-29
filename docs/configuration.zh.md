@@ -2,17 +2,20 @@
 
 Navi Agent 默认从 `~/.navi-agent/config.yaml` 读取 YAML 配置。环境变量的优先级高于配置文件。
 
+默认模型为通过 DeepSeek 官方 OpenAI 兼容接口调用的 `deepseek-flash`；如需其他服务，使用
+`NAVI_MODEL`、`NAVI_BASE_URL` 或配置文件中的对应字段覆盖。
+
 ## 配置文件
 
 ```yaml
 model:
-  name: gpt-4o-mini
+  name: deepseek-flash
   api_key: replace-with-your-api-key
-  base_url: https://api.openai.com/v1
-  context_limit_tokens: 128000
+  base_url: https://api.deepseek.com
+  context_limit_tokens: 200000
 
 runtime:
-  max_iterations: 30
+  max_iterations: 50
 
 web:
   search_api_key: replace-with-your-brave-search-api-key
@@ -103,6 +106,7 @@ mcp:
 | `NAVI_PROFILE` | 使用 `~/.navi-agent/profiles/<name>` 隔离 Profile |
 | `NAVI_MODEL` | 模型名称 |
 | `NAVI_API_KEY` | 模型 API Key |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key 回退值 |
 | `NAVI_BASE_URL` | OpenAI 兼容接口的 Base URL |
 | `NAVI_CONTEXT_LIMIT_TOKENS` | 上下文压缩使用的 Token 上限 |
 | `NAVI_MAX_ITERATIONS` | 单次请求的最大迭代次数 |

@@ -19,7 +19,7 @@ Install the latest stable release from PyPI:
 ```bash
 uv tool install navi-agent
 navi-agent init
-# Add your model credentials to ~/.navi-agent/config.yaml
+# Add your DeepSeek API key to ~/.navi-agent/config.yaml
 navi-agent doctor
 navi-agent
 ```

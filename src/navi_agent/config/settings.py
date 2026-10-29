@@ -10,6 +10,12 @@ from navi_agent.paths import get_config_path
 import yaml
 
 
+DEFAULT_MODEL = "deepseek-flash"
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEFAULT_CONTEXT_LIMIT_TOKENS = 200_000
+DEFAULT_MAX_ITERATIONS = 50
+
+
 def load_config(path: str | Path | None = None) -> dict:
     config_path = Path(path) if path is not None else get_config_path()
     if not config_path.exists():
@@ -21,10 +27,10 @@ def load_config(path: str | Path | None = None) -> dict:
 
 @dataclass(slots=True)
 class ModelSettings:
-    model: str = "gpt-4o-mini"
+    model: str = DEFAULT_MODEL
     api_key: str | None = None
-    base_url: str | None = None
-    context_limit_tokens: int = 128_000
+    base_url: str | None = DEFAULT_BASE_URL
+    context_limit_tokens: int = DEFAULT_CONTEXT_LIMIT_TOKENS
 
     @classmethod
     def from_sources(cls, config: dict | None = None) -> "ModelSettings":
@@ -33,10 +39,11 @@ class ModelSettings:
         return cls(
             model=os.getenv(
                 "NAVI_MODEL",
-                str(model_cfg.get("name", "gpt-4o-mini")),
+                str(model_cfg.get("name", DEFAULT_MODEL)),
             ),
             api_key=(
                 os.getenv("NAVI_API_KEY")
+                or os.getenv("DEEPSEEK_API_KEY")
                 or os.getenv("OPENAI_API_KEY")
                 or _optional_str(model_cfg.get("api_key"))
             ),
@@ -44,11 +51,12 @@ class ModelSettings:
                 os.getenv("NAVI_BASE_URL")
                 or os.getenv("OPENAI_BASE_URL")
                 or _optional_str(model_cfg.get("base_url"))
+                or DEFAULT_BASE_URL
             ),
             context_limit_tokens=int(
                 os.getenv(
                     "NAVI_CONTEXT_LIMIT_TOKENS",
-                    str(model_cfg.get("context_limit_tokens", "128000")),
+                    str(model_cfg.get("context_limit_tokens", DEFAULT_CONTEXT_LIMIT_TOKENS)),
                 )
             ),
         )
@@ -60,7 +68,7 @@ class ModelSettings:
 
 @dataclass(slots=True)
 class RuntimeSettings:
-    max_iterations: int = 30
+    max_iterations: int = DEFAULT_MAX_ITERATIONS
 
     @classmethod
     def from_sources(cls, config: dict | None = None) -> "RuntimeSettings":
@@ -68,7 +76,7 @@ class RuntimeSettings:
         runtime_cfg = config.get("runtime") or {}
         raw_value = os.getenv(
             "NAVI_MAX_ITERATIONS",
-            str(runtime_cfg.get("max_iterations", "30")),
+            str(runtime_cfg.get("max_iterations", DEFAULT_MAX_ITERATIONS)),
         )
         return cls(max_iterations=int(raw_value))
 
