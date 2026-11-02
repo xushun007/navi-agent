@@ -1524,7 +1524,12 @@ class CliTests(unittest.TestCase):
 
         with patch(
             "builtins.input",
-            side_effect=["/goal ship the feature", "/goal", "/goal pause", "/exit"],
+            side_effect=[
+                "/goal ship the feature",
+                "/goal status",
+                "/goal pause",
+                "/exit",
+            ],
         ):
             with redirect_stdout(stdout):
                 exit_code = _run_interactive(
@@ -1539,6 +1544,10 @@ class CliTests(unittest.TestCase):
         self.assertIn("Goal set · ship the feature", stdout.getvalue())
         self.assertIn("Goal · active", stdout.getvalue())
         self.assertIn("Goal paused.", stdout.getvalue())
+        goal = app.get_goal("s1", "u1")
+        self.assertIsNotNone(goal)
+        self.assertEqual(goal.objective, "ship the feature")
+        self.assertEqual(goal.status, SessionGoalStatus.PAUSED)
 
     def test_run_interactive_lists_and_resumes_session(self) -> None:
         app = FakeApp()
