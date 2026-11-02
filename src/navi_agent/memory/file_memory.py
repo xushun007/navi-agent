@@ -163,6 +163,7 @@ class FileMemoryStore:
         validation_error = validate_memory_content(content)
         if validation_error:
             raise ValueError(validation_error)
+        provenance = provenance or MemoryWriteProvenance()
         with self._file_lock():
             records = self._read_all()
             updated = None
@@ -183,6 +184,8 @@ class FileMemoryStore:
                     )
                     before_content = record.content
                     record.content = normalized_content
+                    record.source = self._single_line(provenance.source) or "unknown"
+                    record.source_session_id = self._single_line(provenance.source_session_id)
                     updated = record
                     break
             if updated is None:
@@ -191,7 +194,7 @@ class FileMemoryStore:
             self._append_audit(
                 updated,
                 action="update",
-                provenance=provenance or MemoryWriteProvenance(),
+                provenance=provenance,
                 before_content=before_content,
                 after_content=updated.content,
             )
@@ -199,7 +202,7 @@ class FileMemoryStore:
                 self._append_audit(
                     updated,
                     action="conflict_resolved",
-                    provenance=provenance or MemoryWriteProvenance(),
+                    provenance=provenance,
                     before_content="\n".join(item.content for item in conflicts),
                     after_content=updated.content,
                     resolution="retain_both",
