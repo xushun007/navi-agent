@@ -110,6 +110,17 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn("memory id: m1, source session: prior-session", message.content)
         self.assertIn("Current user instructions take precedence", message.content)
 
+    def test_short_continuation_uses_recent_user_request_for_recall(self) -> None:
+        self.memory.add_for_user("u1", "Navi release uses trusted publishing")
+        message = self.builder.build_run_system_message(
+            user_id="u1", user_message="继续", recent_user_messages=("检查 Navi release",),
+        )
+        self.assertIn("Navi release uses trusted publishing", message.content)
+        unrelated = self.builder.build_run_system_message(
+            user_id="u1", user_message="查询天气", recent_user_messages=("检查 Navi release",),
+        )
+        self.assertNotIn("Navi release uses trusted publishing", unrelated.content)
+
     def test_new_session_sanitizes_memory_prompt_injection(self) -> None:
         memory = InMemoryMemoryStore(
             records=[

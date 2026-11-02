@@ -222,9 +222,12 @@ class MemoryPromptContributor:
     def contribute(self, request: PromptRequest) -> PromptSection | None:
         if self._store is None:
             return None
+        query = request.user_message.strip()
+        if query.casefold().rstrip("。.!！ ") in {"继续", "好，继续", "好的，继续", "continue", "go on"} and request.recent_user_messages:
+            query = f"{request.recent_user_messages[-1][:500]} {query}"
         recall = self._store.recall_for_user(
             request.user_id,
-            request.user_message,
+            query,
             profile_limit=self._profile_limit,
             relevant_limit=self._relevant_limit,
         )

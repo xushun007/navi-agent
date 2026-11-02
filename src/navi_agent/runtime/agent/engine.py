@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import inspect
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -557,11 +558,15 @@ class AgentRuntime:
                 ),
             },
         )
-        run_system_message = self._prompt_builder.build_run_system_message(
-            user_id=user_id,
-            user_message=user_message,
-            system_prompt=system_prompt,
-        )
+        prompt_args = dict(user_id=user_id, user_message=user_message, system_prompt=system_prompt)
+        prompt_method = self._prompt_builder.build_run_system_message
+        parameters = inspect.signature(prompt_method).parameters
+        if "recent_user_messages" in parameters:
+            previous = self._session_store.snapshot(session)
+            prompt_args["recent_user_messages"] = tuple(
+                message.content for message in previous if message.role == "user"
+            )[-2:]
+        run_system_message = prompt_method(**prompt_args)
         if resume_interaction is None:
             self._session_store.append(
                 session,
