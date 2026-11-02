@@ -75,6 +75,7 @@ class SessionSearchTool(BaseTool):
                 {"required": ["query"]},
                 {"required": ["session_id", "around_message_id"]},
                 {"required": ["session_id"]},
+                {"properties": {"scope": {"const": "current"}}, "required": ["scope"]},
             ],
         }
 
