@@ -52,6 +52,7 @@ from navi_agent.evolution import (
     SkillUsageStore,
 )
 from navi_agent.evolution.evals.smoke import SmokeRunStore, SmokeWorkflowService
+from navi_agent.evolution.reviews.run_store import JsonlReviewRunStore
 from navi_agent.gateway.weixin import (
     ILinkClient,
     ILinkGateway,
@@ -73,6 +74,7 @@ from navi_agent.paths import get_pending_interactions_path
 from navi_agent.paths import get_prompt_overlay_path
 from navi_agent.paths import get_prompt_overlay_snapshots_dir
 from navi_agent.paths import get_runtime_event_store_path
+from navi_agent.paths import get_review_run_store_path
 from navi_agent.paths import get_skills_dir
 from navi_agent.paths import get_smoke_reports_dir
 from navi_agent.paths import get_state_db_path
@@ -213,6 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skill-curator-status", action="store_true")
     parser.add_argument("--skill-curator-archive-unused", action="store_true")
     parser.add_argument("--background-review-status", action="store_true")
+    parser.add_argument("--memory-review-proposals", action="store_true", help="Show recent background memory change proposals")
     parser.add_argument("--runtime-events", action="store_true")
     parser.add_argument("--runtime-health", action="store_true")
     parser.add_argument("--runtime-export-tool-use-case", action="store_true")
@@ -337,6 +340,8 @@ def main() -> int:
             system_prompt=args.system_prompt,
             yolo=args.yolo,
         )
+    if args.memory_review_proposals:
+        return _print_memory_review_proposals(user_id=args.user_id, limit=args.limit or 20)
     if args.runtime_events:
         return _print_runtime_events(
             session_id=args.session_id,
@@ -1588,6 +1593,27 @@ def _archive_unused_agent_skills() -> int:
         print("archived_skills:")
         for name in result.archived_names:
             print(f"- {name}")
+    return 0
+
+
+def _print_memory_review_proposals(*, user_id: str, limit: int = 20) -> int:
+    records = JsonlReviewRunStore(get_review_run_store_path()).list_recent()
+    proposals = [
+        (run, result.structured_content)
+        for run in records if run.user_id == user_id
+        for result in run.tool_results
+        if result.name == "memory" and result.action in {"propose_update", "propose_remove"}
+    ][:max(1, limit)]
+    if not proposals:
+        print("No memory review proposals.")
+        return 0
+    print("Memory review proposals (history; not applied automatically):")
+    for run, proposal in proposals:
+        print(f"- {run.created_at} · {proposal['action']} · memory {proposal['id']}")
+        print(f"  Current at review: {proposal.get('previous_content', '')}")
+        if proposal["action"] == "propose_update":
+            print(f"  Proposed: {proposal.get('proposed_content', '')}")
+        print(f"  Source session: {run.session_id} · review: {run.review_run_id}")
     return 0
 
 

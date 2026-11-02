@@ -2274,6 +2274,32 @@ class CliTests(unittest.TestCase):
         self.assertIn("background_review_completed_count: 2", stdout.getvalue())
         self.assertIn("background_review_failed_count: 0", stdout.getvalue())
 
+    def test_main_lists_only_current_users_memory_proposals(self) -> None:
+        from navi_agent.evolution.reviews.run_store import JsonlReviewRunStore, ReviewRunRecord, ReviewToolResultRecord
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "reviews.jsonl"
+            store = JsonlReviewRunStore(path)
+            for user, text in [("u1", "Detailed answers"), ("u2", "Private preference")]:
+                store.add(ReviewRunRecord(
+                    session_id="session-1", trace_id="trace-1", user_id=user,
+                    review_memory=True, review_skill=False, status="success",
+                    tool_results=[ReviewToolResultRecord(
+                        name="memory", status="success", action="propose_update",
+                        structured_content={"action": "propose_update", "id": "m1",
+                                            "previous_content": "Concise answers", "proposed_content": text},
+                    )],
+                ))
+            stdout = io.StringIO()
+            with patch("navi_agent.cli.main.get_review_run_store_path", return_value=path):
+                with patch("sys.argv", ["navi-agent", "--memory-review-proposals", "--user-id", "u1"]):
+                    with redirect_stdout(stdout):
+                        exit_code = main()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Detailed answers", stdout.getvalue())
+        self.assertNotIn("Private preference", stdout.getvalue())
+        self.assertIn("not applied automatically", stdout.getvalue())
+
     def test_main_prints_runtime_events(self) -> None:
         stdout = io.StringIO()
 
