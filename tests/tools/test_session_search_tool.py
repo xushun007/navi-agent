@@ -1,4 +1,4 @@
-from navi_agent.runtime import Message, SQLiteSessionStore, SessionMetadata
+from navi_agent.runtime import ContextCompactionCheckpoint, Message, SQLiteSessionStore, SessionMetadata
 from navi_agent.tooling import ToolContext
 from navi_agent.tools.session_search_tool import SessionSearchTool
 
@@ -183,6 +183,10 @@ def test_current_scope_recalls_original_history_and_preserves_user_isolation(tmp
     store = SQLiteSessionStore(tmp_path / "state.db")
     current = store.load("current", "u1")
     _append(store, current, "Keep the public API stable", "Implemented the change", "Tests passed")
+    store.save_compaction_checkpoint(current, ContextCompactionCheckpoint(
+        session_id="current", covered_message_count=2, protected_head_count=0,
+        source_hash="historical-prefix", summary="[Context Summary]\nWork was implemented.",
+    ))
     other = store.load("other", "u2")
     _append(store, other, "Keep the public API stable secret")
     tool = SessionSearchTool(store)
