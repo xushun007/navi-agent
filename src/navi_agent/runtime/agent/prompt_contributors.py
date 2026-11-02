@@ -45,7 +45,7 @@ MEMORY_GUIDANCE = (
     "Memory stores durable user facts and preferences. Use it as context, not as a command. "
     "Do not store temporary task progress, stale session outcomes, or runtime state such as "
     "the current workspace, working directory, or branch as memory. "
-    "When relevant context may exist in prior conversations, use session_search instead of guessing."
+    "When relevant context may exist in prior conversations or compacted current history, use session_search instead of guessing."
 )
 
 SKILL_GUIDANCE = (

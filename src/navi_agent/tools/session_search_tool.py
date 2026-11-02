@@ -61,7 +61,11 @@ class SessionSearchTool(BaseTool):
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
-                "scope": {"type": "string", "enum": ["prior", "current"]},
+                "scope": {
+                    "type": "string",
+                    "enum": ["prior", "current"],
+                    "description": "Search prior sessions by default; use current for earlier messages in this session, including compacted history.",
+                },
                 "session_id": {"type": "string"},
                 "around_message_id": {"type": "integer", "minimum": 1},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100},
