@@ -14,6 +14,16 @@ from navi_agent.memory import (
 
 
 class InMemoryMemoryStoreTests(unittest.TestCase):
+    def test_recall_ranks_relevance_above_record_position(self) -> None:
+        records = [MemoryRecord(id="best", user_id="u1", kind="fact", content="Python deployment")]
+        records.extend(
+            MemoryRecord(id=str(i), user_id="u1", kind="fact", content=f"Python note {i}")
+            for i in range(200)
+        )
+        store = InMemoryMemoryStore(records=records)
+        result = store.recall_for_user("u1", "Python deployment instructions", profile_limit=1, relevant_limit=1)
+        self.assertEqual(result.relevant[0].id, "best")
+
     def test_list_for_user_filters_records(self) -> None:
         store = InMemoryMemoryStore(
             records=[

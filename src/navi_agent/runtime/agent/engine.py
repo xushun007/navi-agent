@@ -825,7 +825,7 @@ class AgentRuntime:
             is_context_error = isinstance(exc, ContextLimitError)
             error_info = classify_exception(exc, error_source="context" if is_context_error else "model").to_metadata()
             logger.exception(
-                "Model transport failed: session_id=%s error=%s",
+                "Runtime step failed: session_id=%s error=%s",
                 session_id,
                 exc,
                 exc_info=(type(exc), exc, exc.__traceback__),
