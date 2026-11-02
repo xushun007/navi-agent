@@ -14,9 +14,11 @@ class MemoryTool(BaseTool):
         memory_store: MemoryStore,
         *,
         provenance: MemoryWriteProvenance | None = None,
+        defer_changes: bool = False,
     ) -> None:
         self._memory_store = memory_store
         self._provenance = provenance
+        self._defer_changes = defer_changes
 
     @property
     def name(self) -> str:
@@ -54,6 +56,24 @@ class MemoryTool(BaseTool):
             source_session_id=context.session_id,
             source_trace_id=context.run_id or "",
         )
+        if self._defer_changes and action in {"update", "remove"}:
+            record_id = str(kwargs.get("id", "")).strip()
+            record = self._memory_store.get_for_user(context.user_id, record_id)
+            if record is None:
+                return ToolResult.error(name=self.name, content="memory_error: item not found")
+            content = str(kwargs.get("content", "")).strip()
+            if action == "update" and not content:
+                return ToolResult.error(name=self.name, content="memory_error: content is required for update")
+            return ToolResult.ok(
+                name=self.name,
+                content="memory_change_proposed: existing memory was not changed",
+                structured_content={
+                    "action": f"propose_{action}",
+                    "id": record.id,
+                    "previous_content": record.content,
+                    "proposed_content": content if action == "update" else "",
+                },
+            )
         if action == "add":
             kind = str(kwargs.get("kind", "fact")).strip().lower()
             if kind not in {"fact", "preference", "task"}:

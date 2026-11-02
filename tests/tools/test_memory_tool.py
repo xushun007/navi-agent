@@ -7,6 +7,26 @@ from navi_agent.tools import MemoryTool
 
 
 class MemoryToolTests(unittest.TestCase):
+    def test_deferred_review_changes_keep_existing_memory(self) -> None:
+        store = InMemoryMemoryStore()
+        record = store.add_for_user("u1", "Old preference")
+        tool = MemoryTool(memory_store=store, defer_changes=True)
+        context = ToolContext(session_id="review", user_id="u1", iteration=1)
+
+        proposal = tool.invoke(context=context, action="update", id=record.id, content="New preference")
+        removal = tool.invoke(context=context, action="remove", id=record.id)
+        self.assertEqual(proposal.structured_content["action"], "propose_update")
+        self.assertEqual(proposal.structured_content["previous_content"], "Old preference")
+        self.assertEqual(proposal.structured_content["proposed_content"], "New preference")
+        self.assertEqual(removal.structured_content["action"], "propose_remove")
+        self.assertEqual(store.get_for_user("u1", record.id).content, "Old preference")
+        self.assertEqual([item.action for item in store.audit_for_user("u1")], ["add"])
+        denied = tool.invoke(
+            context=ToolContext(session_id="review", user_id="u2", iteration=1),
+            action="remove", id=record.id,
+        )
+        self.assertEqual(denied.status, "error")
+
     def test_adds_and_lists_records(self) -> None:
         store = InMemoryMemoryStore()
         tool = MemoryTool(memory_store=store)

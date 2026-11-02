@@ -21,6 +21,28 @@ class ScriptedTransport:
         return self.responses.pop(0)
 
 
+def test_review_agent_proposes_instead_of_overwriting_memory(tmp_path: Path) -> None:
+    memory = InMemoryMemoryStore()
+    existing = memory.add_for_user("user-1", "Prefers concise answers", kind="preference")
+    transport = ScriptedTransport([
+        ModelResponse(tool_calls=[ToolCall(id="update", name="memory", arguments={
+            "action": "update", "id": existing.id, "content": "Prefers detailed answers",
+        })]),
+        ModelResponse(content="Proposed a memory update."),
+    ])
+    result = ReviewAgentService(
+        transport=transport, memory_store=memory, skill_store=FileSkillStore(tmp_path),
+    ).review_and_write(
+        evidence=SkillReviewEvidence(
+            session_id="session-1", trace_id="trace-1", user_id="user-1",
+            messages_snapshot=[Message(role="user", content="I prefer detailed answers")],
+        ),
+        review_memory=True, review_skill=False,
+    )
+    assert result.tool_results[0].structured_content["action"] == "propose_update"
+    assert memory.get_for_user("user-1", existing.id).content == "Prefers concise answers"
+
+
 def test_skill_review_agent_creates_skill_via_tool(tmp_path: Path) -> None:
     store = FileSkillStore(tmp_path)
     transport = ScriptedTransport(
