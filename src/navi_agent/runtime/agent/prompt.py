@@ -81,11 +81,13 @@ class PromptBuilder:
         user_id: str,
         user_message: str,
         system_prompt: str | None = None,
+        recent_user_messages: tuple[str, ...] = (),
     ) -> Message:
         prompt = self.build_system_prompt(
             user_id=user_id,
             user_message=user_message,
             system_prompt=system_prompt,
+            recent_user_messages=recent_user_messages,
         )
         return Message(role="system", content=prompt.render())
 
@@ -95,6 +97,7 @@ class PromptBuilder:
         user_id: str,
         user_message: str,
         system_prompt: str | None = None,
+        recent_user_messages: tuple[str, ...] = (),
     ) -> PromptParts:
         self._last_injected_skill_names = []
         self._last_injected_context_files = []
@@ -104,6 +107,7 @@ class PromptBuilder:
                 user_id=user_id,
                 user_message=user_message,
                 system_prompt=system_prompt,
+                recent_user_messages=recent_user_messages,
             )
         )
         self._last_injected_context_files = [

@@ -1,4 +1,4 @@
-from navi_agent.runtime import Message, SQLiteSessionStore, SessionMetadata
+from navi_agent.runtime import ContextCompactionCheckpoint, Message, SQLiteSessionStore, SessionMetadata
 from navi_agent.tooling import ToolContext
 from navi_agent.tools.session_search_tool import SessionSearchTool
 
@@ -177,3 +177,27 @@ def test_read_and_around_enforce_user_and_current_lineage_isolation(tmp_path) ->
     assert current_read.structured_content["found"] is False
     assert private_read.structured_content["found"] is False
     assert private_around.structured_content["found"] is False
+
+
+def test_current_scope_recalls_original_history_and_preserves_user_isolation(tmp_path) -> None:
+    store = SQLiteSessionStore(tmp_path / "state.db")
+    current = store.load("current", "u1")
+    _append(store, current, "Keep the public API stable", "Implemented the change", "Tests passed")
+    store.save_compaction_checkpoint(current, ContextCompactionCheckpoint(
+        session_id="current", covered_message_count=2, protected_head_count=0,
+        source_hash="historical-prefix", summary="[Context Summary]\nWork was implemented.",
+    ))
+    other = store.load("other", "u2")
+    _append(store, other, "Keep the public API stable secret")
+    tool = SessionSearchTool(store)
+    context = ToolContext(session_id="current", user_id="u1", iteration=1)
+
+    result = tool.invoke(context=context, scope="current", query="public API", window=1)
+    hits = result.structured_content["sessions"]
+    assert [hit["session_id"] for hit in hits] == ["current"]
+    assert hits[0]["matched_message"]["content"] == "Keep the public API stable"
+    anchor = hits[0]["matched_message"]["id"]
+    around = tool.invoke(context=context, scope="current", around_message_id=anchor)
+    assert around.structured_content["messages"][0]["content"] == "Keep the public API stable"
+    denied = tool.invoke(context=context, scope="current", session_id="other")
+    assert denied.status == "error"

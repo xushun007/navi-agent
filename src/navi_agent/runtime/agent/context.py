@@ -14,6 +14,10 @@ from ..transports.base import ModelRequest, ModelTransport
 SUMMARY_PREFIX = "[Context Summary]"
 
 
+class ContextLimitError(RuntimeError):
+    """Context could not be reduced below the configured input budget."""
+
+
 @dataclass(frozen=True, slots=True)
 class ContextSummaryCall:
     response: ModelResponse
@@ -68,6 +72,7 @@ class ContextEngine:
             raise ValueError("chars_per_token must be positive")
 
         usable_input_tokens = max(1, context_limit_tokens - reserved_output_tokens)
+        self.input_limit_tokens = usable_input_tokens
         self._threshold_tokens = max(1, int(usable_input_tokens * compression_threshold_ratio))
         self._tail_budget_tokens = max(1, int(self._threshold_tokens * tail_budget_ratio))
         self._protect_first_messages = protect_first_messages

@@ -125,6 +125,7 @@ class ReviewAgentService:
                         MemoryTool(
                             memory_store=self._memory_store,
                             provenance=memory_provenance,
+                            defer_changes=True,
                         ),
                     ),
                     (
@@ -157,7 +158,7 @@ You run after the user's task is already complete. Read the raw session evidence
 once, then persist only durable improvements.
 
 You may use:
-- memory: store, update, list, or remove durable user facts, preferences, and ongoing task state.
+- memory: store and list durable facts; updates and removals are recorded as proposals for review.
 - skill_manage: maintain reusable procedural skills and supporting attachments.
 
 Decision boundary:
@@ -181,9 +182,9 @@ Rules:
 - Do not store temporary instructions, one-off task details, or stale session outcomes as memory.
 - Do not store tool logs, stack traces, command output, or implementation recipes in memory.
 - Store memory in third-person concise form.
-- Prefer updating an existing memory when it contradicts or refines an old memory; do not add duplicates.
-- If memory returns conflict_candidates, choose update, remove, or retry with
-  conflict_resolution=retain_both and concise evidence. Never ignore the conflict.
+- If a new fact contradicts or refines an existing memory, propose an update or removal using its id.
+- Updates and removals are proposals only. Do not add duplicates or claim they were applied.
+- If memory returns conflict_candidates, propose an update or removal, or retain both only with evidence.
 - Keep skills class-level, not one-session micro skills.
 - Existing user-authored skills are protected. You may inspect them, but only
   append to skills previously created by the background review agent. If a

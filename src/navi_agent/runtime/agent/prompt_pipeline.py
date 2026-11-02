@@ -17,6 +17,7 @@ class PromptRequest:
     user_id: str
     user_message: str
     system_prompt: str | None = None
+    recent_user_messages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -803,6 +803,40 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(context_failed_events[0].metadata["error_category"], "retryable")
         self.assertEqual(context_failed_events[0].metadata["error_source"], "context")
 
+    def test_follow_up_recalls_memory_from_previous_user_request(self) -> None:
+        memory = InMemoryMemoryStore()
+        memory.add_for_user("u1", "Navi release uses trusted publishing")
+        transport = FakeTransport([ModelResponse(content="first"), ModelResponse(content="second")])
+        runtime = AgentRuntime(transport=transport, prompt_builder=PromptBuilder(memory_store=memory))
+
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="检查 Navi release")
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="继续")
+
+        self.assertIn("Navi release uses trusted publishing", transport.calls[1].messages[0].content)
+
+    def test_runtime_stops_before_model_when_failed_compaction_exceeds_input_budget(self) -> None:
+        class BrokenSummarizer:
+            def summarize(self, **kwargs):
+                raise TimeoutError("summary timeout")
+
+        store = InMemorySessionStore()
+        session = store.load("long", "u1")
+        store.append(session, Message(role="user", content="old " * 400))
+        store.append(session, Message(role="assistant", content="history " * 400))
+        observer = RecordingObserver()
+        transport = FakeTransport([])
+        runtime = AgentRuntime(
+            transport=transport, session_store=store, event_subscribers=[observer],
+            context_engine=ContextEngine(context_limit_tokens=300, reserved_output_tokens=50,
+                                         protect_first_messages=0, summarizer=BrokenSummarizer()),
+        )
+        result = runtime.run_conversation(session_id="long", user_id="u1", user_message="continue")
+        self.assertEqual(result.status, "failed")
+        self.assertIn("session history is preserved", result.final_response)
+        self.assertEqual(transport.calls, [])
+        self.assertTrue(any(event.name == "context.limit_exceeded" for event in observer.events))
+        self.assertTrue(any("old " in message.content for message in store.snapshot(session)))
+
     def test_runtime_rebuilds_system_prompt_without_persisting_it(self) -> None:
         session_store = InMemorySessionStore()
         transport = FakeTransport(

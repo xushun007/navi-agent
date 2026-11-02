@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import inspect
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,7 @@ from navi_agent.tooling import ToolContext, ToolResult
 
 from ..tasks.background import BackgroundTask, BackgroundTaskManager
 from ..environment import EnvironmentBinding
-from .context import ContextBuildResult, ContextEngine, LLMContextSummarizer
+from .context import ContextBuildResult, ContextEngine, ContextLimitError, LLMContextSummarizer
 from ..tools.interactions import PendingInteraction
 from ..models import (
     ContextCompactionCheckpoint,
@@ -93,6 +94,7 @@ class _TurnState:
     convergence_reason: str | None = None
     context_messages: list[Message] | None = None
     tool_schemas: list[dict[str, object]] | None = None
+    context_error: ContextLimitError | None = None
 
 
 def _utc_now_iso() -> str:
@@ -557,11 +559,15 @@ class AgentRuntime:
                 ),
             },
         )
-        run_system_message = self._prompt_builder.build_run_system_message(
-            user_id=user_id,
-            user_message=user_message,
-            system_prompt=system_prompt,
-        )
+        prompt_args = dict(user_id=user_id, user_message=user_message, system_prompt=system_prompt)
+        prompt_method = self._prompt_builder.build_run_system_message
+        parameters = inspect.signature(prompt_method).parameters
+        if "recent_user_messages" in parameters:
+            previous = self._session_store.snapshot(session)
+            prompt_args["recent_user_messages"] = tuple(
+                message.content for message in previous if message.role == "user"
+            )[-2:]
+        run_system_message = prompt_method(**prompt_args)
         if resume_interaction is None:
             self._session_store.append(
                 session,
@@ -816,22 +822,27 @@ class AgentRuntime:
             exc = loop_outcome.error
             if exc is None:
                 raise RuntimeError("Agent loop failed without an error")
-            error_info = classify_exception(exc, error_source="model").to_metadata()
+            is_context_error = isinstance(exc, ContextLimitError)
+            error_info = classify_exception(exc, error_source="context" if is_context_error else "model").to_metadata()
             logger.exception(
-                "Model transport failed: session_id=%s error=%s",
+                "Runtime step failed: session_id=%s error=%s",
                 session_id,
                 exc,
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
-            fallback_response = _model_failure_response(error_info)
+            fallback_response = (
+                "Context compression failed or did not reduce the conversation enough. "
+                "The session history is preserved; retry after reducing the request or increasing the configured context window."
+                if is_context_error else _model_failure_response(error_info)
+            )
             self._session_store.append(
                 session,
                 Message(role="assistant", content=fallback_response),
             )
             publish_event(
                 kind="observation",
-                source="model",
-                name="model.failed",
+                source="context" if is_context_error else "model",
+                name="context.limit_exceeded" if is_context_error else "model.failed",
                 iteration=loop_outcome.iteration,
                 payload=error_info,
             )
@@ -1160,6 +1171,7 @@ class AgentRuntime:
 
         session_snapshot = self._session_store.snapshot(turn.session)
         checkpoint = self._session_store.load_compaction_checkpoint(turn.session)
+        turn.context_error = None
         try:
             context_result = self._context_engine.build(
                 session_snapshot,
@@ -1184,12 +1196,15 @@ class AgentRuntime:
             ]
             if callable(sanitize_messages):
                 fallback_messages = sanitize_messages(fallback_messages)
+            estimate_tokens = getattr(self._context_engine, "estimate_tokens", None)
+            estimated_tokens = estimate_tokens(fallback_messages) if callable(estimate_tokens) else 0
+            input_limit = getattr(self._context_engine, "input_limit_tokens", 0)
             context_result = ContextBuildResult(
                 messages=fallback_messages,
                 original_message_count=len(session_snapshot),
-                estimated_tokens_before=0,
-                estimated_tokens_after=0,
-                threshold_tokens=0,
+                estimated_tokens_before=estimated_tokens,
+                estimated_tokens_after=estimated_tokens,
+                threshold_tokens=input_limit,
                 summary_status="failed",
             )
             turn.publish_event(
@@ -1197,8 +1212,17 @@ class AgentRuntime:
                 source="runtime",
                 name="context.failed",
                 iteration=step_number,
-                payload=error_info,
+                payload={**error_info, "estimated_input_tokens": estimated_tokens, "input_limit_tokens": input_limit},
             )
+
+        estimate_tokens = getattr(self._context_engine, "estimate_tokens", None)
+        input_limit = getattr(self._context_engine, "input_limit_tokens", None)
+        if context_result.summary_status in {"failed", "missing_summarizer"} and callable(estimate_tokens) and isinstance(input_limit, int):
+            estimate = estimate_tokens(context_result.messages)
+            if estimate >= input_limit:
+                turn.context_error = ContextLimitError(
+                    f"Estimated input {estimate} tokens meets or exceeds the configured input budget {input_limit}."
+                )
 
         if context_result.summary_call is not None:
             summary_call = context_result.summary_call
@@ -1302,6 +1326,8 @@ class AgentRuntime:
 
     def _invoke_turn_model(self, turn: _TurnState, step_number: int) -> ModelInvocation:
         """Run the model portion of one turn step."""
+        if turn.context_error is not None:
+            raise turn.context_error
         model_item_id = f"model:{step_number}"
 
         def publish_text_delta(delta: str) -> None:

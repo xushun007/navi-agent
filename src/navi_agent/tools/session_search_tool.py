@@ -21,6 +21,7 @@ class SessionRecallStore(Protocol):
         limit: int = 5,
         exclude_session_id: str | None = None,
         window: int = 2,
+        session_id: str | None = None,
     ) -> list[SessionRecallResult]: ...
 
     def recall_around(
@@ -53,13 +54,18 @@ class SessionSearchTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Discover prior sessions, read a bounded session, or inspect an anchored window."
+        return "Search prior sessions or current session history, and inspect bounded message windows."
 
     def schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["prior", "current"],
+                    "description": "Search prior sessions by default; use current for earlier messages in this session, including compacted history.",
+                },
                 "session_id": {"type": "string"},
                 "around_message_id": {"type": "integer", "minimum": 1},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100},
@@ -69,6 +75,7 @@ class SessionSearchTool(BaseTool):
                 {"required": ["query"]},
                 {"required": ["session_id", "around_message_id"]},
                 {"required": ["session_id"]},
+                {"properties": {"scope": {"const": "current"}}, "required": ["scope"]},
             ],
         }
 
@@ -76,13 +83,20 @@ class SessionSearchTool(BaseTool):
         if context is None:
             return ToolResult.error(name=self.name, content="session_search requires tool context")
         query = str(kwargs.get("query") or "").strip()
+        scope = str(kwargs.get("scope") or "prior")
+        if scope not in {"prior", "current"}:
+            return ToolResult.error(name=self.name, content="scope must be prior or current")
         if query:
+            options = {}
+            if scope == "current":
+                options["session_id"] = context.session_id
             results = self._store.discover_sessions(
                 query=query,
                 user_id=context.user_id,
                 limit=int(kwargs.get("limit", 5)),
-                exclude_session_id=context.session_id,
+                exclude_session_id=context.session_id if scope == "prior" else None,
                 window=int(kwargs.get("window", 2)),
+                **options,
             )
             items = [self._serialize_result(result) for result in results]
             content = "No prior conversation matched." if not items else "\n".join(
@@ -95,6 +109,7 @@ class SessionSearchTool(BaseTool):
                 content=content,
                 structured_content={
                     "mode": "discovery",
+                    "scope": scope,
                     "query": query,
                     "sessions": items,
                     "session_count": len(items),
@@ -102,6 +117,10 @@ class SessionSearchTool(BaseTool):
             )
 
         session_id = str(kwargs.get("session_id") or "").strip()
+        if scope == "current":
+            if session_id and session_id != context.session_id:
+                return ToolResult.error(name=self.name, content="current scope only permits the current session")
+            session_id = context.session_id
         message_id = kwargs.get("around_message_id")
         if not session_id:
             return ToolResult.error(
@@ -114,7 +133,7 @@ class SessionSearchTool(BaseTool):
                 message_id=message_id,
                 user_id=context.user_id,
                 window=int(kwargs.get("window", 3)),
-                exclude_session_id=context.session_id,
+                exclude_session_id=context.session_id if scope == "prior" else None,
             )
             mode = "around"
         else:
@@ -122,7 +141,7 @@ class SessionSearchTool(BaseTool):
                 session_id=session_id,
                 user_id=context.user_id,
                 limit=int(kwargs.get("limit", 40)),
-                exclude_session_id=context.session_id,
+                exclude_session_id=context.session_id if scope == "prior" else None,
             )
             mode = "read"
         content = "Session or message anchor not found." if view is None else "\n".join(

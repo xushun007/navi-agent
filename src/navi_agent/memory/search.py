@@ -61,7 +61,6 @@ def recall_memories(
             continue
         score = (10_000 if exact_match else 0) + (2_000 if phrase_match else 0)
         score += sum(max(1, len(token)) * 10 for token in overlap)
-        score += index
         ranked = profile_ranked if is_profile else relevant_ranked
         ranked.append((score, index, record))
     profile_ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)

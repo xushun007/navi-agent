@@ -156,10 +156,13 @@ class InMemoryMemoryStore:
         )
         before_content = record.content
         record.content = normalized_content
+        provenance = provenance or MemoryWriteProvenance()
+        record.source = provenance.source or "unknown"
+        record.source_session_id = provenance.source_session_id
         self._record_audit(
             record,
             action="update",
-            provenance=provenance or MemoryWriteProvenance(),
+            provenance=provenance,
             before_content=before_content,
             after_content=record.content,
         )
@@ -167,7 +170,7 @@ class InMemoryMemoryStore:
             self._record_audit(
                 record,
                 action="conflict_resolved",
-                provenance=provenance or MemoryWriteProvenance(),
+                provenance=provenance,
                 before_content="\n".join(item.content for item in conflicts),
                 after_content=record.content,
                 resolution="retain_both",

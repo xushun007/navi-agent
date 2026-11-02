@@ -1126,6 +1126,7 @@ class SQLiteSessionStore:
         limit: int = 5,
         exclude_session_id: str | None = None,
         window: int = 2,
+        session_id: str | None = None,
     ) -> list[SessionRecallResult]:
         normalized_query = query.strip()
         if not normalized_query:
@@ -1153,12 +1154,13 @@ class SQLiteSessionStore:
                 JOIN sessions ON sessions.id = messages.session_id
                 WHERE {table} MATCH ?
                   AND sessions.user_id = ?
+                  AND (? IS NULL OR sessions.id = ?)
                   AND messages.active = 1
                   AND sessions.agent_role != 'subagent'
                 ORDER BY bm25({table}), messages.created_at DESC
                 LIMIT ?
                 """,
-                (match_query, user_id, max(20, min(limit, 20) * 20)),
+                (match_query, user_id, session_id, session_id, max(20, min(limit, 20) * 20)),
             ).fetchall()
             excluded_lineage = (
                 self._lineage_root(connection, exclude_session_id)
