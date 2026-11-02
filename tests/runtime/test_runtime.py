@@ -803,6 +803,17 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(context_failed_events[0].metadata["error_category"], "retryable")
         self.assertEqual(context_failed_events[0].metadata["error_source"], "context")
 
+    def test_follow_up_recalls_memory_from_previous_user_request(self) -> None:
+        memory = InMemoryMemoryStore()
+        memory.add_for_user("u1", "Navi release uses trusted publishing")
+        transport = FakeTransport([ModelResponse(content="first"), ModelResponse(content="second")])
+        runtime = AgentRuntime(transport=transport, prompt_builder=PromptBuilder(memory_store=memory))
+
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="检查 Navi release")
+        runtime.run_conversation(session_id="s1", user_id="u1", user_message="继续")
+
+        self.assertIn("Navi release uses trusted publishing", transport.calls[1].messages[0].content)
+
     def test_runtime_stops_before_model_when_failed_compaction_exceeds_input_budget(self) -> None:
         class BrokenSummarizer:
             def summarize(self, **kwargs):
