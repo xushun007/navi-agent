@@ -35,4 +35,5 @@ def test_renders_concise_command_help() -> None:
     assert "/help" in help_text
     assert "/new" in help_text
     assert "/status" in help_text
+    assert "/goal [objective|status|pause|resume|clear]" in help_text
     assert "/steer <message>" in help_text

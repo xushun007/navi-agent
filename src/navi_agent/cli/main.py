@@ -2063,7 +2063,7 @@ def _render_session_preview(messages, limit: int = 6) -> str:
 def _handle_goal_command(app, session_id: str, user_id: str, argument: str) -> str:
     argument = argument.strip()
     goal = app.get_goal(session_id, user_id)
-    if not argument:
+    if not argument or argument == "status":
         if goal is None:
             return "No session goal. Set one with /goal <objective>."
         return f"Goal · {goal.status.value}\nObjective · {goal.objective}"
