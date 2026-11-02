@@ -82,7 +82,8 @@ class MemoryToolTests(unittest.TestCase):
 
         self.assertEqual(update_result.content, "memory_updated")
         self.assertEqual(update_result.structured_content["content"], "New note")
-        self.assertEqual(remove_result.content, "memory_removed")
+        self.assertIn("session history and audit records may still contain it", remove_result.content)
+        self.assertEqual(remove_result.structured_content["scope"], "durable_memory_only")
         self.assertEqual(store.list_for_user("u1"), [])
 
     def test_uses_bound_review_provenance_for_all_mutations(self) -> None:

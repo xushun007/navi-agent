@@ -200,8 +200,15 @@ class MemoryTool(BaseTool):
                 )
             return ToolResult.ok(
                 name=self.name,
-                content="memory_removed",
-                structured_content={"id": record_id, "action": "remove"},
+                content=(
+                    "memory_removed: removed from durable memory; "
+                    "session history and audit records may still contain it"
+                ),
+                structured_content={
+                    "id": record_id,
+                    "action": "remove",
+                    "scope": "durable_memory_only",
+                },
             )
         return ToolResult.error(
             name=self.name,
