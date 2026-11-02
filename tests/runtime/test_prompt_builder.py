@@ -99,6 +99,17 @@ class PromptBuilderTest(unittest.TestCase):
         )
         self.assertIn("[fact] Likes Python", message.content)
 
+    def test_recalled_memory_includes_source_and_defers_to_current_request(self) -> None:
+        memory = InMemoryMemoryStore(records=[MemoryRecord(
+            id="m1", user_id="u1", kind="fact", content="Project uses Python",
+            source_session_id="prior-session",
+        )])
+        message = PromptBuilder(memory_store=memory).build_run_system_message(
+            user_id="u1", user_message="Which language does the project use? Python?",
+        )
+        self.assertIn("memory id: m1, source session: prior-session", message.content)
+        self.assertIn("Current user instructions take precedence", message.content)
+
     def test_new_session_sanitizes_memory_prompt_injection(self) -> None:
         memory = InMemoryMemoryStore(
             records=[
