@@ -28,6 +28,15 @@ def test_seeding_keeps_original_history_searchable_and_user_isolated(tmp_path):
     store = SQLiteSessionStore(tmp_path / "test.db")
     mapping = seed_history(store, sample, "owner")
     matches = store.discover_sessions(query="graduation degree", user_id="owner")
-    assert mapping["source-a"] == matches[0].session_id
+    assert mapping["source-a"] == [matches[0].session_id]
     assert store.discover_sessions(query="graduation degree", user_id="other") == []
     assert "has_answer" not in matches[0].matched_message.content
+
+
+def test_seeding_accepts_repeated_official_session_ids(tmp_path):
+    store = SQLiteSessionStore(tmp_path / "test.db")
+    sample = {"haystack_session_ids": ["repeat", "repeat"],
+              "haystack_dates": ["2024-01-01", "2024-02-01"],
+              "haystack_sessions": [[{"role": "user", "content": "First"}],
+                                    [{"role": "user", "content": "Second"}]]}
+    assert seed_history(store, sample, "owner")["repeat"] == ["history:0", "history:1"]
