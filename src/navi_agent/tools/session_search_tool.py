@@ -11,6 +11,8 @@ from navi_agent.tooling import ToolContext, ToolResult
 
 from .base import BaseTool
 
+_CONTEXT_ASSISTANT_CHAR_LIMIT = 1200
+
 
 class SessionRecallStore(Protocol):
     def discover_sessions(
@@ -147,7 +149,7 @@ class SessionSearchTool(BaseTool):
             )
             mode = "read"
         content = "Session or message anchor not found." if view is None else "\n".join(
-            f"{'>' if item.anchor else '-'} {item.id} {item.role}: {item.content}"
+            self._render_message(item)
             for item in view.messages
         )
         return ToolResult.ok(
@@ -193,6 +195,16 @@ class SessionSearchTool(BaseTool):
             "messages_after": view.messages_after,
             "truncated": view.truncated,
         }
+
+    @staticmethod
+    def _render_message(message: SessionRecallMessage) -> str:
+        content = message.content
+        if message.role == "assistant" and not message.anchor and len(content) > _CONTEXT_ASSISTANT_CHAR_LIMIT:
+            content = (
+                content[:_CONTEXT_ASSISTANT_CHAR_LIMIT]
+                + f"\n[Truncated. Read message {message.id} with around_message_id and window=0 for the full text.]"
+            )
+        return f"{'>' if message.anchor else '-'} {message.id} {message.role}: {content}"
 
     @staticmethod
     def _serialize_message(message: SessionRecallMessage) -> dict[str, object]:

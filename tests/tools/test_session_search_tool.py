@@ -198,6 +198,26 @@ def test_read_and_around_are_bounded_with_truncation_metadata(tmp_path) -> None:
     assert around.structured_content["messages"][1]["anchor"] is True
 
 
+def test_long_assistant_context_can_be_read_in_full_by_anchor(tmp_path) -> None:
+    store = SQLiteSessionStore(tmp_path / "state.db")
+    session = store.load("prior", "u1")
+    long_assistant = "assistant start " + "padding " * 300 + "assistant ending"
+    long_user = "user start " + "detail " * 300 + "user ending"
+    _append(store, session, long_user, long_assistant, "target fact")
+    tool = SessionSearchTool(store)
+    context = ToolContext(session_id="current", user_id="u1", iteration=1)
+    hit = tool.invoke(context=context, query="target fact")
+    anchor = hit.structured_content["sessions"][0]["matched_message"]["id"]
+    view = tool.invoke(context=context, session_id="prior", around_message_id=anchor, window=2)
+    assistant = view.structured_content["messages"][1]
+    assert long_user in view.content
+    assert "assistant ending" not in view.content
+    assert f"Read message {assistant['id']}" in view.content
+    assert assistant["content"] == long_assistant
+    full = tool.invoke(context=context, session_id="prior", around_message_id=assistant["id"], window=0)
+    assert long_assistant in full.content
+
+
 def test_read_and_around_enforce_user_and_current_lineage_isolation(tmp_path) -> None:
     store = SQLiteSessionStore(tmp_path / "state.db")
     current = store.load("current", "u1")
