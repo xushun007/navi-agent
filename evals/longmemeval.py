@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from time import perf_counter
@@ -19,8 +20,21 @@ from navi_agent.telemetry import SQLiteRuntimeEventStore, SQLiteTraceStore
 from navi_agent.tools.session_search_tool import SessionSearchTool
 
 
-def load_samples(path: Path, *, allow_partial: bool = False) -> tuple[list[dict], bool]:
-    raw = path.read_text(encoding="utf-8")
+def load_samples(path: Path, *, allow_partial: bool = False, range_fragment: bool = False) -> tuple[list[dict], bool]:
+    raw = path.read_bytes().decode("utf-8", errors="replace" if range_fragment else "strict")
+    if range_fragment:
+        samples = []
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r'\n    \{\s*\n\s*"question_id"', raw):
+            try:
+                sample, _ = decoder.raw_decode(raw, match.start() + 5)
+            except json.JSONDecodeError:
+                continue
+            if "question_id" in sample and "haystack_sessions" in sample:
+                samples.append(sample)
+        if not samples:
+            raise ValueError(f"No complete official samples in fragment: {path}")
+        return samples, True
     try:
         data = json.loads(raw)
         if not isinstance(data, list):
@@ -120,15 +134,21 @@ def run_sample(sample: dict, root: Path, settings: ModelSettings, runtime_settin
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", type=Path, required=True)
+    parser.add_argument("--dataset", type=Path, action="append", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--sample-id", action="append", required=True)
     parser.add_argument("--allow-partial", action="store_true")
+    parser.add_argument("--range-fragments", action="store_true", help="Read complete records from official JSON byte ranges")
     parser.add_argument("--max-concurrency", type=int, default=2)
     args = parser.parse_args()
     if args.max_concurrency < 1:
         parser.error("--max-concurrency must be positive")
-    samples, partial = load_samples(args.dataset, allow_partial=args.allow_partial)
+    samples = []
+    partial = False
+    for path in args.dataset:
+        loaded, is_partial = load_samples(path, allow_partial=args.allow_partial, range_fragment=args.range_fragments)
+        samples.extend(loaded)
+        partial = partial or is_partial
     indexed = {str(sample["question_id"]): sample for sample in samples}
     missing = set(args.sample_id) - indexed.keys()
     if missing or len(set(args.sample_id)) != len(args.sample_id):
@@ -140,7 +160,7 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=False)
     metadata = {"dataset": "xiaowu0162/longmemeval-cleaned", "variant": "longmemeval_s_cleaned",
                 "dataset_revision": "98d7416c24c778c2fee6e6f3006e7a073259d48f", "partial": partial,
-                "input_sha256": hashlib.sha256(args.dataset.read_bytes()).hexdigest(),
+                "input_files": [{"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in args.dataset],
                 "mode": "historical_session_search_only", "model": settings.model,
                 "max_iterations": runtime_settings.max_iterations, "sample_ids": args.sample_id,
                 "max_concurrency": args.max_concurrency}
