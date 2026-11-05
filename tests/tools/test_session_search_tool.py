@@ -116,6 +116,21 @@ def test_discovery_relaxes_only_when_no_eligible_strict_match(tmp_path) -> None:
     assert quoted.structured_content["sessions"] == []
 
 
+def test_search_bounds_snippets_and_relaxed_results(tmp_path) -> None:
+    store = SQLiteSessionStore(tmp_path / "state.db")
+    for index in range(8):
+        session = store.load(f"prior-{index}", "u1")
+        _append(store, session, "start " + "filler " * 200 + "needle " + "filler " * 200)
+    tool = SessionSearchTool(store)
+    result = tool.invoke(
+        context=ToolContext(session_id="current", user_id="u1", iteration=1),
+        query="needle absent", limit=20,
+    )
+    assert len(result.structured_content["sessions"]) == 5
+    assert len(result.content) < 3000
+    assert "[[needle]]" in result.content
+
+
 def test_discovery_excludes_current_lineage_subagents_and_other_users(tmp_path) -> None:
     store = SQLiteSessionStore(tmp_path / "state.db")
     current = store.load("current", "u1")

@@ -1143,7 +1143,7 @@ class SQLiteSessionStore:
                     messages.role,
                     messages.content,
                     messages.created_at AS message_created_at,
-                    highlight({table}, 0, '[[', ']]') AS highlighted_snippet,
+                    snippet({table}, 0, '[[', ']]', ' … ', 32) AS highlighted_snippet,
                     sessions.source,
                     sessions.title,
                     sessions.model,
@@ -1167,10 +1167,11 @@ class SQLiteSessionStore:
             queries = [match_query]
             if table == "messages_fts" and " AND " in match_query and '"' not in normalized_query:
                 queries.append(match_query.replace(" AND ", " OR "))
-            for candidate_query in queries:
+            for query_index, candidate_query in enumerate(queries):
+                result_limit = max(1, min(limit, 20 if query_index == 0 else 5))
                 rows = connection.execute(
                     sql,
-                    (candidate_query, user_id, session_id, session_id, max(20, min(limit, 20) * 20)),
+                    (candidate_query, user_id, session_id, session_id, max(20, result_limit * 20)),
                 ).fetchall()
                 results = []
                 seen_lineages = set()
@@ -1188,7 +1189,7 @@ class SQLiteSessionStore:
                             window=max(0, min(window, 5)),
                         )
                     )
-                    if len(results) >= max(1, min(limit, 20)):
+                    if len(results) >= result_limit:
                         break
                 if results:
                     break
