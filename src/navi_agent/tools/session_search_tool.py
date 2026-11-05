@@ -54,7 +54,8 @@ class SessionSearchTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Search prior sessions or current session history, and inspect bounded message windows."
+        return ("Search prior sessions or current session history. Use a search result's session "
+                "and message_id with around_message_id to inspect its context.")
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -101,6 +102,7 @@ class SessionSearchTool(BaseTool):
             items = [self._serialize_result(result) for result in results]
             content = "No prior conversation matched." if not items else "\n".join(
                 f"- {item['title']} · session={item['session_id']} · "
+                f"message_id={item['matched_message']['id']} · "
                 f"{item['highlighted_snippet']}"
                 for item in items
             )
