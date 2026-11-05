@@ -45,6 +45,7 @@ def test_discovery_returns_session_shape_with_actual_message_windows(tmp_path) -
     assert recalled["matched_message"]["content"] == "Use WAL for concurrent writes"
     anchor = recalled["matched_message"]["id"]
     assert f"message_id={anchor}" in result.content
+    assert "role=user" in result.content
     around = tool.invoke(
         context=ToolContext(session_id="current", user_id="u1", iteration=1),
         session_id="prior", around_message_id=anchor, window=1,

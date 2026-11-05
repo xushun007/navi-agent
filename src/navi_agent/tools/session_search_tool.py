@@ -104,7 +104,7 @@ class SessionSearchTool(BaseTool):
             items = [self._serialize_result(result) for result in results]
             content = "No prior conversation matched." if not items else "\n".join(
                 f"- {item['title']} · session={item['session_id']} · "
-                f"message_id={item['matched_message']['id']} · "
+                f"message_id={item['matched_message']['id']} · role={item['matched_message']['role']} · "
                 f"{item['highlighted_snippet']}"
                 for item in items
             )
