@@ -94,6 +94,28 @@ def test_discovery_supports_chinese_and_deduplicates_session_lineage(tmp_path) -
     assert {item["lineage_id"] for item in sessions} == {"parent", "other"}
 
 
+def test_discovery_relaxes_only_when_no_eligible_strict_match(tmp_path) -> None:
+    store = SQLiteSessionStore(tmp_path / "state.db")
+    current = store.load("current", "u1")
+    prior = store.load("prior", "u1")
+    unrelated = store.load("unrelated", "u1")
+    private = store.load("private", "u2")
+    _append(store, current, "graduated degree university")
+    _append(store, prior, "I graduated with a degree in business")
+    _append(store, unrelated, "university campus")
+    _append(store, private, "graduated degree university secret")
+    tool = SessionSearchTool(store)
+    context = ToolContext(session_id="current", user_id="u1", iteration=1)
+
+    relaxed = tool.invoke(context=context, query="graduated degree university")
+    assert relaxed.structured_content["sessions"][0]["session_id"] == "prior"
+    assert "private" not in {item["session_id"] for item in relaxed.structured_content["sessions"]}
+    strict = tool.invoke(context=context, query="graduated degree")
+    assert [item["session_id"] for item in strict.structured_content["sessions"]] == ["prior"]
+    quoted = tool.invoke(context=context, query='"graduated degree university"')
+    assert quoted.structured_content["sessions"] == []
+
+
 def test_discovery_excludes_current_lineage_subagents_and_other_users(tmp_path) -> None:
     store = SQLiteSessionStore(tmp_path / "state.db")
     current = store.load("current", "u1")

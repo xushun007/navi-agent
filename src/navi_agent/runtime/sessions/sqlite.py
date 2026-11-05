@@ -1136,8 +1136,7 @@ class SQLiteSessionStore:
         if not match_query:
             return []
         with self._connect() as connection:
-            rows = connection.execute(
-                f"""
+            sql = f"""
                 SELECT
                     messages.session_id,
                     messages.id AS message_id,
@@ -1159,31 +1158,39 @@ class SQLiteSessionStore:
                   AND sessions.agent_role != 'subagent'
                 ORDER BY bm25({table}), messages.created_at DESC
                 LIMIT ?
-                """,
-                (match_query, user_id, session_id, session_id, max(20, min(limit, 20) * 20)),
-            ).fetchall()
+                """
             excluded_lineage = (
                 self._lineage_root(connection, exclude_session_id)
                 if exclude_session_id
                 else None
             )
-            results = []
-            seen_lineages = set()
-            for row in rows:
-                session_id = str(row["session_id"])
-                lineage_id = self._lineage_root(connection, session_id)
-                if lineage_id == excluded_lineage or lineage_id in seen_lineages:
-                    continue
-                seen_lineages.add(lineage_id)
-                results.append(
-                    self._build_discovery_result(
-                        connection,
-                        row=row,
-                        lineage_id=lineage_id,
-                        window=max(0, min(window, 5)),
+            queries = [match_query]
+            if table == "messages_fts" and " AND " in match_query and '"' not in normalized_query:
+                queries.append(match_query.replace(" AND ", " OR "))
+            for candidate_query in queries:
+                rows = connection.execute(
+                    sql,
+                    (candidate_query, user_id, session_id, session_id, max(20, min(limit, 20) * 20)),
+                ).fetchall()
+                results = []
+                seen_lineages = set()
+                for row in rows:
+                    matched_session_id = str(row["session_id"])
+                    lineage_id = self._lineage_root(connection, matched_session_id)
+                    if lineage_id == excluded_lineage or lineage_id in seen_lineages:
+                        continue
+                    seen_lineages.add(lineage_id)
+                    results.append(
+                        self._build_discovery_result(
+                            connection,
+                            row=row,
+                            lineage_id=lineage_id,
+                            window=max(0, min(window, 5)),
+                        )
                     )
-                )
-                if len(results) >= max(1, min(limit, 20)):
+                    if len(results) >= max(1, min(limit, 20)):
+                        break
+                if results:
                     break
         return results
 
