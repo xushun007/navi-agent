@@ -1,6 +1,7 @@
 import unittest
 from tempfile import TemporaryDirectory
 from pathlib import Path
+from types import SimpleNamespace
 
 from navi_agent.evolution import FileSkillStore
 from navi_agent.memory import InMemoryMemoryStore, MemoryRecord
@@ -90,6 +91,18 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn("authoritative for the current session", prompt)
         self.assertIn(stale_workspace, prompt)
         self.assertLess(prompt.index(current_root), prompt.index(stale_workspace))
+
+    def test_skill_index_precedes_memory(self) -> None:
+        class SkillStore:
+            def list(self):
+                return [SimpleNamespace(name="release", description="Publish releases")]
+
+        self.memory.add_for_user("u1", "Likes Python", kind="preference")
+        builder = PromptBuilder(memory_store=self.memory, skill_store=SkillStore())
+
+        prompt = builder.build_run_system_message(user_id="u1", user_message="hello").content
+
+        self.assertLess(prompt.index("[Skills]"), prompt.index("[Memory]"))
 
     def test_new_session_with_memory(self) -> None:
         self.memory.add_for_user("u1", "Likes Python")

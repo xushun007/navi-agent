@@ -24,6 +24,7 @@ from navi_agent.runtime import (
     PromptBuilder,
     RuntimeEvent,
     RunCancellationToken,
+    SQLiteSessionStore,
     ToolArtifact,
     ToolCall,
     ToolContext,
@@ -803,16 +804,35 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(context_failed_events[0].metadata["error_category"], "retryable")
         self.assertEqual(context_failed_events[0].metadata["error_source"], "context")
 
-    def test_follow_up_recalls_memory_from_previous_user_request(self) -> None:
-        memory = InMemoryMemoryStore()
-        memory.add_for_user("u1", "Navi release uses trusted publishing")
-        transport = FakeTransport([ModelResponse(content="first"), ModelResponse(content="second")])
-        runtime = AgentRuntime(transport=transport, prompt_builder=PromptBuilder(memory_store=memory))
+    def test_memory_prompt_is_frozen_across_turns_and_runtime_restarts(self) -> None:
+        for first_fact in (None, "Navi release uses trusted publishing"):
+            with self.subTest(first_fact=first_fact), tempfile.TemporaryDirectory() as tmpdir:
+                database = Path(tmpdir) / "sessions.db"
+                memory = InMemoryMemoryStore()
+                if first_fact:
+                    memory.add_for_user("u1", first_fact, kind="preference")
+                transport = FakeTransport([ModelResponse(content="done") for _ in range(3)])
 
-        runtime.run_conversation(session_id="s1", user_id="u1", user_message="检查 Navi release")
-        runtime.run_conversation(session_id="s1", user_id="u1", user_message="继续")
+                def run(session_id: str, message: str) -> str:
+                    runtime = AgentRuntime(
+                        transport=transport,
+                        session_store=SQLiteSessionStore(database),
+                        prompt_builder=PromptBuilder(memory_store=memory),
+                    )
+                    runtime.run_conversation(session_id=session_id, user_id="u1", user_message=message)
+                    return transport.calls[-1].messages[0].content
 
-        self.assertIn("Navi release uses trusted publishing", transport.calls[1].messages[0].content)
+                first = run("s1", "Check Navi release")
+                if first_fact:
+                    self.assertIn(first_fact, first)
+                else:
+                    self.assertNotIn("[Memory]", first)
+
+                new_fact = "Prefers terse replies"
+                memory.add_for_user("u1", new_fact, kind="preference")
+
+                self.assertEqual(run("s1", "How terse should replies be?"), first)
+                self.assertIn(new_fact, run("s2", "How terse should replies be?"))
 
     def test_runtime_stops_before_model_when_failed_compaction_exceeds_input_budget(self) -> None:
         class BrokenSummarizer:

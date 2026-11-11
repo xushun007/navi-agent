@@ -520,6 +520,8 @@ class AgentRuntime:
             user_id=user_id,
             metadata=session_metadata,
         )
+        if session.user_id != user_id:
+            raise ValueError("session does not belong to the requesting user")
         if existing_run is None:
             self._session_store.start_run(session, run_id, session_metadata)
         else:
@@ -567,6 +569,10 @@ class AgentRuntime:
             prompt_args["recent_user_messages"] = tuple(
                 message.content for message in previous if message.role == "user"
             )[-2:]
+        if "freeze_memory" in parameters:
+            prompt_args["freeze_memory"] = lambda render: self._session_store.freeze_memory_prompt(
+                session, render
+            )
         run_system_message = prompt_method(**prompt_args)
         if resume_interaction is None:
             self._session_store.append(
