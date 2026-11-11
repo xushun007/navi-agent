@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from uuid import uuid4
 
@@ -31,6 +32,7 @@ from ..operations import (
 
 class InMemorySessionStore:
     def __init__(self) -> None:
+        self._memory_prompts: dict[tuple[str, str], str] = {}
         self._sessions: dict[str, ConversationState] = {}
         self._compaction_checkpoints: dict[str, ContextCompactionCheckpoint] = {}
         self._runs: dict[str, RuntimeRunRecord] = {}
@@ -53,6 +55,14 @@ class InMemorySessionStore:
             self._sessions[session_id] = session
             self._updated_at[session_id] = time.time()
         return session
+
+    def freeze_memory_prompt(
+        self, session: ConversationState, render: Callable[[], str]
+    ) -> str:
+        key = (session.session_id, session.user_id)
+        if key not in self._memory_prompts:
+            return self._memory_prompts.setdefault(key, render())
+        return self._memory_prompts[key]
 
     def append(self, session: ConversationState, message: Message) -> None:
         session.messages.append(message)

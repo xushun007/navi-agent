@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from navi_agent.memory import MemoryStore
@@ -82,12 +82,14 @@ class PromptBuilder:
         user_message: str,
         system_prompt: str | None = None,
         recent_user_messages: tuple[str, ...] = (),
+        freeze_memory: Callable[[Callable[[], str]], str] | None = None,
     ) -> Message:
         prompt = self.build_system_prompt(
             user_id=user_id,
             user_message=user_message,
             system_prompt=system_prompt,
             recent_user_messages=recent_user_messages,
+            freeze_memory=freeze_memory,
         )
         return Message(role="system", content=prompt.render())
 
@@ -98,6 +100,7 @@ class PromptBuilder:
         user_message: str,
         system_prompt: str | None = None,
         recent_user_messages: tuple[str, ...] = (),
+        freeze_memory: Callable[[Callable[[], str]], str] | None = None,
     ) -> PromptParts:
         self._last_injected_skill_names = []
         self._last_injected_context_files = []
@@ -108,6 +111,7 @@ class PromptBuilder:
                 user_message=user_message,
                 system_prompt=system_prompt,
                 recent_user_messages=recent_user_messages,
+                freeze_memory=freeze_memory,
             )
         )
         self._last_injected_context_files = [

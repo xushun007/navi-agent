@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol
 
 from navi_agent.tooling import ToolResult
@@ -29,6 +30,12 @@ class SessionStore(Protocol):
         user_id: str,
         metadata: SessionMetadata | None = None,
     ) -> ConversationState: ...
+
+    def freeze_memory_prompt(
+        self, session: ConversationState, render: Callable[[], str]
+    ) -> str:
+        """Return the first rendered memory segment, including an empty segment."""
+        ...
 
     def append(self, session: ConversationState, message: Message) -> None: ...
 

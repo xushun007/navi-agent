@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -18,6 +18,7 @@ class PromptRequest:
     user_message: str
     system_prompt: str | None = None
     recent_user_messages: tuple[str, ...] = ()
+    freeze_memory: Callable[[Callable[[], str]], str] | None = None
 
 
 @dataclass(frozen=True, slots=True)

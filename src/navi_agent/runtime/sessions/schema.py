@@ -29,6 +29,14 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS session_memory_prompts (
+        session_id TEXT NOT NULL REFERENCES sessions(id),
+        user_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        PRIMARY KEY (session_id, user_id)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT NOT NULL REFERENCES sessions(id),

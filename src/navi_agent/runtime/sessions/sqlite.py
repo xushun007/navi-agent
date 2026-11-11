@@ -182,6 +182,36 @@ class SQLiteSessionStore:
             messages=messages,
         )
 
+    def freeze_memory_prompt(
+        self, session: ConversationState, render: Callable[[], str]
+    ) -> str:
+        key = (session.session_id, session.user_id)
+
+        def read(connection: sqlite3.Connection) -> sqlite3.Row | None:
+            return connection.execute(
+                "SELECT content FROM session_memory_prompts WHERE session_id = ? AND user_id = ?",
+                key,
+            ).fetchone()
+
+        with self._connect() as connection:
+            snapshot = read(connection)
+        if snapshot is not None:
+            return snapshot["content"]
+
+        content = render()
+
+        def save(connection: sqlite3.Connection) -> str:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO session_memory_prompts (session_id, user_id, content)
+                VALUES (?, ?, ?)
+                """,
+                (*key, content),
+            )
+            return read(connection)["content"]
+
+        return self._execute_write(save)
+
     def append(self, session: ConversationState, message: Message) -> None:
         def append_message(connection: sqlite3.Connection) -> None:
             connection.execute(
