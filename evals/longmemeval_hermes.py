@@ -1,8 +1,9 @@
 """Isolated Hermes worker for LongMemEval historical-session comparisons.
 
-Run as ``python -m evals.longmemeval_hermes`` with the Hermes Python
-environment and an isolated HERMES_HOME. Dataset times have no timezone;
-UTC preserves their wall-clock values consistently.
+Use the Hermes Python environment and an isolated HERMES_HOME. Hermes also
+contains an ``evals`` package, and direct script execution shadows stdlib
+``inspect``; launch via runpy with this worker's path. Dataset times have no
+timezone, so UTC preserves their wall-clock values consistently.
 """
 from __future__ import annotations
 
