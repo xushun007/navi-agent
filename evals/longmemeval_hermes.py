@@ -45,7 +45,10 @@ def seed_history(db, sample: dict) -> None:
 
 def main() -> int:
     os.environ["TZ"] = "UTC"
-    time.tzset()
+    if hasattr(time, "tzset"):
+        time.tzset()
+    if datetime.fromtimestamp(0) != datetime(1970, 1, 1):
+        raise RuntimeError("Start the worker with TZ=UTC to preserve dataset wall times")
     from hermes_state import SessionDB
     from run_agent import AIAgent
 
