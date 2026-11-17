@@ -12,6 +12,7 @@ class ModelRequest:
     tools: list[dict[str, Any]] = field(default_factory=list)
     step_id: str | None = None
     cancellation_requested: Callable[[], bool] | None = None
+    max_output_tokens: int | None = None
 
 
 class ModelTransport(Protocol):

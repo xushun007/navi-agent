@@ -1,7 +1,9 @@
 import unittest
 from dataclasses import replace
+from unittest.mock import Mock
 
-from navi_agent.runtime import ContextEngine, ContextSummaryCall, Message, ModelResponse, ToolCall
+from navi_agent.runtime import ContextEngine, ContextSummaryCall, LLMContextSummarizer, Message, ModelResponse, ToolCall
+from navi_agent.runtime.agent.context import ContextLimitError
 
 
 class FakeSummarizer:
@@ -20,6 +22,40 @@ class FakeSummarizer:
 
 
 class ContextEngineTests(unittest.TestCase):
+    def test_estimates_dense_and_multibyte_text_without_ascii_undercount(self) -> None:
+        engine = ContextEngine()
+        for text in ("中" * 400, "あ" * 400, "한" * 400, "🙂" * 400):
+            with self.subTest(text=text[:1]):
+                self.assertGreaterEqual(engine.estimate_tokens([Message(role="user", content=text)]), 400)
+        self.assertGreater(engine.estimate_tokens([Message(role="user", content="я" * 400)]), 200)
+
+    def test_tool_definitions_can_trigger_compaction(self) -> None:
+        engine = ContextEngine(
+            context_limit_tokens=1_000, reserved_output_tokens=20,
+            compression_threshold_ratio=0.5, protect_first_messages=1,
+            summarizer=FakeSummarizer(),
+        )
+        messages = [Message(role="user", content="initial"),
+                    Message(role="assistant", content="x" * 1_000),
+                    Message(role="user", content="latest")]
+        tools = [{"name": "echo", "description": "schema " * 150}]
+        self.assertFalse(engine.build(messages).compressed)
+
+        result = engine.build(messages, tools=tools)
+
+        self.assertTrue(result.compressed)
+        self.assertEqual(result.estimated_tokens_after,
+                         engine.estimate_tokens(result.messages) + engine.estimate_tool_tokens(tools))
+        engine.validate_request(result.messages, tools)
+
+    def test_final_budget_counts_placeholder_tool_results(self) -> None:
+        engine = ContextEngine(context_limit_tokens=100, reserved_output_tokens=10)
+        result = engine.build([Message(role="assistant", content="", tool_calls=[
+            ToolCall(id=str(index), name="echo") for index in range(4)
+        ])])
+        with self.assertRaises(ContextLimitError):
+            engine.validate_request(result.messages, [])
+
     def test_keeps_under_budget_context_unchanged(self) -> None:
         messages = [
             Message(role="system", content="system"),
@@ -349,6 +385,88 @@ class ContextEngineTests(unittest.TestCase):
         self.assertEqual(len(summarizer.calls), 2)
         self.assertEqual(second.summary_status, "llm")
         self.assertNotEqual(second.checkpoint.source_hash, checkpoint.source_hash)
+
+    def test_recompression_merges_summary_with_only_new_history(self) -> None:
+        summarizer = FakeSummarizer("[Context Summary]\nOld work is complete.")
+        engine = ContextEngine(
+            context_limit_tokens=400, reserved_output_tokens=20,
+            compression_threshold_ratio=0.5, protect_first_messages=1,
+            tail_budget_ratio=0.15, summarizer=summarizer,
+        )
+        original = [Message(role="user", content="initial"),
+                    Message(role="assistant", content="x" * 2_000),
+                    Message(role="user", content="latest")]
+        first = engine.build(original)
+        self.assertIsNotNone(first.checkpoint)
+        history = [*original,
+                   Message(role="assistant", content="", tool_calls=[ToolCall(id="tc1", name="read")]),
+                   Message(role="tool", content="y" * 2_000, tool_call_id="tc1"),
+                   Message(role="user", content="next request")]
+        summarizer.summary = "[Context Summary]\nOld work and the file read are complete."
+
+        second = engine.build(history, checkpoint=first.checkpoint)
+
+        middle = summarizer.calls[-1]["middle"]
+        self.assertEqual(len(summarizer.calls), 2)
+        self.assertEqual(middle[0].content, first.checkpoint.summary)
+        self.assertNotIn(original[1], middle)
+        self.assertIn(history[3], middle)
+        self.assertIn(history[4], middle)
+        self.assertEqual(second.checkpoint.covered_message_count, 5)
+        self.assertEqual(second.checkpoint.source_hash, engine.source_hash(history[:5]))
+        self.assertEqual(second.messages[0], original[0])
+        self.assertEqual(second.messages[-1], history[-1])
+
+        # A fresh engine can reuse source offsets from the incrementally built checkpoint.
+        restarted = ContextEngine(
+            context_limit_tokens=400, reserved_output_tokens=20,
+            compression_threshold_ratio=0.5, summarizer=summarizer,
+        )
+        reused = restarted.build(history, checkpoint=second.checkpoint)
+        self.assertEqual(reused.messages, second.messages)
+        self.assertEqual(reused.summary_status, "checkpoint_reused")
+        self.assertEqual(len(summarizer.calls), 2)
+
+    def test_fixed_prefix_does_not_repeatedly_summarize_unchanged_history(self) -> None:
+        summarizer = FakeSummarizer()
+        engine = ContextEngine(
+            context_limit_tokens=400, reserved_output_tokens=20,
+            compression_threshold_ratio=0.5, protect_first_messages=1, summarizer=summarizer,
+        )
+        history = [Message(role="user", content="initial"),
+                   Message(role="assistant", content="x" * 2_000),
+                   Message(role="user", content="latest")]
+        first = engine.build(history)
+        prefix = [Message(role="system", content="p" * 1_000)]
+
+        for _ in range(3):
+            result = engine.build(history, checkpoint=first.checkpoint, prefix_messages=prefix)
+            self.assertEqual(result.summary_status, "checkpoint_reused")
+            self.assertGreater(result.estimated_tokens_after, result.threshold_tokens)
+            engine.validate_request(result.messages, [])
+        self.assertEqual(len(summarizer.calls), 1)
+
+    def test_summary_request_has_its_own_input_and_output_budgets(self) -> None:
+        transport = Mock()
+        transport.generate.return_value = ModelResponse(content="A complete summary.")
+        summarizer = LLMContextSummarizer(transport, context_limit_tokens=4_000)
+        latest = Message(role="user", content="continue")
+
+        summarizer.summarize(middle=[Message(role="user", content="old work")], latest_user_message=latest)
+
+        self.assertEqual(transport.generate.call_args.args[0].max_output_tokens, 200)
+        transport.reset_mock()
+        with self.assertRaises(ContextLimitError):
+            summarizer.summarize(middle=[Message(role="user", content="中" * 4_000)],
+                                 latest_user_message=latest)
+        transport.generate.assert_not_called()
+
+    def test_rejects_truncated_summary_instead_of_checkpointing_partial_facts(self) -> None:
+        transport = Mock()
+        transport.generate.return_value = ModelResponse(content="Partial summary", finish_reason="length")
+        summarizer = LLMContextSummarizer(transport)
+        with self.assertRaisesRegex(RuntimeError, "incomplete summary"):
+            summarizer.summarize(middle=[Message(role="user", content="old work")], latest_user_message=None)
 
 
 if __name__ == "__main__":

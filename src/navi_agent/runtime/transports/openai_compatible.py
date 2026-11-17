@@ -45,6 +45,7 @@ class OpenAICompatibleTransport:
                     model=self._model,
                     messages=self._serialize_messages(request.messages),
                     tools=[self._serialize_tool(tool) for tool in request.tools] or None,
+                    **({"max_tokens": request.max_output_tokens} if request.max_output_tokens is not None else {}),
                 )
                 self._raise_if_cancelled(request)
                 return self._to_model_response(response)
@@ -83,6 +84,7 @@ class OpenAICompatibleTransport:
                     model=self._model,
                     messages=self._serialize_messages(request.messages),
                     tools=[self._serialize_tool(tool) for tool in request.tools] or None,
+                    **({"max_tokens": request.max_output_tokens} if request.max_output_tokens is not None else {}),
                     stream=True,
                     stream_options={"include_usage": True},
                 )

@@ -185,7 +185,12 @@ def build_runtime(
                 context_limit_tokens=(
                     profile.context_limit_tokens or model_settings.context_limit_tokens
                 ),
-                summarizer=LLMContextSummarizer(runtime_transport),
+                summarizer=LLMContextSummarizer(
+                    runtime_transport,
+                    context_limit_tokens=(
+                        profile.context_limit_tokens or model_settings.context_limit_tokens
+                    ),
+                ),
             ),
             tool_registry=build_tool_registry(
                 resources.tools,
