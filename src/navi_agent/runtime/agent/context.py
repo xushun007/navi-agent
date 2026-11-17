@@ -97,14 +97,27 @@ class ContextEngine:
         tool_tokens = self.estimate_tool_tokens(tools or [])
         estimated_before = self.estimate_tokens([*prefix, *original]) + tool_tokens
         reusable = self._materialize_checkpoint(original, checkpoint)
+        history = original if reusable is None else reusable
+        estimated_current = self.estimate_tokens([*prefix, *history]) + tool_tokens
+        head_end = self._protect_head_end(history)
+        compress_start = self._align_start_forward(history, head_end)
+        tail_start, latest_user_anchored = self._find_tail_start(history, compress_start)
+        source_tail_start = tail_start
         if reusable is not None:
-            estimated_reused = self.estimate_tokens([*prefix, *reusable]) + tool_tokens
-            if estimated_reused <= self._threshold_tokens:
+            assert checkpoint is not None
+            source_tail_start = (
+                checkpoint.covered_message_count
+                + tail_start - checkpoint.protected_head_count - 1
+            )
+            # Recompress only when new history can be covered. A large fixed prefix
+            # must not cause the same summary to be regenerated on every tool step.
+            if (estimated_current <= self._threshold_tokens
+                    or source_tail_start <= checkpoint.covered_message_count):
                 return ContextBuildResult(
                     messages=self._sanitize_tool_pairs([*prefix, *reusable]),
                     original_message_count=len(original),
                     estimated_tokens_before=estimated_before,
-                    estimated_tokens_after=estimated_reused,
+                    estimated_tokens_after=estimated_current,
                     threshold_tokens=self._threshold_tokens,
                     compressed_message_count=(
                         checkpoint.covered_message_count - checkpoint.protected_head_count
@@ -114,7 +127,7 @@ class ContextEngine:
                     latest_user_anchored=True,
                     summary_status="checkpoint_reused",
                 )
-        if estimated_before <= self._threshold_tokens:
+        if estimated_current <= self._threshold_tokens:
             return ContextBuildResult(
                 messages=self._sanitize_tool_pairs([*prefix, *original]),
                 original_message_count=len(original),
@@ -123,49 +136,45 @@ class ContextEngine:
                 threshold_tokens=self._threshold_tokens,
             )
 
-        head_end = self._protect_head_end(original)
-        compress_start = self._align_start_forward(original, head_end)
-        tail_start, latest_user_anchored = self._find_tail_start(original, compress_start)
-
         if compress_start >= tail_start:
             return ContextBuildResult(
-                messages=self._sanitize_tool_pairs([*prefix, *original]),
+                messages=self._sanitize_tool_pairs([*prefix, *history]),
                 original_message_count=len(original),
                 estimated_tokens_before=estimated_before,
-                estimated_tokens_after=estimated_before,
+                estimated_tokens_after=estimated_current,
                 threshold_tokens=self._threshold_tokens,
                 protected_head_count=head_end,
-                protected_tail_count=max(0, len(original) - tail_start),
+                protected_tail_count=max(0, len(original) - source_tail_start),
                 latest_user_anchored=latest_user_anchored,
                 summary_status="not_needed",
             )
 
         if self._summarizer is None:
             return ContextBuildResult(
-                messages=self._sanitize_tool_pairs([*prefix, *original]),
+                messages=self._sanitize_tool_pairs([*prefix, *history]),
                 original_message_count=len(original),
                 estimated_tokens_before=estimated_before,
-                estimated_tokens_after=estimated_before,
+                estimated_tokens_after=estimated_current,
                 threshold_tokens=self._threshold_tokens,
                 protected_head_count=compress_start,
-                protected_tail_count=max(0, len(original) - tail_start),
+                protected_tail_count=max(0, len(original) - source_tail_start),
                 latest_user_anchored=latest_user_anchored,
                 summary_status="missing_summarizer",
             )
 
-        middle = original[compress_start:tail_start]
+        middle = history[compress_start:tail_start]
         summary_call = self._summarizer.summarize(
             middle=middle,
-            latest_user_message=self._latest_user_message(original, start=head_end),
+            latest_user_message=self._latest_user_message(history, start=head_end),
         )
         summary = Message(
             role="runtime",
             content=self._normalize_summary(summary_call.response.content),
         )
         compacted = [
-            *original[:compress_start],
+            *history[:compress_start],
             summary,
-            *original[tail_start:],
+            *history[tail_start:],
         ]
         compacted = self._sanitize_tool_pairs(compacted)
         rendered = [*prefix, *compacted]
@@ -176,17 +185,17 @@ class ContextEngine:
             estimated_tokens_before=estimated_before,
             estimated_tokens_after=estimated_after,
             threshold_tokens=self._threshold_tokens,
-            compressed_message_count=len(middle),
+            compressed_message_count=source_tail_start - compress_start,
             protected_head_count=compress_start,
-            protected_tail_count=max(0, len(original) - tail_start),
+            protected_tail_count=max(0, len(original) - source_tail_start),
             latest_user_anchored=latest_user_anchored,
             summary_status="llm",
             summary_call=summary_call,
             checkpoint=ContextCompactionCheckpoint(
                 session_id="",
-                covered_message_count=tail_start,
+                covered_message_count=source_tail_start,
                 protected_head_count=compress_start,
-                source_hash=self.source_hash(original[:tail_start]),
+                source_hash=self.source_hash(original[:source_tail_start]),
                 summary=summary.content,
             ),
         )
@@ -226,6 +235,8 @@ class ContextEngine:
     ) -> list[Message] | None:
         if checkpoint is None:
             return None
+        if checkpoint.protected_head_count < 0 or checkpoint.covered_message_count <= 0:
+            return None
         if checkpoint.covered_message_count > len(messages):
             return None
         if checkpoint.protected_head_count > checkpoint.covered_message_count:
@@ -233,13 +244,13 @@ class ContextEngine:
         covered = messages[: checkpoint.covered_message_count]
         if self.source_hash(covered) != checkpoint.source_hash:
             return None
-        return self._sanitize_tool_pairs(
-            [
-                *messages[: checkpoint.protected_head_count],
-                Message(role="runtime", content=checkpoint.summary),
-                *messages[checkpoint.covered_message_count :],
-            ]
-        )
+        # Keep indices aligned with the durable transcript until boundaries are
+        # mapped back to source offsets. Sanitize only the final request.
+        return [
+            *messages[: checkpoint.protected_head_count],
+            Message(role="runtime", content=checkpoint.summary),
+            *messages[checkpoint.covered_message_count :],
+        ]
 
     def estimate_tokens(self, messages: list[Message]) -> int:
         return sum(self._estimate_message_tokens(message) for message in messages)
@@ -403,8 +414,12 @@ class ContextSummarizer(Protocol):
 
 
 class LLMContextSummarizer:
-    def __init__(self, transport: ModelTransport) -> None:
+    def __init__(self, transport: ModelTransport, *, context_limit_tokens: int = 200_000) -> None:
         self._transport = transport
+        self._budget = ContextEngine(
+            context_limit_tokens=context_limit_tokens,
+            reserved_output_tokens=min(2_000, max(1, context_limit_tokens // 20)),
+        )
 
     def summarize(
         self,
@@ -414,21 +429,23 @@ class LLMContextSummarizer:
     ) -> ContextSummaryCall:
         started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         started_perf = perf_counter()
+        messages = [
+            Message(role="system", content=self._system_prompt()),
+            Message(
+                role="user",
+                content=self._build_summary_request(
+                    middle=middle,
+                    latest_user_message=latest_user_message,
+                ),
+            ),
+        ]
+        self._budget.validate_request(messages, [])
         response = self._transport.generate(
-            ModelRequest(
-                messages=[
-                    Message(role="system", content=self._system_prompt()),
-                    Message(
-                        role="user",
-                        content=self._build_summary_request(
-                            middle=middle,
-                            latest_user_message=latest_user_message,
-                        ),
-                    ),
-                ],
-                tools=[],
-            )
+            ModelRequest(messages=messages, tools=[],
+                         max_output_tokens=self._budget.reserved_output_tokens)
         )
+        if response.finish_reason == "length" or response.tool_calls:
+            raise RuntimeError("context summarizer returned an incomplete summary")
         summary = response.content.strip()
         if not summary:
             raise RuntimeError("context summarizer returned an empty summary")
