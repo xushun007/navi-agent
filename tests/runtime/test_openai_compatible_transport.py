@@ -24,6 +24,21 @@ class FakeClient:
 
 
 class OpenAICompatibleTransportTests(unittest.TestCase):
+    def test_output_budget_is_forwarded_for_streaming_and_non_streaming(self) -> None:
+        response = types.SimpleNamespace(choices=[types.SimpleNamespace(
+            message=types.SimpleNamespace(content="done", tool_calls=[]),
+        )])
+        for streaming in (False, True):
+            with self.subTest(streaming=streaming):
+                client = FakeClient([] if streaming else response)
+                transport = OpenAICompatibleTransport(model="model", api_key="test", client=client)
+                request = ModelRequest(messages=[], max_output_tokens=123)
+                if streaming:
+                    transport.generate_stream(request, lambda _: None)
+                else:
+                    transport.generate(request)
+                self.assertEqual(client.chat.completions.calls[0]["max_tokens"], 123)
+
     def test_appending_runtime_context_preserves_prefix_in_both_modes(self) -> None:
         history = [
             Message(role="system", content="Stable instructions."),

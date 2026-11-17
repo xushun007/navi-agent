@@ -131,7 +131,7 @@ class EmptyToolResultRenderer:
 
 
 class FailingContextEngine:
-    def build(self, messages, checkpoint=None, *, prefix_messages=None):
+    def build(self, messages, checkpoint=None, *, prefix_messages=None, tools=None):
         raise TimeoutError("summary timeout")
 
 
@@ -743,7 +743,7 @@ class AgentRuntimeTests(unittest.TestCase):
             transport=transport,
             session_store=session_store,
             context_engine=ContextEngine(
-                context_limit_tokens=160,
+                context_limit_tokens=1_200,
                 reserved_output_tokens=20,
                 compression_threshold_ratio=0.5,
                 protect_first_messages=1,
@@ -856,6 +856,69 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(transport.calls, [])
         self.assertTrue(any(event.name == "context.limit_exceeded" for event in observer.events))
         self.assertTrue(any("old " in message.content for message in store.snapshot(session)))
+
+    def test_runtime_rejects_oversized_protected_input_and_tool_definitions(self) -> None:
+        for oversized_tools in (False, True):
+            with self.subTest(oversized_tools=oversized_tools):
+                transport = FakeTransport([])
+                store = InMemorySessionStore()
+                observer = RecordingObserver()
+                registry = ToolRegistry(definitions=[ToolDefinition(
+                    name="echo", description="schema " * 500 if oversized_tools else "Echo",
+                    parameters={"type": "object", "properties": {}},
+                    handler=lambda: ok_result("echo", "done"),
+                )])
+                runtime = AgentRuntime(
+                    transport=transport, session_store=store, tool_registry=registry,
+                    prompt_builder=PromptBuilder(contributors=[]),
+                    context_engine=ContextEngine(context_limit_tokens=400, reserved_output_tokens=20),
+                    event_subscribers=[observer],
+                )
+                user_message = "hello" if oversized_tools else "中" * 500
+
+                result = runtime.run_conversation("s1", "u1", user_message)
+
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(transport.calls, [])
+                self.assertTrue(any(event.name == "context.limit_exceeded" for event in observer.events))
+                self.assertTrue(any(message.content == user_message for message in result.messages))
+
+    def test_runtime_rejects_summary_that_does_not_fit(self) -> None:
+        store = InMemorySessionStore()
+        session = store.load("s1", "u1")
+        store.append(session, Message(role="user", content="old " * 500))
+        transport = FakeTransport([ModelResponse(content="summary " * 500)])
+        runtime = AgentRuntime(
+            transport=transport, session_store=store,
+            prompt_builder=PromptBuilder(contributors=[]),
+            context_engine=ContextEngine(
+                context_limit_tokens=400, reserved_output_tokens=20, protect_first_messages=0,
+                summarizer=LLMContextSummarizer(transport),
+            ),
+        )
+
+        result = runtime.run_conversation("s1", "u1", "continue")
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(len(transport.calls), 1)  # Only the compression request was sent.
+        self.assertIn("session history is preserved", result.final_response)
+
+    def test_iteration_limit_summary_also_checks_context_budget(self) -> None:
+        transport = FakeTransport([
+            ModelResponse(tool_calls=[ToolCall(id="tc1", name="echo", arguments={})]),
+        ])
+        runtime = AgentRuntime(
+            transport=transport, max_iterations=1,
+            prompt_builder=PromptBuilder(contributors=[]),
+            context_engine=ContextEngine(context_limit_tokens=400, reserved_output_tokens=20),
+            tool_registry=ToolRegistry(tools={"echo": lambda: ok_result("echo", "x" * 4_000)}),
+        )
+
+        result = runtime.run_conversation("s1", "u1", "hello")
+
+        self.assertEqual(result.status, "iteration_limit_exceeded")
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(transport.calls[0].max_output_tokens, 20)
 
     def test_runtime_rebuilds_system_prompt_without_persisting_it(self) -> None:
         session_store = InMemorySessionStore()

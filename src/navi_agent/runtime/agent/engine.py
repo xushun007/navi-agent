@@ -94,7 +94,6 @@ class _TurnState:
     convergence_reason: str | None = None
     context_messages: list[Message] | None = None
     tool_schemas: list[dict[str, object]] | None = None
-    context_error: ContextLimitError | None = None
 
 
 def _utc_now_iso() -> str:
@@ -902,17 +901,7 @@ class AgentRuntime:
             final_invocation = request_iteration_summary(
                 append_message=lambda message: self._session_store.append(session, message),
                 prepare=lambda: start_iteration(final_iteration),
-                invoke=lambda: self._model_invoker.invoke(
-                    messages=turn.context_messages or [],
-                    tools=[],
-                    step_id=turn.active_step_id,
-                    cancellation_requested=lambda: cancellation_token.is_cancelled,
-                    on_text_delta=lambda delta: publish_event(
-                        kind="delta", source="model", name="model.delta",
-                        iteration=final_iteration, item_id=f"model:{final_iteration}",
-                        payload={"delta": delta},
-                    ),
-                ),
+                invoke=lambda: self._invoke_turn_model(turn, final_iteration),
                 record=lambda invocation: record_model_invocation(
                     final_iteration, invocation, False
                 ),
@@ -1177,7 +1166,12 @@ class AgentRuntime:
 
         session_snapshot = self._session_store.snapshot(turn.session)
         checkpoint = self._session_store.load_compaction_checkpoint(turn.session)
-        turn.context_error = None
+        turn.tool_schemas = self._tool_registry.schemas(
+            enabled_toolsets=self._enabled_toolsets,
+            disabled_toolsets=self._disabled_toolsets,
+        )
+        if turn.convergence_reason is not None or step_number > self._max_iterations:
+            turn.tool_schemas = []
         try:
             context_result = self._context_engine.build(
                 session_snapshot,
@@ -1186,6 +1180,7 @@ class AgentRuntime:
                     turn.run_system_message,
                     _task_spec_context_message(turn.task_spec),
                 ],
+                tools=turn.tool_schemas,
             )
         except Exception as exc:
             error_info = classify_exception(exc, error_source="context").to_metadata()
@@ -1220,15 +1215,6 @@ class AgentRuntime:
                 iteration=step_number,
                 payload={**error_info, "estimated_input_tokens": estimated_tokens, "input_limit_tokens": input_limit},
             )
-
-        estimate_tokens = getattr(self._context_engine, "estimate_tokens", None)
-        input_limit = getattr(self._context_engine, "input_limit_tokens", None)
-        if context_result.summary_status in {"failed", "missing_summarizer"} and callable(estimate_tokens) and isinstance(input_limit, int):
-            estimate = estimate_tokens(context_result.messages)
-            if estimate >= input_limit:
-                turn.context_error = ContextLimitError(
-                    f"Estimated input {estimate} tokens meets or exceeds the configured input budget {input_limit}."
-                )
 
         if context_result.summary_call is not None:
             summary_call = context_result.summary_call
@@ -1294,12 +1280,6 @@ class AgentRuntime:
             )
 
         turn.context_messages = context_result.messages
-        turn.tool_schemas = self._tool_registry.schemas(
-            enabled_toolsets=self._enabled_toolsets,
-            disabled_toolsets=self._disabled_toolsets,
-        )
-        if turn.convergence_reason is not None:
-            turn.tool_schemas = []
         snapshot = StepSnapshot(
             step_id=turn.active_step_id,
             run_id=turn.run_id,
@@ -1332,8 +1312,9 @@ class AgentRuntime:
 
     def _invoke_turn_model(self, turn: _TurnState, step_number: int) -> ModelInvocation:
         """Run the model portion of one turn step."""
-        if turn.context_error is not None:
-            raise turn.context_error
+        validate_request = getattr(self._context_engine, "validate_request", None)
+        if callable(validate_request):
+            validate_request(turn.context_messages or [], turn.tool_schemas or [])
         model_item_id = f"model:{step_number}"
 
         def publish_text_delta(delta: str) -> None:
@@ -1352,6 +1333,7 @@ class AgentRuntime:
             step_id=turn.active_step_id,
             cancellation_requested=lambda: turn.cancellation_token.is_cancelled,
             on_text_delta=publish_text_delta,
+            max_output_tokens=getattr(self._context_engine, "reserved_output_tokens", 0) or None,
         )
 
     def _record_turn_model(

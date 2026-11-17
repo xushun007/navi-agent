@@ -2,6 +2,7 @@ import unittest
 from dataclasses import replace
 
 from navi_agent.runtime import ContextEngine, ContextSummaryCall, Message, ModelResponse, ToolCall
+from navi_agent.runtime.agent.context import ContextLimitError
 
 
 class FakeSummarizer:
@@ -20,6 +21,40 @@ class FakeSummarizer:
 
 
 class ContextEngineTests(unittest.TestCase):
+    def test_estimates_dense_and_multibyte_text_without_ascii_undercount(self) -> None:
+        engine = ContextEngine()
+        for text in ("中" * 400, "あ" * 400, "한" * 400, "🙂" * 400):
+            with self.subTest(text=text[:1]):
+                self.assertGreaterEqual(engine.estimate_tokens([Message(role="user", content=text)]), 400)
+        self.assertGreater(engine.estimate_tokens([Message(role="user", content="я" * 400)]), 200)
+
+    def test_tool_definitions_can_trigger_compaction(self) -> None:
+        engine = ContextEngine(
+            context_limit_tokens=1_000, reserved_output_tokens=20,
+            compression_threshold_ratio=0.5, protect_first_messages=1,
+            summarizer=FakeSummarizer(),
+        )
+        messages = [Message(role="user", content="initial"),
+                    Message(role="assistant", content="x" * 1_000),
+                    Message(role="user", content="latest")]
+        tools = [{"name": "echo", "description": "schema " * 150}]
+        self.assertFalse(engine.build(messages).compressed)
+
+        result = engine.build(messages, tools=tools)
+
+        self.assertTrue(result.compressed)
+        self.assertEqual(result.estimated_tokens_after,
+                         engine.estimate_tokens(result.messages) + engine.estimate_tool_tokens(tools))
+        engine.validate_request(result.messages, tools)
+
+    def test_final_budget_counts_placeholder_tool_results(self) -> None:
+        engine = ContextEngine(context_limit_tokens=100, reserved_output_tokens=10)
+        result = engine.build([Message(role="assistant", content="", tool_calls=[
+            ToolCall(id=str(index), name="echo") for index in range(4)
+        ])])
+        with self.assertRaises(ContextLimitError):
+            engine.validate_request(result.messages, [])
+
     def test_keeps_under_budget_context_unchanged(self) -> None:
         messages = [
             Message(role="system", content="system"),

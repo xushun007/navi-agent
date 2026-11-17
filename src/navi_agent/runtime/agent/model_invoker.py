@@ -35,12 +35,14 @@ class ModelInvoker:
         step_id: str | None = None,
         cancellation_requested: Callable[[], bool],
         on_text_delta: Callable[[str], None],
+        max_output_tokens: int | None = None,
     ) -> ModelInvocation:
         request = ModelRequest(
             messages=messages,
             tools=tools,
             step_id=step_id,
             cancellation_requested=cancellation_requested,
+            max_output_tokens=max_output_tokens,
         )
         started_at = _utc_now_iso()
         started_perf = perf_counter()

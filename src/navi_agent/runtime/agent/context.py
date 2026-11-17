@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
@@ -12,6 +13,7 @@ from ..transports.base import ModelRequest, ModelTransport
 
 
 SUMMARY_PREFIX = "[Context Summary]"
+_DENSE_TEXT = re.compile("[\u1100-\u11ff\u2e80-\u9fff\ua960-\ua97f\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]")
 
 
 class ContextLimitError(RuntimeError):
@@ -62,6 +64,8 @@ class ContextEngine:
             raise ValueError("context_limit_tokens must be positive")
         if reserved_output_tokens < 0:
             raise ValueError("reserved_output_tokens must not be negative")
+        if reserved_output_tokens >= context_limit_tokens:
+            raise ValueError("reserved_output_tokens must be smaller than context_limit_tokens")
         if not 0 < compression_threshold_ratio <= 1:
             raise ValueError("compression_threshold_ratio must be in (0, 1]")
         if protect_first_messages < 0:
@@ -73,6 +77,7 @@ class ContextEngine:
 
         usable_input_tokens = max(1, context_limit_tokens - reserved_output_tokens)
         self.input_limit_tokens = usable_input_tokens
+        self.reserved_output_tokens = reserved_output_tokens
         self._threshold_tokens = max(1, int(usable_input_tokens * compression_threshold_ratio))
         self._tail_budget_tokens = max(1, int(self._threshold_tokens * tail_budget_ratio))
         self._protect_first_messages = protect_first_messages
@@ -85,13 +90,15 @@ class ContextEngine:
         checkpoint: ContextCompactionCheckpoint | None = None,
         *,
         prefix_messages: list[Message] | None = None,
+        tools: list[dict[str, object]] | None = None,
     ) -> ContextBuildResult:
         original = list(messages)
         prefix = list(prefix_messages or ())
-        estimated_before = self.estimate_tokens([*prefix, *original])
+        tool_tokens = self.estimate_tool_tokens(tools or [])
+        estimated_before = self.estimate_tokens([*prefix, *original]) + tool_tokens
         reusable = self._materialize_checkpoint(original, checkpoint)
         if reusable is not None:
-            estimated_reused = self.estimate_tokens([*prefix, *reusable])
+            estimated_reused = self.estimate_tokens([*prefix, *reusable]) + tool_tokens
             if estimated_reused <= self._threshold_tokens:
                 return ContextBuildResult(
                     messages=self._sanitize_tool_pairs([*prefix, *reusable]),
@@ -162,7 +169,7 @@ class ContextEngine:
         ]
         compacted = self._sanitize_tool_pairs(compacted)
         rendered = [*prefix, *compacted]
-        estimated_after = self.estimate_tokens(rendered)
+        estimated_after = self.estimate_tokens(rendered) + tool_tokens
         return ContextBuildResult(
             messages=rendered,
             original_message_count=len(original),
@@ -237,19 +244,42 @@ class ContextEngine:
     def estimate_tokens(self, messages: list[Message]) -> int:
         return sum(self._estimate_message_tokens(message) for message in messages)
 
+    def estimate_tool_tokens(self, tools: list[dict[str, object]]) -> int:
+        if not tools:
+            return 0
+        # Include per-function wrapping and protocol overhead as well as schema text.
+        return self._estimate_text_tokens(json.dumps(tools, ensure_ascii=False)) + 32 * len(tools)
+
+    def validate_request(self, messages: list[Message], tools: list[dict[str, object]]) -> None:
+        estimate = self.estimate_tokens(messages) + self.estimate_tool_tokens(tools)
+        if estimate >= self.input_limit_tokens:
+            raise ContextLimitError(
+                f"Estimated input {estimate} tokens meets or exceeds the configured input budget "
+                f"{self.input_limit_tokens} (including tool definitions)."
+            )
+
+    def _estimate_text_tokens(self, text: str) -> int:
+        # CJK is token-dense; UTF-8 bytes also avoid undercounting other non-ASCII scripts.
+        sparse = text if text.isascii() else _DENSE_TEXT.sub("", text)
+        dense_tokens = len(text) - len(sparse)
+        byte_count = len(sparse.encode("utf-8", errors="replace"))
+        return dense_tokens + (byte_count + self._chars_per_token - 1) // self._chars_per_token
+
     def _estimate_message_tokens(self, message: Message) -> int:
-        chars = len(message.role) + len(message.content or "") + 12
+        parts = [message.role, message.content or ""]
+        if message.role == "runtime":
+            parts.append("[Runtime context]\n")
         if message.reasoning_content:
-            chars += len(message.reasoning_content)
+            parts.append(message.reasoning_content)
         if message.tool_call_id:
-            chars += len(message.tool_call_id)
+            parts.append(message.tool_call_id)
         for tool_call in message.tool_calls:
-            chars += len(tool_call.id) + len(tool_call.name)
+            parts.extend([tool_call.id, tool_call.name])
             try:
-                chars += len(json.dumps(tool_call.arguments, ensure_ascii=False, sort_keys=True))
+                parts.append(json.dumps(tool_call.arguments, ensure_ascii=False, sort_keys=True))
             except TypeError:
-                chars += len(str(tool_call.arguments))
-        return max(1, chars // self._chars_per_token + 8)
+                parts.append(str(tool_call.arguments))
+        return self._estimate_text_tokens("".join(parts)) + 12
 
     def _protect_head_end(self, messages: list[Message]) -> int:
         non_system_seen = 0
