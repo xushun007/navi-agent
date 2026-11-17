@@ -18,6 +18,7 @@ from navi_agent.runtime.agent.prompt import PromptBuilder
 from navi_agent.runtime.transports.factory import build_transport
 from navi_agent.telemetry import SQLiteRuntimeEventStore, SQLiteTraceStore
 from navi_agent.tools.session_search_tool import SessionSearchTool
+from evals.longmemeval_hermes import history_timestamp
 
 
 def load_samples(path: Path, *, allow_partial: bool = False, range_fragment: bool = False) -> tuple[list[dict], bool]:
@@ -67,6 +68,7 @@ def seed_history(store: SQLiteSessionStore, sample: dict, user_id: str) -> dict[
         raise ValueError("Session IDs, dates and histories must have matching lengths")
     mapping = {}
     for index, (source_id, date, messages) in enumerate(zip(ids, dates, sessions, strict=True)):
+        timestamp = history_timestamp(date)
         session_id = f"history:{index}"
         mapping.setdefault(str(source_id), []).append(session_id)
         session = store.load(session_id, user_id, metadata=SessionMetadata(source="longmemeval"))
@@ -75,6 +77,13 @@ def seed_history(store: SQLiteSessionStore, sample: dict, user_id: str) -> dict[
             if message["role"] not in {"user", "assistant"}:
                 raise ValueError(f"Unexpected history role: {message['role']}")
             store.append(session, Message(role=message["role"], content=str(message["content"])))
+        # Only these isolated eval sessions are backdated; the runtime's normal
+        # timestamp semantics remain unchanged.
+        def backdate(connection):
+            connection.execute("UPDATE sessions SET started_at = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                               (timestamp, timestamp, session_id, user_id))
+            connection.execute("UPDATE messages SET created_at = ? WHERE session_id = ?", (timestamp, session_id))
+        store._execute_write(backdate)
     return mapping
 
 
@@ -162,6 +171,7 @@ def main() -> int:
                 "dataset_revision": "98d7416c24c778c2fee6e6f3006e7a073259d48f", "partial": partial,
                 "input_files": [{"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in args.dataset],
                 "mode": "historical_session_search_only", "model": settings.model,
+                "timezone_assumption": "UTC wall time",
                 "max_iterations": runtime_settings.max_iterations, "sample_ids": args.sample_id,
                 "max_concurrency": args.max_concurrency}
     (args.output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
